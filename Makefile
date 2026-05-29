@@ -1,0 +1,34 @@
+.PHONY: dev up down migrate seed process-demo test lint format reset-data
+
+dev:
+	@printf "Start API and web separately for local hacking:\n"
+	@printf "  cd apps/api && uvicorn app.main:app --reload\n"
+	@printf "  cd apps/web && npm run dev\n"
+
+up:
+	docker compose up --build
+
+down:
+	docker compose down
+
+migrate:
+	cd apps/api && alembic upgrade head
+
+seed process-demo:
+	curl -X POST http://localhost:8000/api/process/demo
+
+test:
+	cd apps/api && pytest
+	cd apps/web && npm test -- --runInBand
+
+lint:
+	cd apps/api && ruff check app tests
+	cd apps/web && npm run lint
+
+format:
+	cd apps/api && ruff format app tests
+	cd apps/web && npm run format
+
+reset-data:
+	curl -X POST http://localhost:8000/api/process/demo?reset=true
+

@@ -1,0 +1,50 @@
+{
+  "source": "github",
+  "items": [
+    {
+      "external_id": "gh-ai-audit-1",
+      "title": "Generated helper duplicated business logic and skipped error tests",
+      "body": "The AI-generated code added a second validation path and no tests for failed API calls. Reviewers need to manually audit these PRs because it is hard to know whether generated code is production ready.",
+      "user": {"login": "contributor-a"},
+      "score": 18,
+      "comments_count": 7,
+      "created_at": "2026-04-21T11:20:00Z",
+      "html_url": "https://github.com/example/project/issues/101",
+      "labels": [{"name": "ai"}, {"name": "testing"}]
+    },
+    {
+      "external_id": "gh-onboarding-1",
+      "title": "Need simpler onboarding funnel report for small teams",
+      "body": "Analytics setup is too much manual work. We import events, export a spreadsheet, and review activation steps every month. The team needs a dashboard that explains drop-off without a data warehouse.",
+      "user": {"login": "growth-dev"},
+      "score": 12,
+      "comments_count": 5,
+      "created_at": "2026-04-25T16:00:00Z",
+      "html_url": "https://github.com/example/analytics/issues/77",
+      "labels": [{"name": "analytics"}, {"name": "onboarding"}]
+    },
+    {
+      "external_id": "gh-ci-1",
+      "title": "Workflow failed with unhelpful YAML error",
+      "body": "The GitHub Actions job failed but the logs hide the real problem. Developers copy paste the error into search and check every time if indentation, secrets, or dependency cache caused it.",
+      "user": {"login": "release-engineer"},
+      "score": 33,
+      "comments_count": 13,
+      "created_at": "2026-05-03T07:30:00Z",
+      "html_url": "https://github.com/example/devtools/issues/305",
+      "labels": [{"name": "ci"}, {"name": "github-actions"}]
+    },
+    {
+      "external_id": "gh-report-1",
+      "title": "CSV cleanup before monthly client report is error-prone",
+      "body": "Our current workaround is export, import into Google Sheets, reconcile columns, then copy paste charts into a report. It repeats every month and the client notices mistakes.",
+      "user": {"login": "ops-maintainer"},
+      "score": 21,
+      "comments_count": 6,
+      "created_at": "2026-04-17T13:10:00Z",
+      "html_url": "https://github.com/example/reports/issues/44",
+      "labels": [{"name": "reporting"}, {"name": "csv"}]
+    }
+  ]
+}
+

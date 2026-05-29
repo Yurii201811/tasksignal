@@ -1,0 +1,38 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  background: #f7f8fb;
+  color: #172033;
+}
+
+html,
+body {
+  overflow-x: clip;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background:
+    linear-gradient(135deg, rgba(15, 118, 110, 0.08), transparent 34%),
+    linear-gradient(45deg, rgba(217, 119, 6, 0.08), transparent 28%),
+    #f7f8fb;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+.prose h1,
+.prose h2,
+.prose h3 {
+  color: #172033;
+}

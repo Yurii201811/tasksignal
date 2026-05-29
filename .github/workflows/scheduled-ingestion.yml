@@ -1,0 +1,16 @@
+name: Scheduled ingestion template
+
+on:
+  workflow_dispatch:
+  # schedule:
+  #   - cron: "0 */12 * * *"
+
+jobs:
+  scheduled-ingestion:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Safe by default
+        run: |
+          echo "Enable the cron schedule and provide repository secrets before running live ingestion."
+          echo "Required examples: DATABASE_URL, AUTHOR_HASH_SALT, GITHUB_TOKEN, REDDIT_CLIENT_ID."
+

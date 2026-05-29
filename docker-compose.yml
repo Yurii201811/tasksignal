@@ -1,0 +1,47 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: tasksignal
+      POSTGRES_USER: tasksignal
+      POSTGRES_PASSWORD: tasksignal
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tasksignal -d tasksignal"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build:
+      context: ./apps/api
+    environment:
+      DATABASE_URL: postgresql+psycopg://tasksignal:tasksignal@db:5432/tasksignal
+      AUTHOR_HASH_SALT: change-me-local
+      LLM_PROVIDER: none
+      EMBEDDING_MODEL: sentence-transformers/all-MiniLM-L6-v2
+      AUTO_CREATE_TABLES: "true"
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data:ro
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ./apps/web
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+
+volumes:
+  postgres_data:
+

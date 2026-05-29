@@ -1,0 +1,50 @@
+{
+  "source": "hackernews",
+  "items": [
+    {
+      "external_id": "hn-ai-audit-1",
+      "title": "Ask HN: What do you use to review AI-generated code before merging?",
+      "text": "Generated code often misses tests and repeats logic from another module. I wish there was a tool that could audit it like a production-readiness checklist.",
+      "by": "hn_builder",
+      "score": 74,
+      "descendants": 29,
+      "time": 1777118400,
+      "url": "https://news.ycombinator.com/item?id=hn-ai-audit-1",
+      "tags": ["ask-hn", "ai"]
+    },
+    {
+      "external_id": "hn-leads-1",
+      "title": "Ask HN: Lightweight alternative to enterprise social listening?",
+      "text": "I am looking for a way to track Hacker News, Reddit, and GitHub discussions where people mention a painful workflow. Existing tools are priced for a company budget and return too much noise.",
+      "by": "tiny_saas",
+      "score": 112,
+      "descendants": 46,
+      "time": 1776945600,
+      "url": "https://news.ycombinator.com/item?id=hn-leads-1",
+      "tags": ["ask-hn", "saas"]
+    },
+    {
+      "external_id": "hn-ci-1",
+      "title": "Show HN idea: CI logs are too hard to debug",
+      "text": "Every week someone on our team loses an hour to a broken workflow. GitHub Actions logs are noisy, YAML errors are cryptic, and the workaround is manually searching snippets.",
+      "by": "ci_burnout",
+      "score": 88,
+      "descendants": 22,
+      "time": 1777377600,
+      "url": "https://news.ycombinator.com/item?id=hn-ci-1",
+      "tags": ["ci", "developer-tools"]
+    },
+    {
+      "external_id": "hn-report-1",
+      "title": "Ask HN: Best way to automate weekly CSV to PDF reports?",
+      "text": "I have a small consulting business and every Friday I export CSVs, reconcile rows in a spreadsheet, and send a report to clients. Would pay for a simple reporting workflow.",
+      "by": "consultant42",
+      "score": 129,
+      "descendants": 34,
+      "time": 1777204800,
+      "url": "https://news.ycombinator.com/item?id=hn-report-1",
+      "tags": ["reports", "automation"]
+    }
+  ]
+}
+

@@ -1,0 +1,66 @@
+{
+  "source": "reddit",
+  "items": [
+    {
+      "external_id": "r-ai-audit-1",
+      "subreddit": "webdev",
+      "title": "AI coding tools are fast but the cleanup is painful",
+      "body": "I am tired of generated code that looks plausible but has missing tests, duplicated logic, and fragile error handling. Every review turns into a manual audit before it is production ready.",
+      "author": "frontend_builder_41",
+      "score": 183,
+      "comments_count": 49,
+      "created_at": "2026-04-23T10:30:00Z",
+      "url": "https://reddit.com/r/webdev/comments/r-ai-audit-1",
+      "tags": ["ai", "code-review"]
+    },
+    {
+      "external_id": "r-leads-1",
+      "subreddit": "SaaS",
+      "title": "How are founders finding warm leads in communities without spending all day?",
+      "body": "I manually search Reddit, Hacker News, and forums every day looking for people complaining about onboarding and analytics. Social listening tools are too expensive and noisy for an early-stage business.",
+      "author": "bootstrapped_pm",
+      "score": 96,
+      "comments_count": 32,
+      "created_at": "2026-04-28T08:45:00Z",
+      "url": "https://reddit.com/r/SaaS/comments/r-leads-1",
+      "tags": ["lead-gen", "founder"]
+    },
+    {
+      "external_id": "r-onboarding-1",
+      "subreddit": "startups",
+      "title": "Our onboarding drop-off is a mystery",
+      "body": "We have a tiny SaaS and analytics tools feel like a nightmare. Every week I export events to a spreadsheet and manually review where users drop off. Is there a simple tool for this?",
+      "author": "growth_ops",
+      "score": 142,
+      "comments_count": 41,
+      "created_at": "2026-04-19T12:00:00Z",
+      "url": "https://reddit.com/r/startups/comments/r-onboarding-1",
+      "tags": ["analytics", "onboarding"]
+    },
+    {
+      "external_id": "r-ci-1",
+      "subreddit": "devops",
+      "title": "GitHub Actions failures take forever to understand",
+      "body": "Our team spends too much manual work reading noisy CI logs. YAML mistakes are frustrating, and I copy paste errors into search every time before I know what failed.",
+      "author": "ship_it_slowly",
+      "score": 215,
+      "comments_count": 57,
+      "created_at": "2026-05-01T09:15:00Z",
+      "url": "https://reddit.com/r/devops/comments/r-ci-1",
+      "tags": ["ci", "github-actions"]
+    },
+    {
+      "external_id": "r-report-1",
+      "subreddit": "freelance",
+      "title": "I hate rebuilding client reports from spreadsheets every Friday",
+      "body": "I manually export Stripe payments and CSVs, clean them in Google Sheets, then create a client report. It takes 30 minutes every week and mistakes are annoying.",
+      "author": "agency_ops",
+      "score": 171,
+      "comments_count": 38,
+      "created_at": "2026-04-26T14:20:00Z",
+      "url": "https://reddit.com/r/freelance/comments/r-report-1",
+      "tags": ["reporting", "spreadsheet"]
+    }
+  ]
+}
+

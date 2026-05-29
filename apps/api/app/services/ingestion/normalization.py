@@ -1,0 +1,103 @@
+from __future__ import annotations
+
+import hashlib
+import re
+from datetime import UTC, datetime
+from html import unescape
+from typing import Any
+
+from app.core.config import settings
+from app.services.ingestion.types import RawFetchedItem
+
+TAG_RE = re.compile(r"<[^>]+>")
+
+
+def clean_text(value: str | None) -> str:
+    text = TAG_RE.sub(" ", unescape(value or ""))
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def parse_datetime(value: Any) -> datetime:
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=UTC)
+    if isinstance(value, (int, float)):
+        return datetime.fromtimestamp(value, UTC)
+    if isinstance(value, str) and value:
+        try:
+            normalized = value.replace("Z", "+00:00")
+            parsed = datetime.fromisoformat(normalized)
+            return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+        except ValueError:
+            pass
+    return datetime.now(UTC)
+
+
+def hash_author(author: str | None) -> str | None:
+    if not author:
+        return None
+    digest = hashlib.sha256(f"{settings.author_hash_salt}:{author}".encode()).hexdigest()
+    return digest[:24]
+
+
+def text_hash(title: str, body: str) -> str:
+    normalized = re.sub(r"\s+", " ", f"{title} {body}".lower()).strip()
+    return hashlib.sha256(normalized.encode()).hexdigest()
+
+
+def normalize(raw: RawFetchedItem) -> dict[str, Any]:
+    item = raw.raw_json
+    source = raw.source
+
+    if source == "reddit":
+        title = clean_text(item.get("title"))
+        body = clean_text(item.get("body") or item.get("selftext"))
+        author = item.get("author")
+        created = parse_datetime(item.get("created_at") or item.get("created_utc"))
+        url = item.get("url") or f"https://reddit.com/comments/{raw.external_id}"
+        tags = item.get("tags") or item.get("subreddit") and [item.get("subreddit")] or []
+    elif source == "hackernews":
+        title = clean_text(item.get("title"))
+        body = clean_text(item.get("body") or item.get("text") or item.get("url"))
+        author = item.get("by")
+        created = parse_datetime(item.get("created_at") or item.get("time"))
+        url = item.get("url") or f"https://news.ycombinator.com/item?id={raw.external_id}"
+        tags = item.get("tags") or ["hackernews"]
+    elif source == "github":
+        title = clean_text(item.get("title"))
+        body = clean_text(item.get("body"))
+        author = (item.get("user") or {}).get("login") if isinstance(item.get("user"), dict) else item.get("author")
+        created = parse_datetime(item.get("created_at"))
+        url = item.get("html_url") or item.get("url") or ""
+        tags = [label["name"] if isinstance(label, dict) else str(label) for label in item.get("labels", [])]
+    elif source == "stackexchange":
+        title = clean_text(item.get("title"))
+        body = clean_text(item.get("body") or item.get("excerpt"))
+        owner = item.get("owner") if isinstance(item.get("owner"), dict) else {}
+        author = owner.get("display_name") or item.get("author")
+        created = parse_datetime(item.get("creation_date") or item.get("created_at"))
+        url = item.get("link") or ""
+        tags = item.get("tags") or []
+    else:
+        title = clean_text(item.get("title"))
+        body = clean_text(item.get("body") or item.get("text"))
+        author = item.get("author")
+        created = parse_datetime(item.get("created_at"))
+        url = item.get("url") or ""
+        tags = item.get("tags") or []
+
+    return {
+        "source": source,
+        "external_id": raw.external_id,
+        "url": url,
+        "title": title,
+        "body": body,
+        "author_hash": hash_author(author),
+        "score": item.get("score"),
+        "comments_count": item.get("comments_count") or item.get("descendants") or item.get("answer_count"),
+        "created_at": created,
+        "fetched_at": raw.fetched_at,
+        "tags": tags,
+        "text_hash": text_hash(title, body),
+        "language": "en",
+    }
+
