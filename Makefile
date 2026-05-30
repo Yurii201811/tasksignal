@@ -19,7 +19,7 @@ seed process-demo:
 
 test:
 	cd apps/api && pytest
-	cd apps/web && npm test -- --runInBand
+	cd apps/web && npm test
 
 lint:
 	cd apps/api && ruff check app tests
@@ -31,4 +31,3 @@ format:
 
 reset-data:
 	curl -X POST http://localhost:8000/api/process/demo?reset=true
-

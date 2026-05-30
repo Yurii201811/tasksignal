@@ -6,7 +6,7 @@
     "dev": "next dev -H 0.0.0.0",
     "build": "next build",
     "start": "next start -H 0.0.0.0",
-    "lint": "next lint",
+    "lint": "eslint .",
     "format": "prettier --write src",
     "test": "vitest run"
   },
@@ -40,4 +40,3 @@
     "vitest": "^2.1.1"
   }
 }
-

@@ -1,10 +1,25 @@
-# TaskSignal — AI Problem Discovery Engine
+# TaskSignal - AI Problem Discovery Engine
 
 From Reddit/forum complaints → evidence-backed project ideas → build-ready Codex prompts.
 
 TaskSignal is an AI-assisted engine that mines public developer and community discussions, detects concrete repetitive tasks people complain about, clusters similar pain signals, scores software opportunities, and generates Codex-ready MVP prompts.
 
 ![Dashboard placeholder](docs/images/dashboard-placeholder.png)
+
+## Project Status
+
+TaskSignal is a portfolio-ready MVP built by Yurii Bakurov. It is designed to run locally with fixture data out of the box, then expand into live API-backed research workflows when credentials are provided.
+
+Useful starting points:
+
+- [Product context](PRODUCT.md)
+- [Architecture](docs/architecture.md)
+- [API reference](docs/api.md)
+- [Deployment notes](docs/deployment.md)
+- [Data ethics](docs/data-ethics.md)
+- [Model card](docs/model-card.md)
+- [Contributing guide](CONTRIBUTING.md)
+- [Security policy](SECURITY.md)
 
 ## Why This Exists
 
@@ -63,6 +78,37 @@ API health check:
 curl http://localhost:8000/health
 ```
 
+## Local Development
+
+Run the API and frontend separately:
+
+```bash
+cd apps/api
+uvicorn app.main:app --reload
+```
+
+```bash
+cd apps/web
+npm run dev
+```
+
+Run checks before publishing changes:
+
+```bash
+make test
+make lint
+```
+
+## Repository Layout
+
+```text
+apps/api      FastAPI backend, ML pipeline, database models, tests
+apps/web      Next.js dashboard, opportunity views, prompt export UI
+data          Demo fixtures for local-first processing
+docs          Architecture, API, deployment, ethics, and model notes
+notebooks     Classifier training and evaluation workbooks
+```
+
 ## Fixture Demo Mode
 
 Fixture mode is the default. It loads records from `data/fixtures`, processes them end to end, and should generate at least five opportunity cards:
@@ -104,6 +150,8 @@ opportunity_score =
 
 TaskSignal is designed for public-data research, product discovery, and learning. It does not store raw usernames by default, preserves source URLs for attribution, respects API boundaries, and should not be used for spam or harassment workflows.
 
+Before enabling live connectors, review [Data ethics](docs/data-ethics.md), configure API credentials through environment variables or GitHub repository secrets, and avoid committing `.env` files or exported datasets.
+
 ## Example Generated Opportunity
 
 **Developers need clearer GitHub Actions failure diagnosis**
@@ -131,4 +179,3 @@ This repository demonstrates full-stack engineering, API design, Python backend 
 - Add pgvector ANN search in production mode.
 - Add optional Ollama summary improvement.
 - Add reviewer workflow for human labels.
-
