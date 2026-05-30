@@ -1,0 +1,83 @@
+<svg width="1280" height="720" viewBox="0 0 1280 720" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">TaskSignal dashboard preview</title>
+  <desc id="desc">A compact dashboard showing opportunity scores, source signals, and evidence-backed product ideas.</desc>
+  <rect width="1280" height="720" fill="#F5F7FA"/>
+  <rect x="40" y="36" width="1200" height="648" rx="18" fill="#FFFFFF" stroke="#D8DEE8"/>
+  <rect x="40" y="36" width="1200" height="72" rx="18" fill="#111827"/>
+  <text x="72" y="82" fill="#FFFFFF" font-family="Arial, sans-serif" font-size="28" font-weight="700">TaskSignal</text>
+  <text x="234" y="82" fill="#A7F3D0" font-family="Arial, sans-serif" font-size="15">AI Problem Discovery Engine</text>
+  <rect x="978" y="58" width="220" height="30" rx="6" fill="#10B981"/>
+  <text x="1004" y="79" fill="#052E1B" font-family="Arial, sans-serif" font-size="14" font-weight="700">Process demo data</text>
+
+  <rect x="72" y="138" width="220" height="512" rx="10" fill="#F9FAFB" stroke="#E5E7EB"/>
+  <text x="96" y="178" fill="#111827" font-family="Arial, sans-serif" font-size="15" font-weight="700">Sources</text>
+  <g font-family="Arial, sans-serif" font-size="14" fill="#374151">
+    <text x="96" y="222">Reddit complaints</text>
+    <text x="96" y="262">Hacker News threads</text>
+    <text x="96" y="302">GitHub issues</text>
+    <text x="96" y="342">Stack Exchange posts</text>
+  </g>
+  <g fill="#10B981">
+    <rect x="96" y="234" width="148" height="8" rx="4"/>
+    <rect x="96" y="274" width="118" height="8" rx="4"/>
+    <rect x="96" y="314" width="172" height="8" rx="4"/>
+    <rect x="96" y="354" width="92" height="8" rx="4"/>
+  </g>
+  <rect x="96" y="420" width="154" height="36" rx="8" fill="#E0F2FE"/>
+  <text x="118" y="443" fill="#075985" font-family="Arial, sans-serif" font-size="13" font-weight="700">18 signals loaded</text>
+
+  <rect x="322" y="138" width="382" height="246" rx="10" fill="#FFFFFF" stroke="#E5E7EB"/>
+  <text x="350" y="178" fill="#111827" font-family="Arial, sans-serif" font-size="17" font-weight="700">Top opportunity</text>
+  <text x="350" y="216" fill="#111827" font-family="Arial, sans-serif" font-size="22" font-weight="700">GitHub Actions failure diagnosis</text>
+  <text x="350" y="250" fill="#4B5563" font-family="Arial, sans-serif" font-size="15">Teams spend repetitive time reading noisy CI logs</text>
+  <text x="350" y="274" fill="#4B5563" font-family="Arial, sans-serif" font-size="15">and guessing root causes.</text>
+  <rect x="350" y="310" width="128" height="34" rx="7" fill="#DCFCE7"/>
+  <text x="374" y="332" fill="#166534" font-family="Arial, sans-serif" font-size="14" font-weight="700">Score 86</text>
+  <rect x="494" y="310" width="156" height="34" rx="7" fill="#FEF3C7"/>
+  <text x="518" y="332" fill="#92400E" font-family="Arial, sans-serif" font-size="14" font-weight="700">High intent</text>
+
+  <rect x="734" y="138" width="474" height="246" rx="10" fill="#FFFFFF" stroke="#E5E7EB"/>
+  <text x="762" y="178" fill="#111827" font-family="Arial, sans-serif" font-size="17" font-weight="700">Scoring breakdown</text>
+  <g font-family="Arial, sans-serif" font-size="13" fill="#374151">
+    <text x="762" y="218">Frequency</text>
+    <text x="762" y="258">Pain intensity</text>
+    <text x="762" y="298">Task concreteness</text>
+    <text x="762" y="338">Feasibility</text>
+  </g>
+  <g fill="#D1D5DB">
+    <rect x="902" y="205" width="246" height="10" rx="5"/>
+    <rect x="902" y="245" width="246" height="10" rx="5"/>
+    <rect x="902" y="285" width="246" height="10" rx="5"/>
+    <rect x="902" y="325" width="246" height="10" rx="5"/>
+  </g>
+  <g fill="#2563EB">
+    <rect x="902" y="205" width="206" height="10" rx="5"/>
+    <rect x="902" y="245" width="224" height="10" rx="5"/>
+    <rect x="902" y="285" width="188" height="10" rx="5"/>
+    <rect x="902" y="325" width="172" height="10" rx="5"/>
+  </g>
+
+  <rect x="322" y="412" width="886" height="194" rx="10" fill="#FFFFFF" stroke="#E5E7EB"/>
+  <text x="350" y="452" fill="#111827" font-family="Arial, sans-serif" font-size="17" font-weight="700">Evidence-backed opportunity cards</text>
+  <g>
+    <rect x="350" y="480" width="242" height="82" rx="8" fill="#F9FAFB" stroke="#E5E7EB"/>
+    <text x="370" y="510" fill="#111827" font-family="Arial, sans-serif" font-size="14" font-weight="700">Onboarding drop-off analyzer</text>
+    <text x="370" y="536" fill="#6B7280" font-family="Arial, sans-serif" font-size="13">7 evidence items</text>
+    <rect x="538" y="524" width="34" height="22" rx="5" fill="#DBEAFE"/>
+    <text x="547" y="540" fill="#1D4ED8" font-family="Arial, sans-serif" font-size="12" font-weight="700">74</text>
+  </g>
+  <g>
+    <rect x="622" y="480" width="242" height="82" rx="8" fill="#F9FAFB" stroke="#E5E7EB"/>
+    <text x="642" y="510" fill="#111827" font-family="Arial, sans-serif" font-size="14" font-weight="700">Lead signal radar</text>
+    <text x="642" y="536" fill="#6B7280" font-family="Arial, sans-serif" font-size="13">6 evidence items</text>
+    <rect x="810" y="524" width="34" height="22" rx="5" fill="#DBEAFE"/>
+    <text x="819" y="540" fill="#1D4ED8" font-family="Arial, sans-serif" font-size="12" font-weight="700">71</text>
+  </g>
+  <g>
+    <rect x="894" y="480" width="242" height="82" rx="8" fill="#F9FAFB" stroke="#E5E7EB"/>
+    <text x="914" y="510" fill="#111827" font-family="Arial, sans-serif" font-size="14" font-weight="700">Spreadsheet report helper</text>
+    <text x="914" y="536" fill="#6B7280" font-family="Arial, sans-serif" font-size="13">5 evidence items</text>
+    <rect x="1082" y="524" width="34" height="22" rx="5" fill="#DBEAFE"/>
+    <text x="1091" y="540" fill="#1D4ED8" font-family="Arial, sans-serif" font-size="12" font-weight="700">68</text>
+  </g>
+</svg>

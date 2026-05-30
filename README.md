@@ -4,7 +4,7 @@ From Reddit/forum complaints → evidence-backed project ideas → build-ready C
 
 TaskSignal is an AI-assisted engine that mines public developer and community discussions, detects concrete repetitive tasks people complain about, clusters similar pain signals, scores software opportunities, and generates Codex-ready MVP prompts.
 
-![Dashboard placeholder](docs/images/dashboard-placeholder.png)
+![TaskSignal dashboard preview](docs/images/dashboard-preview.svg)
 
 ## Project Status
 
