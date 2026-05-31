@@ -22,6 +22,7 @@ from app.schemas.api import (
     LabelCreate,
     OpportunityOut,
     ProcessSummary,
+    ScanCreate,
     ScanOut,
     SearchRequest,
     SourceCreate,
@@ -29,6 +30,7 @@ from app.schemas.api import (
 )
 from app.services.embeddings.service import EmbeddingService, cosine_similarity
 from app.workers.demo_pipeline import ensure_sources, process_demo, stats
+from app.workers.scan_pipeline import process_scan
 
 router = APIRouter(prefix="/api")
 
@@ -59,11 +61,23 @@ def opportunity_to_out(db: Session, opportunity: Opportunity) -> OpportunityOut:
         .join(ClusterItem, ClusterItem.item_id == NormalizedItem.id)
         .join(ItemSignal, ItemSignal.item_id == NormalizedItem.id)
         .where(ClusterItem.cluster_id == opportunity.cluster_id)
+        .order_by(
+            ItemSignal.pain_score.desc(),
+            ItemSignal.task_concreteness_score.desc(),
+            NormalizedItem.created_at.desc(),
+        )
     ).all()
     evidence = [item_to_out(item, signal) for item, signal in rows]
-    top_source = max({item.source for item, _ in rows}, key=lambda s: sum(1 for item, _ in rows if item.source == s), default="fixture")
+    top_source = max(
+        {item.source for item, _ in rows},
+        key=lambda s: sum(1 for item, _ in rows if item.source == s),
+        default="fixture",
+    )
     return OpportunityOut(
-        **{column.name: getattr(opportunity, column.name) for column in Opportunity.__table__.columns},
+        **{
+            column.name: getattr(opportunity, column.name)
+            for column in Opportunity.__table__.columns
+        },
         evidence_items=evidence,
         signal_count=len(evidence),
         top_source=top_source,
@@ -113,12 +127,16 @@ def delete_source(source_id: UUID, db: Session = Depends(get_db)) -> dict:
 
 
 @router.post("/scans", response_model=ScanOut)
-def create_scan(db: Session = Depends(get_db)) -> ScanJob:
-    job = ScanJob(status="queued", query="manual scan placeholder")
-    db.add(job)
-    db.commit()
-    db.refresh(job)
-    return job
+def create_scan(payload: ScanCreate, db: Session = Depends(get_db)) -> ScanJob:
+    try:
+        return process_scan(
+            db,
+            source=payload.source,
+            query=payload.query,
+            limit=payload.limit,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/scans", response_model=list[ScanOut])
@@ -173,7 +191,9 @@ def process_stage() -> dict:
 
 @router.get("/opportunities", response_model=list[OpportunityOut])
 def list_opportunities(db: Session = Depends(get_db)) -> list[OpportunityOut]:
-    opportunities = db.scalars(select(Opportunity).order_by(Opportunity.opportunity_score.desc())).all()
+    opportunities = db.scalars(
+        select(Opportunity).order_by(Opportunity.opportunity_score.desc())
+    ).all()
     return [opportunity_to_out(db, opportunity) for opportunity in opportunities]
 
 
@@ -240,4 +260,3 @@ def create_label(payload: LabelCreate, db: Session = Depends(get_db)) -> dict:
     db.add(label)
     db.commit()
     return {"id": label.id, "created": True}
-

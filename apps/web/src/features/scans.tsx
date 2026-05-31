@@ -19,8 +19,12 @@ export function Scans() {
           <h1 className="text-3xl font-semibold text-ink">Scans</h1>
           <p className="mt-2 text-slate-600">Demo processing creates completed scan records. Live scheduled ingestion is documented but safe by default.</p>
         </div>
-        <button onClick={() => create.mutate()} className="inline-flex items-center gap-2 rounded-lg bg-ink px-4 py-2 text-sm font-semibold text-white">
-          <Plus size={16} /> Queue scan
+        <button
+          onClick={() => create.mutate({ source: "hackernews", query: "ask", limit: 30 })}
+          disabled={create.isPending}
+          className="inline-flex items-center gap-2 rounded-lg bg-ink px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-400"
+        >
+          <Plus size={16} /> {create.isPending ? "Running scan" : "Run Ask HN scan"}
         </button>
       </div>
       <Card>
@@ -54,4 +58,3 @@ export function Scans() {
     </div>
   );
 }
-

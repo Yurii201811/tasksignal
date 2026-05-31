@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import math
+import os
 import re
+from pathlib import Path
 
 from app.core.config import settings
 
@@ -15,16 +17,33 @@ THEMES = {
 }
 
 
+def local_model_available(model_name: str) -> bool:
+    model_path = Path(model_name).expanduser()
+    if model_path.exists():
+        return True
+
+    cache_name = f"models--{model_name.replace('/', '--')}"
+    candidates = []
+    hf_home = os.environ.get("HF_HOME")
+    if hf_home:
+        candidates.append(Path(hf_home).expanduser() / "hub" / cache_name)
+    candidates.append(Path.home() / ".cache" / "huggingface" / "hub" / cache_name)
+    return any(path.exists() for path in candidates)
+
+
 class EmbeddingService:
     def __init__(self, model_name: str | None = None) -> None:
         self.model_name = model_name or settings.embedding_model
         self._model = None
-        try:
-            from sentence_transformers import SentenceTransformer
+        if local_model_available(self.model_name):
+            try:
+                from sentence_transformers import SentenceTransformer
 
-            self._model = SentenceTransformer(self.model_name, local_files_only=True)
-            self.backend = "sentence-transformers"
-        except Exception:
+                self._model = SentenceTransformer(self.model_name, local_files_only=True)
+                self.backend = "sentence-transformers"
+            except Exception:
+                self.backend = "deterministic-theme-fallback"
+        else:
             self.backend = "deterministic-theme-fallback"
 
     def embed_texts(self, texts: list[str]) -> list[list[float]]:

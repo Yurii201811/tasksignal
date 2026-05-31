@@ -6,11 +6,13 @@ TaskSignal is a local-first full-stack app with a fixture-powered demo path and 
 
 - `services/ingestion`: connector interface, fixture loader, live source connectors, normalization, deduplication.
 - `services/detection`: rule-based problem signal detection and evidence span extraction.
-- `services/embeddings`: sentence-transformer embeddings with deterministic fallback.
-- `services/clustering`: DBSCAN clustering plus local-demo thematic fallback.
+- `services/embeddings`: sentence-transformer embeddings when a local model cache exists, with deterministic fallback.
+- `services/clustering`: local thematic clustering fallback by default, with optional DBSCAN when `TASKSIGNAL_USE_SKLEARN_CLUSTERING=1`.
 - `services/scoring`: opportunity score components and explanation.
 - `services/generation`: deterministic opportunity cards and Codex prompt generation.
 - `workers`: process orchestration for demo and scheduled jobs.
+- `workers.scan_pipeline`: synchronous live-source scan orchestration for one
+  selected source/query/limit without a background job framework.
 - `api`: FastAPI endpoints.
 - `apps/web`: Next.js dashboard and workflow UI.
 
@@ -40,4 +42,3 @@ flowchart TD
   R --> S[(Supabase Postgres + pgvector)]
   G[GitHub Actions cron] --> R
 ```
-

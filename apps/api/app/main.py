@@ -1,3 +1,7 @@
+import os
+
+os.environ.setdefault("DISABLE_SQLALCHEMY_CEXT_RUNTIME", "1")
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -41,4 +45,3 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
-

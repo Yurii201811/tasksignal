@@ -6,12 +6,13 @@ export function Card({ children, className }: { children: ReactNode; className?:
   return <section className={clsx("rounded-lg border border-slate-200 bg-white p-5 shadow-soft", className)}>{children}</section>;
 }
 
-export function Badge({ children, tone = "slate" }: { children: ReactNode; tone?: "slate" | "green" | "amber" | "blue" }) {
+export function Badge({ children, tone = "slate" }: { children: ReactNode; tone?: "slate" | "green" | "amber" | "blue" | "red" }) {
   const tones = {
     slate: "bg-slate-100 text-slate-700",
     green: "bg-emerald-50 text-emerald-700",
     amber: "bg-amber-50 text-amber-700",
-    blue: "bg-sky-50 text-sky-700"
+    blue: "bg-sky-50 text-sky-700",
+    red: "bg-red-50 text-red-700"
   };
   return <span className={clsx("inline-flex rounded-md px-2 py-1 text-xs font-semibold", tones[tone])}>{children}</span>;
 }
@@ -31,4 +32,3 @@ export function ScoreBar({ value }: { value: number }) {
     </div>
   );
 }
-

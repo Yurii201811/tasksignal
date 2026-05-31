@@ -6,12 +6,15 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.config import settings
 
-try:
-    from pgvector.sqlalchemy import Vector
-
-    EmbeddingColumn = JSON if settings.database_url.startswith("sqlite") else Vector(384)
-except Exception:  # pragma: no cover - test fallback when pgvector is absent
+if settings.database_url.startswith("sqlite"):
     EmbeddingColumn = JSON
+else:
+    try:
+        from pgvector.sqlalchemy import Vector
+
+        EmbeddingColumn = Vector(384)
+    except Exception:  # pragma: no cover - test fallback when pgvector is absent
+        EmbeddingColumn = JSON
 
 from app.db.base import Base
 
@@ -43,6 +46,16 @@ class ScanJob(Base):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     items_found: Mapped[int] = mapped_column(Integer, default=0)
     items_saved: Mapped[int] = mapped_column(Integer, default=0)
+
+    source: Mapped[Source | None] = relationship()
+
+    @property
+    def source_type(self) -> str | None:
+        return self.source.type if self.source else None
+
+    @property
+    def source_name(self) -> str | None:
+        return self.source.name if self.source else None
 
 
 class RawItem(Base):

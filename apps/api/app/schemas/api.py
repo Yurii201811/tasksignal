@@ -1,13 +1,13 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class SourceCreate(BaseModel):
     name: str
     type: str
-    config_json: dict = {}
+    config_json: dict = Field(default_factory=dict)
     enabled: bool = True
 
 
@@ -17,8 +17,17 @@ class SourceOut(SourceCreate):
     model_config = ConfigDict(from_attributes=True)
 
 
+class ScanCreate(BaseModel):
+    source: str = "hackernews"
+    query: str = ""
+    limit: int = Field(default=30, ge=1, le=100)
+
+
 class ScanOut(BaseModel):
     id: UUID
+    source_id: UUID | None
+    source_type: str | None = None
+    source_name: str | None = None
     status: str
     query: str | None
     started_at: datetime
@@ -86,4 +95,3 @@ class LabelCreate(BaseModel):
     item_id: UUID
     label: str
     user_note: str | None = None
-

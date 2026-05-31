@@ -1,0 +1,28 @@
+name: Good first issue idea
+description: Propose a small contributor-friendly task.
+title: "[Good first issue]: "
+labels: ["good first issue"]
+body:
+  - type: textarea
+    id: task
+    attributes:
+      label: Task
+      description: What small, scoped change should be made?
+    validations:
+      required: true
+  - type: textarea
+    id: files
+    attributes:
+      label: Likely files
+      description: List likely files or docs to inspect.
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: What should be true when this is done?
+      placeholder: |
+        - Fixture mode still works.
+        - Docs mention the new behavior.
+        - Tests cover the change, if applicable.
+    validations:
+      required: true

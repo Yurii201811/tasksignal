@@ -26,3 +26,11 @@ Please do not include real API keys, private datasets, or third-party personal d
 ## Data Handling
 
 TaskSignal is designed for public data and stores author hashes by default. Live connectors should use official APIs, respect rate limits, and avoid workflows that enable spam, harassment, or manipulation.
+
+## Live Connector Risks
+
+Before enabling or expanding live connectors, review the stored fields, credential requirements, rate limits, and source terms. Connector errors should not print tokens, raw credentials, or private source records. Exported prompts should keep source text as evidence, not as instructions to override maintainer judgment.
+
+## Threat Model
+
+See [docs/threat-model.md](docs/threat-model.md) for the current lightweight threat model covering credentials, live APIs, normalized records, prompt export, and release hygiene.

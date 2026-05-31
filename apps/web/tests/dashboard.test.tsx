@@ -14,5 +14,7 @@ describe("Dashboard", () => {
     renderWithClient(<Dashboard />);
     expect(screen.getByText("Opportunity dashboard")).toBeInTheDocument();
     expect(screen.getByText("Process demo data")).toBeInTheDocument();
+    expect(screen.getByText("Live source")).toBeInTheDocument();
+    expect(screen.getByText("Run scan")).toBeInTheDocument();
   });
 });

@@ -17,4 +17,6 @@ def test_process_demo_endpoint(client) -> None:
     opportunities = client.get("/api/opportunities").json()
     assert len(opportunities) >= 5
     assert opportunities[0]["generated_prompt"].startswith("# Build")
-
+    assert opportunities[0]["scoring_breakdown_json"]["rank_drivers"]
+    assert opportunities[0]["evidence_items"][0]["evidence_spans"]
+    assert "Ranking rationale" in opportunities[0]["generated_prompt"]

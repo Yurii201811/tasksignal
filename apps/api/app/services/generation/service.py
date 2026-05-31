@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from collections import Counter
+from typing import Any
+
+from app.services.scoring.service import SCORE_COMPONENTS
 
 THEME_COPY = {
     "AI-generated code": {
@@ -59,8 +62,79 @@ def common_phrases(items: list[dict]) -> list[str]:
     return [word for word, _ in words.most_common(8)]
 
 
-def generate_codex_prompt(title: str, fields: dict, score: dict, evidence_summary: str) -> str:
-    project_name = title.split(" needs ")[0].replace("Developers", "Code teams").replace("Operators", "Ops teams")
+def percent(value: float | int | None) -> int:
+    return round(float(value or 0) * 100)
+
+
+def clean_excerpt(value: Any, max_length: int = 220) -> str:
+    text = " ".join(str(value or "").split())
+    if len(text) <= max_length:
+        return text
+    return f"{text[: max_length - 3].rstrip()}..."
+
+
+def evidence_excerpt(item: dict) -> str:
+    spans = item.get("evidence_spans") or []
+    if spans:
+        return clean_excerpt(spans[0])
+    return clean_excerpt(item.get("body"))
+
+
+def evidence_pack(items: list[dict], limit: int = 4) -> str:
+    ranked = sorted(
+        items,
+        key=lambda item: (
+            item.get("pain_score", 0),
+            item.get("task_concreteness_score", 0),
+            item.get("buying_intent_score", 0),
+        ),
+        reverse=True,
+    )
+    bullets = []
+    for index, item in enumerate(ranked[:limit], start=1):
+        title = clean_excerpt(item.get("title"), 96)
+        source = item.get("source", "fixture")
+        signal_type = str(item.get("signal_type", "problem_signal")).replace("_", " ")
+        url = item.get("url")
+        source_line = f"\n   - Source: {url}" if url else ""
+        bullets.append(
+            f"{index}. [{source}] {title}\n"
+            f'   - Evidence: "{evidence_excerpt(item)}"\n'
+            f"   - Signal: {signal_type}. Scores: pain {percent(item.get('pain_score'))}, "
+            f"task {percent(item.get('task_concreteness_score'))}, "
+            f"buying {percent(item.get('buying_intent_score'))}.{source_line}"
+        )
+    return "\n".join(bullets)
+
+
+def scoring_rationale(score: dict) -> str:
+    lines = []
+    for key, label, weight in SCORE_COMPONENTS:
+        raw = float(score.get(key, 0))
+        contribution = raw * weight * 100
+        lines.append(
+            f"- {label}: {percent(raw)}/100 raw, {abs(weight) * 100:.0f}% "
+            f"{'penalty' if weight < 0 else 'weight'}, {contribution:+.1f} weighted points."
+        )
+    return "\n".join(lines)
+
+
+def generate_codex_prompt(
+    title: str,
+    fields: dict,
+    score: dict,
+    evidence_summary: str,
+    evidence_items: list[dict] | None = None,
+) -> str:
+    project_name = (
+        title.split(" needs ")[0]
+        .replace("Developers", "Code teams")
+        .replace("Operators", "Ops teams")
+    )
+    evidence_items = evidence_items or []
+    excerpts = (
+        evidence_pack(evidence_items) if evidence_items else "- No source excerpts were available."
+    )
     return f"""# Build {project_name}
 
 You are a senior full-stack engineer. Build a working MVP for {project_name}.
@@ -77,12 +151,32 @@ You are a senior full-stack engineer. Build a working MVP for {project_name}.
 
 {evidence_summary}
 
+Top source excerpts:
+
+{excerpts}
+
+## Ranking rationale
+
+Opportunity score: {percent(score["opportunity_score"])}/100.
+
+{scoring_rationale(score)}
+
+Interpretation: {score["explanation"]}
+
 ## MVP scope
 
 - Ingest or import the repeated workflow data.
 - Detect the risky, slow, or repetitive steps.
 - Show a ranked dashboard with evidence and recommended next actions.
 - Export a practical report or implementation artifact.
+
+## Trust and privacy constraints
+
+- Keep the local fixture demo working without paid services or live credentials.
+- Store author hashes or omit author identity by default.
+- Preserve source URLs and evidence excerpts so reviewers can audit why items were ranked.
+- Make scoring visible enough that a first-time user can challenge the recommendation.
+- Avoid spam, harassment, or bulk outreach workflows.
 
 ## Non-goals
 
@@ -144,8 +238,6 @@ Use Docker Compose locally. Deploy frontend to Vercel, backend to Render or Hugg
 ## Implementation instruction
 
 Build a real working MVP. Do not create only stubs. Make reasonable decisions. Prioritize a functioning local demo. Do not ask unnecessary questions unless truly blocked.
-
-Scoring context: {score["explanation"]}
 """
 
 
@@ -171,7 +263,8 @@ def generate_opportunity(title: str, summary: str, items: list[dict], score: dic
             else "The category is crowded, so the MVP needs a sharp niche and clear evidence trail."
         ),
     }
-    fields["generated_prompt"] = generate_codex_prompt(title, fields, score, evidence_summary)
+    fields["generated_prompt"] = generate_codex_prompt(
+        title, fields, score, evidence_summary, items
+    )
     fields["common_phrases"] = phrases
     return fields
-

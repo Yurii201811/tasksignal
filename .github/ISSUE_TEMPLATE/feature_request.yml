@@ -1,0 +1,28 @@
+name: Feature request
+description: Suggest a TaskSignal improvement.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What maintainer, researcher, or builder workflow would this improve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the smallest useful version.
+    validations:
+      required: true
+  - type: textarea
+    id: privacy
+    attributes:
+      label: Privacy and source impact
+      description: Note any new source, stored field, credential, export, or automation risk.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered

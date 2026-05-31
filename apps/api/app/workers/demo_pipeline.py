@@ -55,7 +55,11 @@ def ensure_sources(db: Session) -> None:
     ]
     for name, source_type in defaults:
         if source_type not in existing:
-            db.add(Source(name=name, type=source_type, config_json={}, enabled=source_type == "fixture"))
+            db.add(
+                Source(
+                    name=name, type=source_type, config_json={}, enabled=source_type == "fixture"
+                )
+            )
     db.commit()
 
 
@@ -71,9 +75,18 @@ def process_demo(db: Session, reset: bool = True) -> dict[str, int]:
     fetched = connector.fetch(limit=300)
     normalized_created = 0
     for raw in fetched:
-        db.add(RawItem(source=raw.source, external_id=raw.external_id, raw_json=raw.raw_json, fetched_at=raw.fetched_at))
+        db.add(
+            RawItem(
+                source=raw.source,
+                external_id=raw.external_id,
+                raw_json=raw.raw_json,
+                fetched_at=raw.fetched_at,
+            )
+        )
         normalized = normalize(raw)
-        exists = db.scalar(select(NormalizedItem).where(NormalizedItem.text_hash == normalized["text_hash"]))
+        exists = db.scalar(
+            select(NormalizedItem).where(NormalizedItem.text_hash == normalized["text_hash"])
+        )
         if exists:
             continue
         db.add(NormalizedItem(**normalized))
@@ -111,13 +124,20 @@ def process_demo(db: Session, reset: bool = True) -> dict[str, int]:
     embeddings_by_item: dict[UUID, list[float]] = {}
     for (item, _signal), vector in zip(signal_rows, vectors, strict=True):
         embeddings_by_item[item.id] = vector
-        db.add(ItemEmbedding(item_id=item.id, embedding=vector, model_name=f"{embedder.model_name}:{embedder.backend}"))
+        db.add(
+            ItemEmbedding(
+                item_id=item.id,
+                embedding=vector,
+                model_name=f"{embedder.model_name}:{embedder.backend}",
+            )
+        )
     db.flush()
 
     cluster_inputs = [
         {
             "id": item.id,
             "source": item.source,
+            "url": item.url,
             "title": item.title,
             "body": item.body,
             "created_at": item.created_at,
@@ -125,6 +145,7 @@ def process_demo(db: Session, reset: bool = True) -> dict[str, int]:
             "pain_score": signal.pain_score,
             "task_concreteness_score": signal.task_concreteness_score,
             "buying_intent_score": signal.buying_intent_score,
+            "evidence_spans": signal.evidence_spans_json,
         }
         for item, signal in signal_rows
     ]
@@ -148,7 +169,9 @@ def process_demo(db: Session, reset: bool = True) -> dict[str, int]:
                 ClusterItem(
                     cluster_id=cluster.id,
                     item_id=item_id,
-                    similarity_score=cosine_similarity(candidate.centroid, embeddings_by_item[item_id]),
+                    similarity_score=cosine_similarity(
+                        candidate.centroid, embeddings_by_item[item_id]
+                    ),
                 )
             )
         score = score_opportunity(group_items, f"{candidate.title} {candidate.summary}")
@@ -186,7 +209,11 @@ def process_demo(db: Session, reset: bool = True) -> dict[str, int]:
 
 
 def stats(db: Session) -> dict:
-    total_items = db.scalar(select(NormalizedItem).count()) if False else len(db.scalars(select(NormalizedItem.id)).all())
+    total_items = (
+        db.scalar(select(NormalizedItem).count())
+        if False
+        else len(db.scalars(select(NormalizedItem.id)).all())
+    )
     signals = len(
         db.scalars(select(ItemSignal.id).where(ItemSignal.is_problem_signal.is_(True))).all()
     )
@@ -206,7 +233,8 @@ def stats(db: Session) -> dict:
         "problem_signals": signals,
         "clusters": clusters,
         "opportunities": opportunities,
-        "source_breakdown": [{"source": key, "count": value} for key, value in source_counts.items()],
+        "source_breakdown": [
+            {"source": key, "count": value} for key, value in source_counts.items()
+        ],
         "pain_distribution": distribution,
     }
-

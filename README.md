@@ -8,7 +8,7 @@ TaskSignal is an AI-assisted engine that mines public developer and community di
 
 ## Project Status
 
-TaskSignal is a portfolio-ready MVP built by Yurii Bakurov. It is designed to run locally with fixture data out of the box, then expand into live API-backed research workflows when credentials are provided.
+TaskSignal is a portfolio-ready MVP built by Yurii Bakurov. It is designed to run locally with fixture data out of the box, then run live API-backed research workflows for supported public sources when credentials are provided.
 
 Useful starting points:
 
@@ -18,12 +18,20 @@ Useful starting points:
 - [Deployment notes](docs/deployment.md)
 - [Data ethics](docs/data-ethics.md)
 - [Model card](docs/model-card.md)
+- [Roadmap](docs/roadmap.md)
+- [Threat model](docs/threat-model.md)
+- [Maintainer automation plan](docs/maintainer-automation.md)
+- [Changelog](CHANGELOG.md)
 - [Contributing guide](CONTRIBUTING.md)
 - [Security policy](SECURITY.md)
 
 ## Why This Exists
 
 Most idea lists are generic. TaskSignal is a task-replacement radar: it looks for specific repeated workflows people hate doing, such as exporting Stripe data into a spreadsheet every Friday and turning it into a client report.
+
+## Who Should Use This
+
+TaskSignal is for maintainers, builders, indie hackers, developer-tool teams, and researchers who want a local-first way to review public pain signals before deciding what to build. It is not for scraping private communities, profiling individuals, spam, outreach automation, or replacing human product judgment.
 
 ## What It Does
 
@@ -33,7 +41,7 @@ Most idea lists are generic. TaskSignal is a task-replacement radar: it looks fo
 - Detects complaints, manual workflows, tool requests, workarounds, buying intent, and confusion.
 - Generates local embeddings with `sentence-transformers/all-MiniLM-L6-v2` when available.
 - Falls back to deterministic local vectors when the model is unavailable.
-- Clusters signals with DBSCAN plus a demo-safe thematic fallback.
+- Clusters signals with a local thematic fallback by default, with optional DBSCAN when `TASKSIGNAL_USE_SKLEARN_CLUSTERING=1`.
 - Scores opportunities using frequency, recency, pain, concreteness, buying intent, feasibility, and competition penalty.
 - Generates opportunity cards and full Codex-ready build prompts.
 
@@ -59,7 +67,7 @@ Frontend: Next.js, TypeScript, Tailwind CSS, TanStack Query, Recharts, React Mar
 
 Backend: FastAPI, Pydantic v2, SQLAlchemy 2, Alembic, PostgreSQL, pgvector, pytest, ruff, scikit-learn.
 
-ML/NLP: sentence-transformers with local-only load, deterministic fallback vectors, DBSCAN clustering, rule-based signal detector.
+ML/NLP: sentence-transformers with local-only load when the model cache exists, deterministic fallback vectors, optional DBSCAN clustering, rule-based signal detector.
 
 Infra: Docker Compose, Makefile, GitHub Actions CI, scheduled ingestion template.
 
@@ -70,7 +78,7 @@ cp .env.example .env
 make up
 ```
 
-Open the frontend at [http://localhost:3000](http://localhost:3000), go to Dashboard, and click **Process demo data**.
+Open the frontend at [http://localhost:3000](http://localhost:3000), go to Dashboard, and click **Process demo data**. To use live data, choose a source, query, and limit in **Live source**, then click **Run scan**.
 
 API health check:
 
@@ -99,6 +107,10 @@ make test
 make lint
 ```
 
+## Distribution
+
+TaskSignal is currently an application repository, not a published Python or npm library. Use the source checkout or Docker Compose workflow above. Reusable packages may be split out later if a stable library boundary emerges.
+
 ## Repository Layout
 
 ```text
@@ -121,13 +133,13 @@ Fixture mode is the default. It loads records from `data/fixtures`, processes th
 
 ## API Connector Setup
 
-Real connectors are implemented behind environment variables:
+Live scans use official APIs and keep the same local-first scoring/generation pipeline as fixture mode:
 
 - `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`, `REDDIT_USER_AGENT`
 - `GITHUB_TOKEN`
 - `STACK_EXCHANGE_KEY`
 
-No paid LLM key is required. `LLM_PROVIDER=none` is the default.
+Hacker News works without credentials through the public Firebase API. GitHub and Stack Exchange can run without keys at lower rate limits. Reddit requires OAuth credentials. No paid LLM key is required. `LLM_PROVIDER=none` is the default.
 
 ## ML/NLP Approach
 
@@ -174,8 +186,10 @@ This repository demonstrates full-stack engineering, API design, Python backend 
 
 ## Roadmap
 
-- Add classifier training artifact loading.
-- Add richer source scheduling and rate-limit state.
+- Publish and maintain tagged releases with changelog entries.
+- Expand contributor-friendly fixtures, docs, and public issues.
+- Add richer source scheduling and rate-limit state after privacy review.
 - Add pgvector ANN search in production mode.
-- Add optional Ollama summary improvement.
 - Add reviewer workflow for human labels.
+
+See [Roadmap](docs/roadmap.md) for maintainer tasks, security milestones, and longer-term ideas.

@@ -28,6 +28,22 @@ export type EvidenceItem = {
   evidence_spans: string[];
 };
 
+export type ScoreBreakdown = {
+  frequency?: number;
+  recency?: number;
+  pain_intensity?: number;
+  task_concreteness?: number;
+  buying_intent?: number;
+  feasibility?: number;
+  competition_penalty?: number;
+  opportunity_score?: number;
+  explanation?: string;
+  score_formula?: string;
+  rank_drivers?: string[];
+  common_phrases?: string[];
+  [key: string]: number | string | string[] | undefined;
+};
+
 export type Opportunity = {
   id: string;
   cluster_id: string;
@@ -40,7 +56,7 @@ export type Opportunity = {
   feasibility_score: number;
   opportunity_score: number;
   competition_notes: string;
-  scoring_breakdown_json: Record<string, number | string | string[]>;
+  scoring_breakdown_json: ScoreBreakdown;
   generated_prompt: string;
   created_at: string;
   updated_at: string;
@@ -60,6 +76,9 @@ export type Source = {
 
 export type Scan = {
   id: string;
+  source_id: string | null;
+  source_type: string | null;
+  source_name: string | null;
   status: string;
   query: string | null;
   started_at: string;
@@ -69,3 +88,8 @@ export type Scan = {
   items_saved: number;
 };
 
+export type ScanCreate = {
+  source: string;
+  query: string;
+  limit: number;
+};

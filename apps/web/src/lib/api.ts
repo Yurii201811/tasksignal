@@ -1,4 +1,11 @@
-import type { Opportunity, ProcessSummary, Scan, Source, Stats } from "./types";
+import type {
+  Opportunity,
+  ProcessSummary,
+  Scan,
+  ScanCreate,
+  Source,
+  Stats,
+} from "./types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
@@ -26,7 +33,11 @@ export const api = {
   processDemo: () => request<ProcessSummary>("/api/process/demo", { method: "POST" }),
   sources: () => request<Source[]>("/api/sources"),
   scans: () => request<Scan[]>("/api/scans"),
-  createScan: () => request<Scan>("/api/scans", { method: "POST" }),
+  createScan: (payload: ScanCreate) =>
+    request<Scan>("/api/scans", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
   semanticSearch: (query: string) =>
     request<{ items: { item: unknown; similarity: number }[]; opportunities: unknown[] }>("/api/search/semantic", {
       method: "POST",

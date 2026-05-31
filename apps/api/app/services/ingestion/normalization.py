@@ -93,11 +93,16 @@ def normalize(raw: RawFetchedItem) -> dict[str, Any]:
         "body": body,
         "author_hash": hash_author(author),
         "score": item.get("score"),
-        "comments_count": item.get("comments_count") or item.get("descendants") or item.get("answer_count"),
+        "comments_count": (
+            item.get("comments_count")
+            or item.get("num_comments")
+            or item.get("comments")
+            or item.get("descendants")
+            or item.get("answer_count")
+        ),
         "created_at": created,
         "fetched_at": raw.fetched_at,
         "tags": tags,
         "text_hash": text_hash(title, body),
         "language": "en",
     }
-
