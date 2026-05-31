@@ -1,4 +1,4 @@
-.PHONY: dev up down migrate seed process-demo test lint format reset-data
+.PHONY: dev up down migrate seed process-demo test lint format reset-data verify release-check
 
 dev:
 	@printf "Start API and web separately for local hacking:\n"
@@ -24,6 +24,12 @@ test:
 lint:
 	cd apps/api && ruff check app tests
 	cd apps/web && npm run lint
+
+verify: test lint
+	cd apps/web && npm run build
+
+release-check: verify
+	python3 scripts/release_check.py --require-clean
 
 format:
 	cd apps/api && ruff format app tests

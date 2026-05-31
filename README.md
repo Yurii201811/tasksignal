@@ -4,7 +4,7 @@ From Reddit/forum complaints → evidence-backed project ideas → build-ready C
 
 TaskSignal is an AI-assisted engine that mines public developer and community discussions, detects concrete repetitive tasks people complain about, clusters similar pain signals, scores software opportunities, and generates Codex-ready MVP prompts.
 
-![TaskSignal dashboard preview](docs/images/dashboard-preview.svg)
+![TaskSignal dashboard after processing demo data](docs/images/dashboard-browser-verified.png)
 
 ## Project Status
 
@@ -21,6 +21,7 @@ Useful starting points:
 - [Roadmap](docs/roadmap.md)
 - [Threat model](docs/threat-model.md)
 - [Maintainer automation plan](docs/maintainer-automation.md)
+- [Codex for OSS application evidence](docs/codex-for-oss-application.md)
 - [Changelog](CHANGELOG.md)
 - [Contributing guide](CONTRIBUTING.md)
 - [Security policy](SECURITY.md)
@@ -105,6 +106,13 @@ Run checks before publishing changes:
 ```bash
 make test
 make lint
+make verify
+```
+
+Run the release-readiness gate before tagging a release:
+
+```bash
+make release-check
 ```
 
 ## Distribution

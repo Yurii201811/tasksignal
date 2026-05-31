@@ -2,6 +2,21 @@
 
 All notable public-facing changes to TaskSignal are recorded here.
 
+## 0.1.1 - 2026-05-31
+
+Application-readiness polish.
+
+### Added
+
+- Browser-verified dashboard screenshot in the README.
+- Release-readiness check for docs, tracked generated files, obvious secret patterns, and clean release state.
+- Codex for OSS application evidence note with honest claims, API-credit workflow, and remaining external-signal gaps.
+
+### Fixed
+
+- Regeneration endpoint now rebuilds opportunity fields and prompts from stored cluster evidence instead of reusing previously generated text.
+- FastAPI startup table creation now uses the lifespan hook instead of the deprecated startup-event hook.
+
 ## 0.1.0 - 2026-05-31
 
 Initial public release candidate.

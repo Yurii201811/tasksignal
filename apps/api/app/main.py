@@ -1,4 +1,6 @@
 import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 os.environ.setdefault("DISABLE_SQLALCHEMY_CEXT_RUNTIME", "1")
 
@@ -12,11 +14,19 @@ from app.db.session import engine
 from app.models import all_models  # noqa: F401
 
 
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    if settings.auto_create_tables:
+        Base.metadata.create_all(bind=engine)
+    yield
+
+
 def create_app() -> FastAPI:
     app = FastAPI(
         title="TaskSignal API",
         description="AI-assisted problem discovery engine with local fixture demo mode.",
-        version="0.1.0",
+        version="0.1.1",
+        lifespan=lifespan,
     )
     app.add_middleware(
         CORSMiddleware,
@@ -26,11 +36,6 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     app.include_router(router)
-
-    @app.on_event("startup")
-    def create_tables() -> None:
-        if settings.auto_create_tables:
-            Base.metadata.create_all(bind=engine)
 
     @app.get("/health")
     def health() -> dict:

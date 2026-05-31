@@ -8,14 +8,14 @@ TaskSignal is early-stage open source. The roadmap prioritizes maintainability, 
 - Keep fixture demo mode green in CI and simple enough for new contributors to run.
 - Add more representative parser fixtures for GitHub Issues, Hacker News, Reddit, and Stack Exchange.
 - Improve dashboard empty, loading, and connector-error states.
-- Add issue templates, public labels, and small scoped contributor tasks.
+- Add more browser-verified screenshots and keep the demo flow aligned with the current UI.
 
 ## Maintainer Workflow
 
 - Triage incoming issues into `bug`, `enhancement`, `documentation`, `good first issue`, and `roadmap`.
 - Review dependency changes with test output and a short risk note.
 - Require human review before enabling new live connectors or changing stored data fields.
-- Keep public releases tied to a changelog entry and a passing CI run.
+- Keep public releases tied to a changelog entry, `make release-check`, and a passing CI run.
 
 ## Security And Privacy
 

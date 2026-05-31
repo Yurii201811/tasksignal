@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response
@@ -8,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.models.all_models import (
+    Cluster,
     ClusterItem,
     ItemEmbedding,
     ItemSignal,
@@ -29,6 +31,8 @@ from app.schemas.api import (
     SourceOut,
 )
 from app.services.embeddings.service import EmbeddingService, cosine_similarity
+from app.services.generation.service import generate_opportunity
+from app.services.scoring.service import score_opportunity
 from app.workers.demo_pipeline import ensure_sources, process_demo, stats
 from app.workers.scan_pipeline import process_scan
 
@@ -82,6 +86,38 @@ def opportunity_to_out(db: Session, opportunity: Opportunity) -> OpportunityOut:
         signal_count=len(evidence),
         top_source=top_source,
     )
+
+
+def cluster_signal_rows(db: Session, cluster_id: UUID) -> list[tuple[NormalizedItem, ItemSignal]]:
+    return list(
+        db.execute(
+            select(NormalizedItem, ItemSignal)
+            .join(ClusterItem, ClusterItem.item_id == NormalizedItem.id)
+            .join(ItemSignal, ItemSignal.item_id == NormalizedItem.id)
+            .where(ClusterItem.cluster_id == cluster_id)
+            .order_by(
+                ItemSignal.pain_score.desc(),
+                ItemSignal.task_concreteness_score.desc(),
+                NormalizedItem.created_at.desc(),
+            )
+        ).all()
+    )
+
+
+def row_to_generation_item(item: NormalizedItem, signal: ItemSignal) -> dict:
+    return {
+        "id": item.id,
+        "source": item.source,
+        "url": item.url,
+        "title": item.title,
+        "body": item.body,
+        "created_at": item.created_at,
+        "signal_type": signal.signal_type,
+        "pain_score": signal.pain_score,
+        "task_concreteness_score": signal.task_concreteness_score,
+        "buying_intent_score": signal.buying_intent_score,
+        "evidence_spans": signal.evidence_spans_json,
+    }
 
 
 @router.get("/stats")
@@ -210,8 +246,33 @@ def regenerate_opportunity(opportunity_id: UUID, db: Session = Depends(get_db)) 
     opportunity = db.get(Opportunity, opportunity_id)
     if opportunity is None:
         raise HTTPException(status_code=404, detail="Opportunity not found")
-    opportunity.updated_at = opportunity.updated_at
+
+    rows = cluster_signal_rows(db, opportunity.cluster_id)
+    if not rows:
+        raise HTTPException(status_code=409, detail="Opportunity has no evidence to regenerate from")
+
+    generation_items = [row_to_generation_item(item, signal) for item, signal in rows]
+    cluster = db.get(Cluster, opportunity.cluster_id)
+    source_title = cluster.title if cluster else opportunity.title
+    source_summary = cluster.summary if cluster else opportunity.problem_statement
+    candidate_text = f"{source_title} {source_summary}"
+    score = score_opportunity(generation_items, candidate_text)
+    generated = generate_opportunity(source_title, source_summary, generation_items, score)
+
+    opportunity.title = generated["title"]
+    opportunity.problem_statement = generated["problem_statement"]
+    opportunity.target_user = generated["target_user"]
+    opportunity.current_workaround = generated["current_workaround"]
+    opportunity.suggested_mvp = generated["suggested_mvp"]
+    opportunity.why_now = generated["why_now"]
+    opportunity.feasibility_score = generated["feasibility_score"]
+    opportunity.opportunity_score = generated["opportunity_score"]
+    opportunity.competition_notes = generated["competition_notes"]
+    opportunity.scoring_breakdown_json = {**score, "common_phrases": generated["common_phrases"]}
+    opportunity.generated_prompt = generated["generated_prompt"]
+    opportunity.updated_at = datetime.now(UTC)
     db.commit()
+    db.refresh(opportunity)
     return opportunity_to_out(db, opportunity)
 
 

@@ -8,6 +8,7 @@ This document defines how TaskSignal can use Codex/API credits for open-source m
 - Draft test plans and risk notes for changes that touch ingestion, scoring, exports, or credentials.
 - Suggest small fixes for failing CI, lint, type checks, or documentation drift.
 - Draft release notes from merged changes and update the changelog.
+- Run or interpret `make release-check` before tagging a release.
 - Generate contributor-friendly task breakdowns from roadmap items.
 - Review sample datasets for accidental secrets, raw usernames, private records, or unsupported sources.
 
