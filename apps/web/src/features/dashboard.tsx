@@ -15,11 +15,28 @@ import {
   Pie,
   Cell,
 } from "recharts";
-import { AlertTriangle, ArrowRight, Play, RefreshCw } from "lucide-react";
+import { ArrowRight, Play, RefreshCw } from "lucide-react";
 import { api } from "@/lib/api";
-import { Badge, Card, ScoreBar } from "@/components/ui";
+import {
+  Badge,
+  Button,
+  Card,
+  Input,
+  MetricTile,
+  PageHeader,
+  ScoreBar,
+  Select,
+  StateMessage,
+  TableShell,
+} from "@/components/ui";
 
-const colors = ["#0f766e", "#d97706", "#2563eb", "#7c3aed", "#dc2626"];
+const chartColors = [
+  "var(--ts-chart-1)",
+  "var(--ts-chart-2)",
+  "var(--ts-chart-3)",
+  "var(--ts-chart-4)",
+  "var(--ts-chart-5)",
+];
 const scanDefaults: Record<string, string> = {
   hackernews: "ask",
   github: "manually copy paste is:issue is:open",
@@ -62,17 +79,34 @@ export function Dashboard() {
   });
 
   const metricCards = [
-    ["Collected items", stats.data?.total_items ?? 0],
-    ["Problem signals", stats.data?.problem_signals ?? 0],
-    ["Clusters", stats.data?.clusters ?? 0],
-    ["Opportunities", stats.data?.opportunities ?? 0],
+    {
+      label: "Collected items",
+      value: stats.data?.total_items ?? 0,
+      hint: "Raw public-source items available locally",
+    },
+    {
+      label: "Problem signals",
+      value: stats.data?.problem_signals ?? 0,
+      hint: "Detected pain, task, or buying-intent signals",
+    },
+    {
+      label: "Clusters",
+      value: stats.data?.clusters ?? 0,
+      hint: "Grouped signals that may describe the same problem",
+    },
+    {
+      label: "Opportunities",
+      value: stats.data?.opportunities ?? 0,
+      hint: "Ranked ideas generated from evidence",
+    },
   ];
   const topOpportunity = opportunities.data?.[0];
   const hasOpportunities = Boolean(opportunities.data?.length);
   const isLoadingWorkflow = stats.isLoading || opportunities.isLoading;
   const dataError =
     stats.error ?? opportunities.error ?? sources.error ?? scans.error ?? null;
-  const processError = process.error ?? runScan.error ?? null;
+  const processError = process.error ?? null;
+  const scanError = runScan.error ?? null;
   const sourceBreakdown = stats.data?.source_breakdown ?? [];
   const painDistribution = stats.data?.pain_distribution ?? [];
   const liveSources = (sources.data ?? [])
@@ -100,6 +134,12 @@ export function Dashboard() {
           created_at: "",
         }));
   const latestScan = scans.data?.[0];
+  const latestScanTone: "info" | "success" | "danger" =
+    latestScan?.status === "failed"
+      ? "danger"
+      : latestScan?.status === "completed"
+        ? "success"
+        : "info";
 
   function updateScanSource(source: string) {
     setScanSource(source);
@@ -117,21 +157,14 @@ export function Dashboard() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
-        <div>
-          <h1 className="text-3xl font-semibold text-ink">
-            Opportunity dashboard
-          </h1>
-          <p className="mt-2 text-slate-600">
-            Process fixture discussions into ranked, evidence-backed project
-            ideas.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <button
+      <PageHeader
+        title="Opportunity dashboard"
+        description="Process public-source discussions into ranked, evidence-backed project ideas, then inspect the signals behind each score."
+        actions={
+          <Button
             onClick={() => process.mutate()}
+            loading={process.isPending}
             disabled={process.isPending}
-            className="inline-flex items-center justify-center gap-2 rounded-lg bg-signal px-4 py-2 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-wait disabled:opacity-70"
           >
             {process.isPending ? (
               <RefreshCw className="animate-spin" size={16} />
@@ -139,42 +172,71 @@ export function Dashboard() {
               <Play size={16} />
             )}
             {process.isPending ? "Processing fixtures" : "Process demo data"}
-          </button>
-        </div>
-      </div>
+          </Button>
+        }
+      />
 
       <Card>
+        <div className="mb-4 flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
+          <div>
+            <div className="flex flex-wrap gap-2">
+              <Badge tone="green">Fixture mode works without credentials</Badge>
+              <Badge tone="blue">Live scan is optional</Badge>
+            </div>
+            <h2 className="mt-3 text-lg font-semibold text-ink">
+              Run the discovery loop
+            </h2>
+            <p className="mt-1 max-w-3xl text-sm leading-6 text-muted">
+              Start with demo data for a reliable review path, or run a
+              credential-aware public source scan when connectors are configured.
+              The ranking pass remains local-first and does not require a paid
+              LLM.
+            </p>
+          </div>
+          {latestScan ? (
+            <Badge
+              tone={
+                latestScan.status === "completed"
+                  ? "green"
+                  : latestScan.status === "failed"
+                    ? "red"
+                    : "blue"
+              }
+            >
+              Latest scan: {latestScan.status}
+            </Badge>
+          ) : null}
+        </div>
         <form
           className="grid gap-4 lg:grid-cols-[minmax(180px,0.8fr)_minmax(260px,1.5fr)_120px_auto] lg:items-end"
           onSubmit={submitScan}
         >
           <label className="block">
-            <span className="text-sm font-semibold text-slate-600">
-              Live source
-            </span>
-            <select
+            <span className="text-sm font-semibold text-muted">Live source</span>
+            <Select
               value={scanSource}
               onChange={(event) => updateScanSource(event.target.value)}
-              className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-ink shadow-sm focus:border-signal focus:outline-none focus:ring-2 focus:ring-teal-100"
+              className="mt-2"
             >
               {sourceOptions.map((source) => (
                 <option key={source.type} value={source.type}>
                   {source.name}
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
           <label className="block">
-            <span className="text-sm font-semibold text-slate-600">Query</span>
-            <input
+            <span className="text-sm font-semibold text-muted">Query</span>
+            <Input
               value={scanQuery}
               onChange={(event) => setScanQuery(event.target.value)}
-              className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-ink shadow-sm focus:border-signal focus:outline-none focus:ring-2 focus:ring-teal-100"
+              className="mt-2"
+              placeholder="Search phrase or issue query"
             />
           </label>
           <label className="block">
-            <span className="text-sm font-semibold text-slate-600">Limit</span>
-            <input
+            <span className="text-sm font-semibold text-muted">Limit</span>
+            <Input
               min={1}
               max={100}
               type="number"
@@ -184,13 +246,14 @@ export function Dashboard() {
                   Math.max(1, Math.min(100, Number(event.target.value) || 1)),
                 )
               }
-              className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-ink shadow-sm focus:border-signal focus:outline-none focus:ring-2 focus:ring-teal-100"
+              className="mt-2"
             />
           </label>
-          <button
+          <Button
             type="submit"
+            variant="secondary"
+            loading={runScan.isPending}
             disabled={runScan.isPending}
-            className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-ink hover:bg-slate-50 disabled:cursor-wait disabled:opacity-70"
           >
             {runScan.isPending ? (
               <RefreshCw className="animate-spin" size={16} />
@@ -198,184 +261,179 @@ export function Dashboard() {
               <Play size={16} />
             )}
             {runScan.isPending ? "Running scan" : "Run scan"}
-          </button>
+          </Button>
         </form>
+
+        <div className="mt-3 text-xs leading-5 text-muted">
+          Default queries are intentionally modest so reviewers can see the
+          workflow before widening a live scan.
+        </div>
+
+        {scanError ? (
+          <StateMessage tone="danger" title="Live scan did not complete" className="mt-4">
+            {errorMessage(scanError)}
+          </StateMessage>
+        ) : null}
+        {runScan.data ? (
+          <StateMessage tone="success" title="Live scan response received" className="mt-4">
+            {runScan.data.items_saved} saved from {runScan.data.items_found} found.
+            Status: {runScan.data.status}.
+          </StateMessage>
+        ) : null}
       </Card>
 
       {dataError && (
-        <Card className="border-red-200 bg-red-50">
-          <div className="flex gap-3 text-sm text-red-900">
-            <AlertTriangle className="mt-0.5 shrink-0" size={16} />
-            <div>
-              <p className="font-semibold">Could not load the demo workflow.</p>
-              <p className="mt-1 break-words text-red-800">
-                {errorMessage(dataError)}
-              </p>
-            </div>
-          </div>
-        </Card>
+        <StateMessage tone="danger" title="Could not load dashboard data">
+          {errorMessage(dataError)}
+        </StateMessage>
       )}
       {processError && (
-        <Card className="border-red-200 bg-red-50">
-          <div className="flex gap-3 text-sm text-red-900">
-            <AlertTriangle className="mt-0.5 shrink-0" size={16} />
-            <div>
-              <p className="font-semibold">Processing did not complete.</p>
-              <p className="mt-1 break-words text-red-800">
-                {errorMessage(processError)}
-              </p>
-            </div>
-          </div>
-        </Card>
+        <StateMessage tone="danger" title="Demo processing did not complete">
+          {errorMessage(processError)}
+        </StateMessage>
       )}
       {process.data && (
-        <Card className="border-teal-200 bg-teal-50">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-sm font-semibold text-teal-900">
-              Demo processed: {process.data.raw_items_loaded} raw items,{" "}
-              {process.data.signals_detected} signals,{" "}
-              {process.data.clusters_created} clusters,{" "}
-              {process.data.opportunities_created} opportunities.
-            </p>
-            {topOpportunity && (
+        <StateMessage
+          tone="success"
+          title={`Demo processed: ${process.data.raw_items_loaded} raw items, ${process.data.signals_detected} signals, ${process.data.clusters_created} clusters, ${process.data.opportunities_created} opportunities.`}
+          action={
+            topOpportunity ? (
               <Link
                 href={`/opportunities/${topOpportunity.id}`}
-                className="inline-flex items-center gap-1 text-sm font-semibold text-teal-900"
+                className="inline-flex min-h-9 items-center gap-1 rounded-product px-2 text-sm font-semibold text-success hover:bg-surface-success focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-success"
               >
                 Open top opportunity <ArrowRight size={15} />
               </Link>
-            )}
-          </div>
-        </Card>
+            ) : null
+          }
+        />
       )}
       {latestScan && (
-        <Card
-          className={
-            latestScan.status === "failed" ? "border-red-200 bg-red-50" : ""
-          }
+        <StateMessage
+          tone={latestScanTone}
+          title={`Recent scan: ${latestScan.source_name ?? latestScan.source_type ?? "Selected source"} (${latestScan.status})`}
         >
-          <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
-            <div className="text-sm text-slate-600">
-              <span className="font-semibold text-ink">Recent scan:</span>{" "}
-              {latestScan.source_name ?? latestScan.source_type ?? "Selected source"}{" "}
-              <Badge
-                tone={
-                  latestScan.status === "completed"
-                    ? "green"
-                    : latestScan.status === "failed"
-                      ? "red"
-                      : "blue"
-                }
-              >
-                {latestScan.status}
-              </Badge>
-              <span className="ml-2">
-                {latestScan.items_saved} saved from {latestScan.items_found} found
-              </span>
-              {latestScan.query ? (
-                <span className="ml-2 text-slate-500">
-                  Query: {latestScan.query}
-                </span>
-              ) : null}
-            </div>
-            {latestScan.status === "failed" && latestScan.error_message ? (
-              <p className="text-sm font-medium text-red-800">
-                {latestScan.error_message}
-              </p>
-            ) : null}
-          </div>
-        </Card>
+          {latestScan.items_saved} saved from {latestScan.items_found} found.
+          {latestScan.query ? ` Query: ${latestScan.query}.` : ""}
+          {latestScan.status === "failed" && latestScan.error_message
+            ? ` Error: ${latestScan.error_message}`
+            : ""}
+        </StateMessage>
       )}
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {metricCards.map(([label, value]) => (
-          <Card key={label.toString()}>
-            <p className="text-sm font-medium text-slate-500">{label}</p>
-            <p className="mt-2 text-3xl font-semibold text-ink">{value}</p>
-          </Card>
+        {metricCards.map((metric) => (
+          <MetricTile
+            key={metric.label}
+            label={metric.label}
+            value={metric.value}
+            hint={metric.hint}
+          />
         ))}
       </div>
 
       <div className="grid gap-4 2xl:grid-cols-[minmax(0,1.45fr)_minmax(340px,0.75fr)]">
         <Card className="min-w-0">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-ink">
-              Top opportunities
-            </h2>
-            <Badge tone="blue">Ranked by score</Badge>
+          <div className="mb-4 flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
+            <div>
+              <h2 className="text-lg font-semibold text-ink">
+                Top opportunities
+              </h2>
+              <p className="mt-1 text-sm text-muted">
+                Ranked from real evidence fields, with score and source context
+                kept visible.
+              </p>
+            </div>
+            <Badge tone="blue">Ranked by computed score</Badge>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[760px] text-left text-sm">
-              <thead className="border-b border-slate-200 text-xs uppercase text-slate-500">
+
+          <TableShell tableClassName="min-w-[760px]">
+            <thead className="border-b border-border text-xs uppercase text-muted">
+              <tr>
+                <th className="py-3 pr-4">Title</th>
+                <th className="py-3 pr-4">Score</th>
+                <th className="py-3 pr-4">Signals</th>
+                <th className="py-3 pr-4">Top source</th>
+                <th className="py-3 pr-4">Feasibility</th>
+                <th className="py-3 pr-4">Created</th>
+                <th className="py-3">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {isLoadingWorkflow && (
+                <>
+                  <tr>
+                    <td colSpan={7} className="py-4">
+                      <div className="h-3 w-3/4 animate-pulse rounded-full bg-surface-muted" />
+                    </td>
+                  </tr>
+                  <tr>
+                    <td colSpan={7} className="py-4">
+                      <div className="h-3 w-1/2 animate-pulse rounded-full bg-surface-muted" />
+                    </td>
+                  </tr>
+                </>
+              )}
+              {!isLoadingWorkflow && !hasOpportunities && (
                 <tr>
-                  <th className="py-3 pr-4">Title</th>
-                  <th className="py-3 pr-4">Score</th>
-                  <th className="py-3 pr-4">Signals</th>
-                  <th className="py-3 pr-4">Top source</th>
-                  <th className="py-3 pr-4">Feasibility</th>
-                  <th className="py-3 pr-4">Created</th>
-                  <th className="py-3">Action</th>
+                  <td colSpan={7} className="py-8 text-center">
+                    <div className="mx-auto max-w-md rounded-product border border-dashed border-border bg-surface-muted px-4 py-6">
+                      <p className="text-sm font-semibold text-ink">
+                        No ranked opportunities yet
+                      </p>
+                      <p className="mt-2 text-sm leading-6 text-muted">
+                        Process demo data to generate evidence-backed cards from
+                        fixtures, then open the top result for its source trail.
+                      </p>
+                    </div>
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {isLoadingWorkflow && (
-                  <tr>
-                    <td
-                      colSpan={7}
-                      className="py-8 text-center text-sm text-slate-500"
-                    >
-                      Loading fixture metrics and ranked opportunities...
-                    </td>
-                  </tr>
-                )}
-                {!isLoadingWorkflow && !hasOpportunities && (
-                  <tr>
-                    <td
-                      colSpan={7}
-                      className="py-8 text-center text-sm text-slate-500"
-                    >
-                      No ranked opportunities yet. Process demo data to generate
-                      evidence-backed cards from fixtures.
-                    </td>
-                  </tr>
-                )}
-                {!isLoadingWorkflow &&
-                  (opportunities.data ?? []).map((opportunity) => (
-                    <tr
-                      key={opportunity.id}
-                      className="border-b border-slate-100"
-                    >
-                      <td className="max-w-md py-3 pr-4 font-medium text-ink">
+              )}
+              {!isLoadingWorkflow &&
+                (opportunities.data ?? []).map((opportunity) => (
+                  <tr
+                    key={opportunity.id}
+                    className="border-b border-border last:border-b-0"
+                  >
+                    <td className="max-w-md py-3 pr-4">
+                      <Link
+                        href={`/opportunities/${opportunity.id}`}
+                        className="font-semibold text-ink hover:text-signal"
+                      >
                         {opportunity.title}
-                      </td>
-                      <td className="py-3 pr-4">
+                      </Link>
+                    </td>
+                    <td className="py-3 pr-4">
+                      <span className="font-semibold tabular-nums text-ink">
                         {Math.round(opportunity.opportunity_score * 100)}
-                      </td>
-                      <td className="py-3 pr-4">{opportunity.signal_count}</td>
-                      <td className="py-3 pr-4">
-                        <Badge>{opportunity.top_source}</Badge>
-                      </td>
-                      <td className="py-3 pr-4">
-                        <div className="w-28">
-                          <ScoreBar value={opportunity.feasibility_score} />
-                        </div>
-                      </td>
-                      <td className="py-3 pr-4">
-                        {new Date(opportunity.created_at).toLocaleDateString()}
-                      </td>
-                      <td className="py-3">
-                        <Link
-                          className="font-semibold text-signal"
-                          href={`/opportunities/${opportunity.id}`}
-                        >
-                          Open
-                        </Link>
-                      </td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
-          </div>
+                      </span>
+                    </td>
+                    <td className="py-3 pr-4 tabular-nums">
+                      {opportunity.signal_count}
+                    </td>
+                    <td className="py-3 pr-4">
+                      <Badge>{opportunity.top_source}</Badge>
+                    </td>
+                    <td className="py-3 pr-4">
+                      <div className="w-28">
+                        <ScoreBar value={opportunity.feasibility_score} />
+                      </div>
+                    </td>
+                    <td className="py-3 pr-4 text-muted">
+                      {new Date(opportunity.created_at).toLocaleDateString()}
+                    </td>
+                    <td className="py-3">
+                      <Link
+                        className="inline-flex items-center gap-1 font-semibold text-signal hover:text-[var(--ts-accent-hover)]"
+                        href={`/opportunities/${opportunity.id}`}
+                      >
+                        Open <ArrowRight size={14} />
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+            </tbody>
+          </TableShell>
         </Card>
         <div className="grid min-w-0 gap-4 md:grid-cols-2 2xl:grid-cols-1">
           <Card>
@@ -396,15 +454,21 @@ export function Dashboard() {
                       {sourceBreakdown.map((entry, index) => (
                         <Cell
                           key={entry.source}
-                          fill={colors[index % colors.length]}
+                          fill={chartColors[index % chartColors.length]}
                         />
                       ))}
                     </Pie>
-                    <Tooltip />
+                    <Tooltip
+                      contentStyle={{
+                        borderColor: "var(--ts-border)",
+                        borderRadius: 8,
+                        color: "var(--ts-text)",
+                      }}
+                    />
                   </PieChart>
                 </ResponsiveContainer>
               ) : (
-                <div className="flex h-full items-center justify-center text-center text-sm text-slate-500">
+                <div className="flex h-full items-center justify-center rounded-product border border-dashed border-border bg-surface-muted px-4 text-center text-sm text-muted">
                   Source mix appears after fixture data is processed.
                 </div>
               )}
@@ -421,12 +485,22 @@ export function Dashboard() {
                     <CartesianGrid strokeDasharray="3 3" vertical={false} />
                     <XAxis dataKey="bucket" tick={{ fontSize: 11 }} />
                     <YAxis allowDecimals={false} />
-                    <Tooltip />
-                    <Bar dataKey="count" fill="#0f766e" radius={[4, 4, 0, 0]} />
+                    <Tooltip
+                      contentStyle={{
+                        borderColor: "var(--ts-border)",
+                        borderRadius: 8,
+                        color: "var(--ts-text)",
+                      }}
+                    />
+                    <Bar
+                      dataKey="count"
+                      fill="var(--ts-chart-1)"
+                      radius={[4, 4, 0, 0]}
+                    />
                   </BarChart>
                 </ResponsiveContainer>
               ) : (
-                <div className="flex h-full items-center justify-center text-center text-sm text-slate-500">
+                <div className="flex h-full items-center justify-center rounded-product border border-dashed border-border bg-surface-muted px-4 text-center text-sm text-muted">
                   Pain distribution appears after signals are detected.
                 </div>
               )}

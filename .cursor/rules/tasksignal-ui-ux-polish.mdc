@@ -1,0 +1,70 @@
+---
+description: TaskSignal frontend UX, UI, Hallmark, and Impeccable polish rules
+globs: "apps/web/src/**/*.{ts,tsx,css}"
+alwaysApply: false
+---
+
+# TaskSignal UI And UX Polish Rules
+
+TaskSignal is a product-register interface. Design serves the workflow. The target feeling is dense, calm, transparent, trustworthy, technical, utilitarian, and research-grade.
+
+## Preserve The Design System
+
+- Use the existing restrained product system: cool tinted background, tinted white surfaces, deep ink text, cool slate muted text, restrained teal primary action and selection, amber for scoring or attention states, cool slate hairline borders.
+- Keep the system font stack and fixed product type scale. Do not introduce display fonts.
+- Prefer tokens and shared utilities over hard-coded one-off values.
+- Cards are only for bounded summaries, repeated evidence items, and focused panels. Do not nest cards.
+- Keep the desktop left navigation and single-column mobile flow.
+- Use lucide-react icons already present in the project.
+
+## Hallmark Guardrails
+
+- No invented metrics, fake proof bars, testimonials, logos, adoption numbers, or review claims.
+- No gradient text.
+- No decorative glassmorphism.
+- No fake browser chrome, fake IDE chrome, fake phone frames, or fake terminal windows.
+- No colored side-stripe borders wider than 1px on cards, list items, callouts, alerts, or blockquotes.
+- No identical icon plus heading plus paragraph card grids as the dominant structure.
+- No generic hero-first marketing page when the useful product workflow should be visible.
+- Preserve route ownership and component boundaries. Do not delete route trees or production components unless the user approved a file-level deletion plan.
+
+## Impeccable Product Polish
+
+- Align first, then polish. Name drift as missing token, one-off implementation, or conceptual misalignment.
+- Every interactive element needs default, hover, focus-visible, active, disabled, loading, error where relevant, and success where relevant.
+- Focus indicators must remain visible and high contrast.
+- Loading states should be skeletons or clear inline state, not only centered spinners.
+- Empty states should teach the next action.
+- Error states need recovery paths and should preserve audit context.
+- Motion must convey state only, 150 to 250 ms, no bounce or elastic, and respect `prefers-reduced-motion`.
+- Use predictable product patterns: side nav, page headers, tables, filters, tabs or segmented controls when useful, inline actions where possible.
+
+## TaskSignal-Specific UX Priorities
+
+- Make the main journey obvious: process fixture data, review ranked opportunities, inspect evidence, export a Codex-ready prompt.
+- Keep fixture mode and live scans visually distinct. Fixture mode should feel safe and reproducible; live scans should expose source, query, limit, status, and errors.
+- Put evidence and score rationale ahead of decoration.
+- Make source attribution visible near evidence.
+- Show privacy posture where it matters: public sources, source URLs, author hashes, no raw usernames.
+- Tables should scan quickly on desktop and degrade responsibly on mobile.
+- Long opportunity titles, queries, URLs, and prompt content must wrap without breaking layout.
+
+## Responsive And Accessibility Floor
+
+Verify at 320, 375, 414, 768, 1024, and desktop widths.
+
+- No horizontal page scroll. Tables may scroll inside their own region.
+- Touch targets should be at least 44 px on touch layouts.
+- Text must not overflow buttons, badges, nav items, cards, panels, or fixed-width columns.
+- Use semantic headings, labels, buttons, links, table headers, and status messaging.
+- Preserve keyboard navigation and logical tab order.
+
+## Preferred Files To Improve
+
+- `apps/web/src/components/ui.tsx`: shared primitives and states.
+- `apps/web/src/components/app-shell.tsx`: active nav, mobile nav, skip link, shell density.
+- `apps/web/src/app/globals.css`: tokens, focus, reduced motion, background restraint.
+- `apps/web/src/features/dashboard.tsx`: workflow hierarchy, live scan controls, metrics, table, chart empty states.
+- `apps/web/src/features/opportunity-detail.tsx`: score explanation, evidence hierarchy, attribution, prompt/export actions.
+- `apps/web/src/features/prompt-view.tsx`: prompt copy/download workflow, loading/error/success states.
+- `apps/web/src/features/scans.tsx`, `sources.tsx`, `search.tsx`: consistency, empty/loading/error states, scanability.

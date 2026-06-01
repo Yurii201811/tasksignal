@@ -1,0 +1,46 @@
+---
+description: TaskSignal project rules for Cursor Agent and Composer work
+alwaysApply: true
+---
+
+# TaskSignal Project Rules
+
+Treat repository files as the source of truth. Read `PRODUCT.md`, `DESIGN.md`, `README.md`, `docs/architecture.md`, and task-relevant source files before editing.
+
+## Product Boundary
+
+- TaskSignal is a local-first application, not a published library.
+- Preserve the fixture demo path. It must work without paid services, hosted infra, or live API credentials.
+- Preserve official API connector boundaries and rate-limit honesty.
+- Preserve privacy defaults: no raw username retention, keep `author_hash`, keep source URLs for attribution, and never add spam or outreach automation language.
+- Do not invent adoption proof, customer numbers, usage metrics, testimonials, or benchmark claims.
+- Keep public-facing wording honest: early MVP, reproducible demo, CI, release hygiene, docs, and contribution path are the current strengths.
+
+## Engineering Boundary
+
+- Keep changes scoped to the requested surface.
+- Follow existing Next.js, React Query, Tailwind, FastAPI, and test patterns.
+- Do not add production dependencies without explaining why and asking first.
+- Do not touch secrets, `.env`, credentials, deployment keys, billing, auth, or permissions unless explicitly asked.
+- Do not change backend API shapes for UI polish unless the mismatch is documented and the smallest safe change is clear.
+- If docs, code, tests, and GitHub issues disagree, call out the mismatch before changing behavior.
+
+## Checks
+
+Use the narrowest useful check first, then broaden when the change touches shared UI or public behavior.
+
+Frontend:
+
+```bash
+cd apps/web
+npm test
+npm run build
+```
+
+Release readiness:
+
+```bash
+python3 scripts/release_check.py
+```
+
+Report changed files, checks run, browser verification, and remaining risk.

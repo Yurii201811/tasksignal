@@ -1,65 +1,144 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus } from "lucide-react";
+import { Plus, RefreshCw } from "lucide-react";
 import { api } from "@/lib/api";
-import { Badge, Card } from "@/components/ui";
+import {
+  Badge,
+  Button,
+  Card,
+  PageHeader,
+  StateMessage,
+  TableShell,
+} from "@/components/ui";
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "The request failed.";
+}
+
+function statusTone(status: string): "green" | "amber" | "blue" | "red" {
+  if (status === "completed") return "green";
+  if (status === "failed") return "red";
+  if (status === "running" || status === "queued") return "blue";
+  return "amber";
+}
+
+function dateOrDash(value: string | null) {
+  return value ? new Date(value).toLocaleString() : "-";
+}
 
 export function Scans() {
   const queryClient = useQueryClient();
   const scans = useQuery({ queryKey: ["scans"], queryFn: api.scans });
   const create = useMutation({
     mutationFn: api.createScan,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["scans"] })
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["scans"] }),
   });
+
   return (
     <div className="space-y-6">
-      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
-        <div>
-          <h1 className="text-3xl font-semibold text-ink">Scans</h1>
-          <p className="mt-2 text-slate-600">Demo processing creates completed scan records. Live scheduled ingestion is documented but safe by default.</p>
-        </div>
-        <button
-          onClick={() =>
-            create.mutate({
-              source: "github",
-              query: "manually copy paste is:issue is:open",
-              limit: 30,
-            })
-          }
-          disabled={create.isPending}
-          className="inline-flex items-center gap-2 rounded-lg bg-ink px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-400"
-        >
-          <Plus size={16} /> {create.isPending ? "Running scan" : "Run public GitHub scan"}
-        </button>
-      </div>
+      <PageHeader
+        title="Scans"
+        description="Review fixture and live-source ingestion runs with status, query, timing, and saved item counts."
+        actions={
+          <Button
+            onClick={() =>
+              create.mutate({
+                source: "github",
+                query: "manually copy paste is:issue is:open",
+                limit: 30,
+              })
+            }
+            loading={create.isPending}
+            disabled={create.isPending}
+          >
+            {create.isPending ? (
+              <RefreshCw className="animate-spin" size={16} />
+            ) : (
+              <Plus size={16} />
+            )}
+            {create.isPending ? "Running scan" : "Run public GitHub scan"}
+          </Button>
+        }
+      />
+
+      {create.error ? (
+        <StateMessage tone="danger" title="Scan did not complete">
+          {errorMessage(create.error)}
+        </StateMessage>
+      ) : null}
+      {create.data ? (
+        <StateMessage tone="success" title="Scan response received">
+          {create.data.items_saved} saved from {create.data.items_found} found.
+          Status: {create.data.status}.
+        </StateMessage>
+      ) : null}
+      {scans.error ? (
+        <StateMessage tone="danger" title="Could not load scan history">
+          {errorMessage(scans.error)}
+        </StateMessage>
+      ) : null}
+
       <Card>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] text-left text-sm">
-            <thead className="border-b border-slate-200 text-xs uppercase text-slate-500">
+        <TableShell tableClassName="min-w-[760px]">
+          <thead className="border-b border-border text-xs uppercase text-muted">
+            <tr>
+              <th className="py-3 pr-4">Status</th>
+              <th className="py-3 pr-4">Source</th>
+              <th className="py-3 pr-4">Query</th>
+              <th className="py-3 pr-4">Started</th>
+              <th className="py-3 pr-4">Finished</th>
+              <th className="py-3 pr-4">Found</th>
+              <th className="py-3">Saved</th>
+            </tr>
+          </thead>
+          <tbody>
+            {scans.isLoading ? (
               <tr>
-                <th className="py-3 pr-4">Status</th>
-                <th className="py-3 pr-4">Query</th>
-                <th className="py-3 pr-4">Started</th>
-                <th className="py-3 pr-4">Finished</th>
-                <th className="py-3 pr-4">Found</th>
-                <th className="py-3">Saved</th>
+                <td colSpan={7} className="py-8 text-center text-sm text-muted">
+                  Loading scan history...
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {(scans.data ?? []).map((scan) => (
-                <tr key={scan.id} className="border-b border-slate-100">
-                  <td className="py-3 pr-4"><Badge tone={scan.status === "completed" ? "green" : "amber"}>{scan.status}</Badge></td>
-                  <td className="py-3 pr-4">{scan.query ?? "—"}</td>
-                  <td className="py-3 pr-4">{new Date(scan.started_at).toLocaleString()}</td>
-                  <td className="py-3 pr-4">{scan.finished_at ? new Date(scan.finished_at).toLocaleString() : "—"}</td>
-                  <td className="py-3 pr-4">{scan.items_found}</td>
-                  <td className="py-3">{scan.items_saved}</td>
+            ) : null}
+            {!scans.isLoading && (scans.data ?? []).length === 0 ? (
+              <tr>
+                <td colSpan={7} className="py-8 text-center">
+                  <div className="mx-auto max-w-md rounded-product border border-dashed border-border bg-surface-muted px-4 py-6">
+                    <p className="text-sm font-semibold text-ink">
+                      No scans recorded yet
+                    </p>
+                    <p className="mt-2 text-sm leading-6 text-muted">
+                      Run fixture processing from the dashboard or start the
+                      public GitHub scan to create an auditable scan record.
+                    </p>
+                  </div>
+                </td>
+              </tr>
+            ) : null}
+            {!scans.isLoading &&
+              (scans.data ?? []).map((scan) => (
+                <tr key={scan.id} className="border-b border-border last:border-b-0">
+                  <td className="py-3 pr-4">
+                    <Badge tone={statusTone(scan.status)}>{scan.status}</Badge>
+                  </td>
+                  <td className="py-3 pr-4 text-ink">
+                    {scan.source_name ?? scan.source_type ?? "-"}
+                  </td>
+                  <td className="max-w-sm break-words py-3 pr-4 text-muted">
+                    {scan.query ?? "-"}
+                  </td>
+                  <td className="py-3 pr-4 text-muted">
+                    {dateOrDash(scan.started_at)}
+                  </td>
+                  <td className="py-3 pr-4 text-muted">
+                    {dateOrDash(scan.finished_at)}
+                  </td>
+                  <td className="py-3 pr-4 tabular-nums">{scan.items_found}</td>
+                  <td className="py-3 tabular-nums">{scan.items_saved}</td>
                 </tr>
               ))}
-            </tbody>
-          </table>
-        </div>
+          </tbody>
+        </TableShell>
       </Card>
     </div>
   );

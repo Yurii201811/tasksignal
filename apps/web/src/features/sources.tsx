@@ -3,32 +3,67 @@
 import { useQuery } from "@tanstack/react-query";
 import { Database, KeyRound } from "lucide-react";
 import { api } from "@/lib/api";
-import { Badge, Card } from "@/components/ui";
+import { Badge, Card, PageHeader, StateMessage } from "@/components/ui";
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "The request failed.";
+}
 
 export function Sources() {
-  const { data } = useQuery({ queryKey: ["sources"], queryFn: api.sources });
+  const sources = useQuery({ queryKey: ["sources"], queryFn: api.sources });
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-semibold text-ink">Sources</h1>
-        <p className="mt-2 text-slate-600">Fixture mode works immediately. Real connectors stay behind credentials and API limits.</p>
-      </div>
+      <PageHeader
+        title="Sources"
+        description="Fixture mode works immediately. Live connectors remain explicit about credentials, public APIs, and rate limits."
+      />
+
+      {sources.error ? (
+        <StateMessage tone="danger" title="Could not load sources">
+          {errorMessage(sources.error)}
+        </StateMessage>
+      ) : null}
+
+      {sources.isLoading ? (
+        <StateMessage tone="info" title="Loading source registry">
+          Checking fixture and live connector availability.
+        </StateMessage>
+      ) : null}
+
+      {!sources.isLoading && (sources.data ?? []).length === 0 ? (
+        <StateMessage tone="warning" title="No sources are registered">
+          Fixture data can still be processed if the backend has local fixture
+          files available.
+        </StateMessage>
+      ) : null}
+
       <div className="grid gap-4 md:grid-cols-2">
-        {(data ?? []).map((source) => (
+        {(sources.data ?? []).map((source) => (
           <Card key={source.id}>
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex items-start gap-3">
-                <span className="rounded-lg bg-slate-100 p-2 text-signal"><Database size={18} /></span>
-                <div>
-                  <h2 className="font-semibold text-ink">{connectorName(source.type, source.name)}</h2>
-                  <p className="mt-1 text-sm text-slate-600">{connectorCopy(source.type)}</p>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+              <div className="flex min-w-0 items-start gap-3">
+                <span className="rounded-product bg-surface-muted p-2 text-signal">
+                  <Database size={18} />
+                </span>
+                <div className="min-w-0">
+                  <h2 className="break-words font-semibold text-ink">
+                    {connectorName(source.type, source.name)}
+                  </h2>
+                  <p className="mt-1 text-sm leading-6 text-muted">
+                    {connectorCopy(source.type)}
+                  </p>
                 </div>
               </div>
-              <Badge tone={source.enabled ? "green" : "slate"}>{source.enabled ? "Enabled" : "Disabled"}</Badge>
+              <div className="shrink-0">
+                <Badge tone={source.enabled ? "green" : "slate"}>
+                  {source.enabled ? "Enabled" : "Disabled"}
+                </Badge>
+              </div>
             </div>
-            <div className="mt-4 flex items-center gap-2 text-sm text-slate-600">
-              <KeyRound size={16} />
-              {credentialStatus(source.type)}
+            <div className="mt-4 flex items-start gap-2 border-t border-border pt-4 text-sm leading-6 text-muted">
+              <KeyRound className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>{credentialStatus(source.type)}</span>
             </div>
           </Card>
         ))}
@@ -40,10 +75,11 @@ export function Sources() {
 function connectorCopy(type: string) {
   const copy: Record<string, string> = {
     fixture: "Loads local JSON fixtures for a no-credential demo pipeline.",
-    reddit: "Uses Reddit OAuth variables when configured.",
+    reddit: "Uses Reddit OAuth variables when configured on the backend.",
     hackernews: "Uses the public Hacker News API.",
-    github: "Uses GitHub REST search, optionally with GITHUB_TOKEN.",
-    stackexchange: "Uses Stack Exchange API, optionally with STACK_EXCHANGE_KEY."
+    github: "Uses GitHub REST search, optionally with GITHUB_TOKEN on the backend.",
+    stackexchange:
+      "Uses the Stack Exchange API, optionally with STACK_EXCHANGE_KEY on the backend.",
   };
   return copy[type] ?? "Custom source connector.";
 }
@@ -54,12 +90,14 @@ function connectorName(type: string, fallback: string) {
     reddit: "Reddit API",
     hackernews: "Hacker News API",
     github: "GitHub Issues API",
-    stackexchange: "Stack Exchange API"
+    stackexchange: "Stack Exchange API",
   };
   return names[type] ?? fallback;
 }
 
 function credentialStatus(type: string) {
-  if (type === "fixture" || type === "hackernews") return "No secret required for demo usage.";
-  return "Credential optional or required for live scans. Not stored in the browser.";
+  if (type === "fixture" || type === "hackernews") {
+    return "No secret required for demo usage.";
+  }
+  return "Credential optional or required for live scans. Secrets are backend environment variables, not browser storage.";
 }
