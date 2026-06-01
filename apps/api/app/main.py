@@ -25,7 +25,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="TaskSignal API",
         description="AI-assisted problem discovery engine with local fixture demo mode.",
-        version="0.1.1",
+        version="0.1.2",
         lifespan=lifespan,
     )
     app.add_middleware(

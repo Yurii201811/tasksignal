@@ -19,6 +19,7 @@ THEME_KEYWORDS = {
     "ci_debugging": ["github actions", "ci", "logs", "yaml", "workflow"],
     "spreadsheet_report": ["stripe", "csv", "spreadsheet", "report", "google sheets"],
 }
+MIN_CLUSTER_SIZE = 2
 TITLE_STOP_WORDS = {
     "about",
     "after",
@@ -137,7 +138,7 @@ def cluster_items(items: list[dict], embeddings: dict[UUID, list[float]]) -> lis
 
     candidates: list[ClusterCandidate] = []
     for key, group_items in merged.items():
-        if len(group_items) < 3:
+        if len(group_items) < MIN_CLUSTER_SIZE:
             continue
         group_ids = [item["id"] for item in group_items]
         candidates.append(
@@ -150,7 +151,7 @@ def cluster_items(items: list[dict], embeddings: dict[UUID, list[float]]) -> lis
             )
         )
     for key, group_items in generic_groups:
-        if len(group_items) < 3:
+        if len(group_items) < MIN_CLUSTER_SIZE:
             continue
         group_ids = [item["id"] for item in group_items]
         candidates.append(

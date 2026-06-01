@@ -22,7 +22,7 @@ import { Badge, Card, ScoreBar } from "@/components/ui";
 const colors = ["#0f766e", "#d97706", "#2563eb", "#7c3aed", "#dc2626"];
 const scanDefaults: Record<string, string> = {
   hackernews: "ask",
-  github: "is:issue is:open bug automation",
+  github: "manually copy paste is:issue is:open",
   stackexchange: "automation",
   reddit: "manual workflow automation",
 };
@@ -34,8 +34,8 @@ function errorMessage(error: unknown) {
 
 export function Dashboard() {
   const queryClient = useQueryClient();
-  const [scanSource, setScanSource] = useState("hackernews");
-  const [scanQuery, setScanQuery] = useState(scanDefaults.hackernews);
+  const [scanSource, setScanSource] = useState("github");
+  const [scanQuery, setScanQuery] = useState(scanDefaults.github);
   const [scanLimit, setScanLimit] = useState(30);
   const stats = useQuery({ queryKey: ["stats"], queryFn: api.stats });
   const opportunities = useQuery({

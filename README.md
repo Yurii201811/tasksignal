@@ -10,11 +10,14 @@ TaskSignal is an AI-assisted engine that mines public developer and community di
 
 TaskSignal is a portfolio-ready MVP built by Yurii Bakurov. It is designed to run locally with fixture data out of the box, then run live API-backed research workflows for supported public sources when credentials are provided.
 
+Current public posture: TaskSignal is an early public application repository, not a widely adopted package. Its strongest evidence today is reproducibility, release hygiene, CI, security/privacy documentation, contributor issues, and a browser-verified demo flow. See the [demo evidence snapshot](docs/demo-evidence.md) and [Codex for OSS evidence](docs/codex-for-oss-application.md) for the current review package.
+
 Useful starting points:
 
 - [Product context](PRODUCT.md)
 - [Architecture](docs/architecture.md)
 - [API reference](docs/api.md)
+- [Demo evidence snapshot](docs/demo-evidence.md)
 - [Deployment notes](docs/deployment.md)
 - [Data ethics](docs/data-ethics.md)
 - [Model card](docs/model-card.md)
@@ -118,6 +121,16 @@ make release-check
 ## Distribution
 
 TaskSignal is currently an application repository, not a published Python or npm library. Use the source checkout or Docker Compose workflow above. Reusable packages may be split out later if a stable library boundary emerges.
+
+## Reviewer Quick Check
+
+For a quick public review, inspect:
+
+- [Latest release](https://github.com/Yurii201811/tasksignal/releases/tag/v0.1.2)
+- [Open contributor issues](https://github.com/Yurii201811/tasksignal/issues)
+- [Release-readiness workflow](https://github.com/Yurii201811/tasksignal/actions/workflows/release-check.yml)
+- [Demo evidence snapshot](docs/demo-evidence.md)
+- [Threat model](docs/threat-model.md)
 
 ## Repository Layout
 

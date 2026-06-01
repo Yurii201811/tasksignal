@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections import Counter
 from typing import Any
 
@@ -51,13 +52,40 @@ def choose_theme(title: str) -> dict:
     }
 
 
+def identity_terms(item: dict) -> set[str]:
+    terms: set[str] = set()
+    for key in ("author", "author_hash", "username", "user", "raw_author"):
+        value = item.get(key)
+        if isinstance(value, str) and value:
+            terms.add(value.lower())
+            terms.update(part for part in re_split_identity(value) if len(part) > 2)
+    return terms
+
+
+def re_split_identity(value: str) -> list[str]:
+    cleaned = value.lower().replace("@", " ")
+    for separator in ("-", "_", ".", ":"):
+        cleaned = cleaned.replace(separator, " ")
+    return [part for part in cleaned.split() if part]
+
+
+def redact_known_identity(value: Any, item: dict) -> str:
+    text = str(value or "")
+    for term in sorted(identity_terms(item), key=len, reverse=True):
+        if len(term) < 3:
+            continue
+        text = re.sub(re.escape(term), "[redacted author]", text, flags=re.IGNORECASE)
+    return text
+
+
 def common_phrases(items: list[dict]) -> list[str]:
     words: Counter[str] = Counter()
     stop = {"the", "and", "that", "with", "this", "into", "from", "every", "manually", "there"}
     for item in items:
+        blocked = identity_terms(item)
         for token in f"{item['title']} {item['body']}".lower().replace("-", " ").split():
             cleaned = token.strip(".,!?():;\"'")
-            if len(cleaned) > 4 and cleaned not in stop:
+            if len(cleaned) > 4 and cleaned not in stop and cleaned not in blocked:
                 words[cleaned] += 1
     return [word for word, _ in words.most_common(8)]
 
@@ -76,8 +104,8 @@ def clean_excerpt(value: Any, max_length: int = 220) -> str:
 def evidence_excerpt(item: dict) -> str:
     spans = item.get("evidence_spans") or []
     if spans:
-        return clean_excerpt(spans[0])
-    return clean_excerpt(item.get("body"))
+        return clean_excerpt(redact_known_identity(spans[0], item))
+    return clean_excerpt(redact_known_identity(item.get("body"), item))
 
 
 def evidence_pack(items: list[dict], limit: int = 4) -> str:

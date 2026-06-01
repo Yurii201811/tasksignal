@@ -20,11 +20,17 @@ export function Scans() {
           <p className="mt-2 text-slate-600">Demo processing creates completed scan records. Live scheduled ingestion is documented but safe by default.</p>
         </div>
         <button
-          onClick={() => create.mutate({ source: "hackernews", query: "ask", limit: 30 })}
+          onClick={() =>
+            create.mutate({
+              source: "github",
+              query: "manually copy paste is:issue is:open",
+              limit: 30,
+            })
+          }
           disabled={create.isPending}
           className="inline-flex items-center gap-2 rounded-lg bg-ink px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-400"
         >
-          <Plus size={16} /> {create.isPending ? "Running scan" : "Run Ask HN scan"}
+          <Plus size={16} /> {create.isPending ? "Running scan" : "Run public GitHub scan"}
         </button>
       </div>
       <Card>

@@ -72,6 +72,25 @@ def test_scan_job_success_path_with_mocked_connector(db_session) -> None:
     assert "author" not in raw_item.raw_json
 
 
+def test_scan_job_creates_live_opportunity_from_small_signal_set(db_session) -> None:
+    job = process_scan(
+        db_session,
+        source="mock",
+        query="github actions",
+        limit=2,
+        connector=MockConnector([live_signal_item(str(index)) for index in range(2)]),
+    )
+
+    assert job.status == "completed"
+    assert job.items_found == 2
+    assert job.items_saved == 2
+
+    opportunities = db_session.scalars(select(Opportunity)).all()
+    assert len(opportunities) == 1
+    assert opportunities[0].generated_prompt
+    assert "Top source excerpts" in opportunities[0].generated_prompt
+
+
 def test_scan_job_failure_path(db_session) -> None:
     job = process_scan(
         db_session,

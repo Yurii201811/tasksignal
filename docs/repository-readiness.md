@@ -27,3 +27,15 @@ AI-assisted problem discovery engine that turns public developer complaints into
 ## Suggested Topics
 
 `ai`, `product-discovery`, `fastapi`, `nextjs`, `postgresql`, `pgvector`, `machine-learning`, `developer-tools`, `portfolio-project`
+
+## Public Signal Gap
+
+Current public evidence is mostly maintainer-created: release hygiene, tests, screenshots, documentation, issues, and a reproducible fixture demo. That is enough to show seriousness, but it is not the same as adoption.
+
+The next material readiness improvements are:
+
+1. Get at least three independent testers to run the fixture demo and file feedback issues.
+1. Link any public mentions, demos, or user feedback in `docs/codex-for-oss-application.md`.
+1. Keep the release-readiness workflow green before every public release.
+1. Close at least one security/privacy hardening issue with tests.
+1. Add a hosted read-only demo only after data retention, connector limits, and deployment credentials are reviewed.

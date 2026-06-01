@@ -2,6 +2,23 @@
 
 All notable public-facing changes to TaskSignal are recorded here.
 
+## 0.1.2 - 2026-06-01
+
+OSS review-readiness polish.
+
+### Added
+
+- Demo evidence snapshot with fixture counts, source mix, top generated opportunities, and reproduction commands.
+- Release-readiness GitHub Action so the public repository shows the release gate in CI.
+- Repository readiness notes that call out the remaining public-signal gap honestly.
+
+### Fixed
+
+- Default live scan now uses a no-credential GitHub Issues query that is more likely to produce actionable signals than the broad Ask HN feed.
+- Live scans can create reviewable opportunities from smaller related signal sets, which makes first-run public-source checks more useful.
+- Prompt generation now redacts or skips known author identifiers when building exported evidence excerpts and common phrases.
+- Added regression coverage to keep raw author identifiers out of generated prompt exports.
+
 ## 0.1.1 - 2026-05-31
 
 Application-readiness polish.
