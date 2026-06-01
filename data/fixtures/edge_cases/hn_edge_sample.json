@@ -1,0 +1,17 @@
+{
+  "source": "hackernews",
+  "items": [
+    {
+      "external_id": "hn-edge-sparse-1",
+      "title": "Ask HN: minimal post with no text body about a painful manual workflow"
+    },
+    {
+      "external_id": "hn-edge-malformed-1",
+      "title": "Ask HN: timestamp is a string and most metadata fields are missing",
+      "text": "I keep manually copy pasting CI logs into search every single week and it is painful.",
+      "by": "edge_hn_user",
+      "time": "1777118400",
+      "url": "https://news.ycombinator.com/item?id=hn-edge-malformed-1"
+    }
+  ]
+}

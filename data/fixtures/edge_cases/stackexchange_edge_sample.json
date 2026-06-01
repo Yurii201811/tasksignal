@@ -1,0 +1,18 @@
+{
+  "source": "stackexchange",
+  "items": [
+    {
+      "external_id": "se-edge-sparse-1",
+      "title": "How to handle a sparse question with no body, owner, or tags"
+    },
+    {
+      "external_id": "se-edge-malformed-1",
+      "title": "Owner field is a bare string and the body lives in excerpt",
+      "excerpt": "Manually reconciling CSV exports every week is slow and error prone.",
+      "owner": "edge_se_owner",
+      "author": "edge_se_author",
+      "creation_date": 1777291200,
+      "link": "https://stackoverflow.com/questions/se-edge-malformed-1"
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "source": "github",
+  "items": [
+    {
+      "external_id": "gh-edge-sparse-1",
+      "title": "Sparse issue: only a title describing a painful manual deploy workflow"
+    },
+    {
+      "external_id": "gh-edge-malformed-1",
+      "title": "Malformed issue: null body, string labels, and an unparseable date",
+      "body": null,
+      "user": {"login": "edge-octocat"},
+      "labels": ["bug", "ci"],
+      "created_at": "not-a-real-date",
+      "html_url": "https://github.com/example/edge/issues/1"
+    },
+    {
+      "external_id": "gh-edge-null-user-1",
+      "title": "Issue where the user field is null instead of an object",
+      "body": "Reviewers still manually re-run the failing job every time the workflow breaks.",
+      "user": null,
+      "labels": [{"name": "github-actions"}],
+      "created_at": "2026-05-02T08:00:00Z",
+      "html_url": "https://github.com/example/edge/issues/2"
+    }
+  ]
+}
