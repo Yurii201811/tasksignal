@@ -6,7 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import ReactMarkdown from "react-markdown";
 import { ArrowLeft, Copy, Download } from "lucide-react";
 import { api } from "@/lib/api";
-import { Button, Card, PageHeader, StateMessage } from "@/components/ui";
+import { Badge, Button, Card, PageHeader, StateMessage } from "@/components/ui";
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "The request failed.";
@@ -21,6 +21,11 @@ export function PromptView({ id }: { id: string }) {
   });
   const prompt = data?.prompt ?? "";
   const canCopy = Boolean(prompt) && !isLoading;
+  const sectionCount = prompt ? (prompt.match(/^## /gm) ?? []).length : 0;
+  const wordCount = prompt ? prompt.split(/\s+/).filter(Boolean).length : 0;
+  const hasEvidence = prompt.includes("## Evidence");
+  const hasRanking = prompt.includes("## Ranking rationale");
+  const hasPrivacy = prompt.includes("## Trust and privacy constraints");
 
   async function copyPrompt() {
     if (!canCopy) return;
@@ -82,15 +87,38 @@ export function PromptView({ id }: { id: string }) {
         </StateMessage>
       ) : null}
 
-      {!isLoading && !isError && (
-        <Card className="prose max-w-none break-words prose-pre:whitespace-pre-wrap prose-pre:break-words prose-code:break-words">
-          {prompt ? (
+      {!isLoading && !isError && prompt ? (
+        <>
+          <Card variant="muted">
+            <h2 className="text-lg font-semibold text-ink">Export readiness</h2>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Badge tone="blue">{sectionCount} sections</Badge>
+              <Badge tone="blue">{wordCount} words</Badge>
+              <Badge tone={hasEvidence ? "green" : "red"}>
+                {hasEvidence ? "Evidence included" : "Missing evidence"}
+              </Badge>
+              <Badge tone={hasRanking ? "green" : "red"}>
+                {hasRanking
+                  ? "Ranking rationale included"
+                  : "Missing ranking rationale"}
+              </Badge>
+              <Badge tone={hasPrivacy ? "green" : "red"}>
+                {hasPrivacy
+                  ? "Privacy constraints included"
+                  : "Missing privacy constraints"}
+              </Badge>
+            </div>
+          </Card>
+          <Card className="prose max-w-none break-words prose-pre:whitespace-pre-wrap prose-pre:break-words prose-code:break-words">
             <ReactMarkdown>{prompt}</ReactMarkdown>
-          ) : (
-            <p>Process demo data first, then open a generated opportunity prompt.</p>
-          )}
+          </Card>
+        </>
+      ) : null}
+      {!isLoading && !isError && !prompt ? (
+        <Card className="prose max-w-none break-words">
+          <p>Process demo data first, then open a generated opportunity prompt.</p>
         </Card>
-      )}
+      ) : null}
     </div>
   );
 }

@@ -58,7 +58,7 @@ flowchart TD
   C --> D[(PostgreSQL + pgvector)]
   D --> E[Pain and task detector]
   E --> F[Embedding service]
-  F --> G[DBSCAN clustering]
+  F --> G[Thematic fallback clustering / optional DBSCAN]
   G --> H[Opportunity scoring]
   H --> I[Prompt generator]
   I --> J[FastAPI API]

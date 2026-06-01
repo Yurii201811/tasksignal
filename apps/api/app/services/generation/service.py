@@ -147,6 +147,90 @@ def scoring_rationale(score: dict) -> str:
     return "\n".join(lines)
 
 
+def source_summary(items: list[dict]) -> str:
+    counts = Counter(item.get("source", "unknown") for item in items)
+    return ", ".join(f"{source}: {count}" for source, count in sorted(counts.items()))
+
+
+def evidence_focus_terms(items: list[dict], phrases: list[str] | None = None) -> list[str]:
+    blocked: set[str] = set()
+    for item in items:
+        blocked.update(identity_terms(item))
+    stop = {
+        "the",
+        "and",
+        "that",
+        "with",
+        "this",
+        "into",
+        "from",
+        "every",
+        "manually",
+        "there",
+        "people",
+        "related",
+        "signals",
+        "github",
+        "reddit",
+        "hackernews",
+        "stackexchange",
+        "fixture",
+    }
+    terms: list[str] = []
+    for phrase in phrases or common_phrases(items):
+        if phrase.lower() not in blocked and phrase.lower() not in stop:
+            terms.append(phrase)
+    for item in items:
+        signal = str(item.get("signal_type", "")).replace("_", " ")
+        if signal and signal not in terms:
+            terms.append(signal)
+    return terms[:8]
+
+
+def evidence_mapped_scope(
+    fields: dict,
+    score: dict,
+    evidence_items: list[dict],
+    focus_terms: list[str],
+) -> str:
+    term_hint = ", ".join(focus_terms[:4]) if focus_terms else "workflow pain"
+    bullets = [
+        (
+            "Import or paste the workflow artifact mentioned in the evidence, such as CI logs, "
+            "CSV exports, onboarding events, or issue threads."
+        ),
+        (
+            f"Extract repeatable failure and pain patterns around {term_hint} from the source "
+            "text and show the evidence span next to each recommendation."
+        ),
+        (
+            "Rank findings using visible score components: frequency, recency, pain, task "
+            "concreteness, buying intent, feasibility, and competition penalty."
+        ),
+        (
+            "Export a Markdown report or Codex prompt that preserves source URLs and omits "
+            "raw author identity."
+        ),
+        f"Ship a focused MVP for: {clean_excerpt(fields.get('suggested_mvp', fields.get('problem_statement')), 140)}",
+        (
+            f"Target users: {clean_excerpt(fields.get('target_user', 'builders and operators'), 120)}."
+        ),
+    ]
+    return "\n".join(f"- {bullet}" for bullet in bullets[:6])
+
+
+def traceability_checklist() -> str:
+    return "\n".join(
+        [
+            "- Source URL shown for each cited item when available.",
+            "- Evidence excerpt shown next to ranking rationale.",
+            "- Scoring breakdown visible enough to challenge the recommendation.",
+            "- Author hash or null only; no raw usernames in stored or exported data.",
+            "- No spam, outreach automation, or bulk-reply workflows.",
+        ]
+    )
+
+
 def generate_codex_prompt(
     title: str,
     fields: dict,
@@ -160,9 +244,14 @@ def generate_codex_prompt(
         .replace("Operators", "Ops teams")
     )
     evidence_items = evidence_items or []
+    phrases = common_phrases(evidence_items) if evidence_items else []
+    focus_terms = evidence_focus_terms(evidence_items, phrases)
+    mix = source_summary(evidence_items) if evidence_items else "no sources"
+    scope = evidence_mapped_scope(fields, score, evidence_items, focus_terms)
     excerpts = (
         evidence_pack(evidence_items) if evidence_items else "- No source excerpts were available."
     )
+    focus_line = ", ".join(focus_terms[:6]) if focus_terms else "workflow automation, manual work"
     return f"""# Build {project_name}
 
 You are a senior full-stack engineer. Build a working MVP for {project_name}.
@@ -191,20 +280,24 @@ Opportunity score: {percent(score["opportunity_score"])}/100.
 
 Interpretation: {score["explanation"]}
 
+## Evidence focus
+
+- Source mix: {mix}
+- Focus terms: {focus_line}
+
 ## MVP scope
 
-- Ingest or import the repeated workflow data.
-- Detect the risky, slow, or repetitive steps.
-- Show a ranked dashboard with evidence and recommended next actions.
-- Export a practical report or implementation artifact.
+{scope}
 
 ## Trust and privacy constraints
 
 - Keep the local fixture demo working without paid services or live credentials.
-- Store author hashes or omit author identity by default.
+- Store author hashes or null, not raw usernames.
 - Preserve source URLs and evidence excerpts so reviewers can audit why items were ranked.
 - Make scoring visible enough that a first-time user can challenge the recommendation.
-- Avoid spam, harassment, or bulk outreach workflows.
+- Do not build spam, harassment, bulk outreach, or automated reply workflows.
+
+{traceability_checklist()}
 
 ## Non-goals
 
@@ -214,7 +307,7 @@ Interpretation: {score["explanation"]}
 
 ## Recommended architecture
 
-Frontend app, FastAPI backend, Postgres database, background processing worker, deterministic local summarization, and optional LLM enhancement behind environment variables.
+Next.js frontend, FastAPI backend, PostgreSQL database, synchronous import/process endpoint for the MVP, deterministic local summarization, and optional LLM enhancement behind environment variables.
 
 ## Tech stack
 
@@ -222,13 +315,13 @@ Next.js, TypeScript, Tailwind CSS, FastAPI, SQLAlchemy, PostgreSQL, pytest, and 
 
 ## Database schema
 
-Core tables: sources, raw_items, normalized_items, signals, clusters, opportunities, exports, and audit logs.
+Core tables: sources, scan_jobs, raw_items, normalized_items, item_signals, item_embeddings, clusters, cluster_items, opportunities, and labels.
 
 ## API endpoints
 
 - GET /health
-- POST /api/import
-- POST /api/process
+- POST /api/process/demo
+- POST /api/scans
 - GET /api/opportunities
 - GET /api/opportunities/{{id}}
 - GET /api/opportunities/{{id}}/export.md
@@ -242,7 +335,7 @@ Core tables: sources, raw_items, normalized_items, signals, clusters, opportunit
 
 ## Core user flow
 
-User imports data, processes it, reviews ranked opportunities, opens the strongest opportunity, inspects the evidence, and exports a build-ready artifact.
+User processes fixture or live-scan data, reviews ranked opportunities, opens the strongest opportunity, inspects the evidence, and exports a build-ready artifact.
 
 ## Acceptance criteria
 

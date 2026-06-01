@@ -31,6 +31,7 @@ from app.services.ingestion.connectors import (
     RedditConnector,
     StackExchangeConnector,
     connector_display_name,
+    connector_failure_message,
     without_raw_author,
 )
 from app.services.ingestion.normalization import normalize
@@ -373,7 +374,7 @@ def process_scan(
             raise
         failed_job.status = "failed"
         failed_job.finished_at = datetime.now(UTC)
-        failed_job.error_message = str(exc)
+        failed_job.error_message = connector_failure_message(source_type, exc)
         db.commit()
         db.refresh(failed_job)
         return failed_job

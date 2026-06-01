@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
@@ -232,6 +233,85 @@ def connector_display_name(source_type: str) -> str:
         "stackexchange": "Stack Exchange",
     }
     return names.get(source_type, source_type.replace("_", " ").title())
+
+
+SOURCE_GUIDANCE: dict[str, str] = {
+    "github": (
+        "GitHub scans use the official Issues Search API. Set GITHUB_TOKEN for higher "
+        "rate limits, or reduce the limit/query breadth."
+    ),
+    "hackernews": (
+        "Hacker News scans use the public Firebase API and do not require credentials. "
+        "Try a smaller limit or a feed query such as ask, new, top, best, show, or job."
+    ),
+    "reddit": (
+        "Reddit scans require REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, and REDDIT_USER_AGENT. "
+        "Configure them in .env and restart the API."
+    ),
+    "stackexchange": (
+        "Stack Exchange scans use the official advanced search API. "
+        "STACK_EXCHANGE_KEY is optional but helps with quota."
+    ),
+    "fixture": (
+        "Fixture scans read local data/fixtures files. "
+        "Confirm fixture files exist and are readable."
+    ),
+}
+
+_SECRET_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"Bearer\s+\S+", re.IGNORECASE), "Bearer [redacted secret]"),
+    (re.compile(r"Authorization:\s*\S+", re.IGNORECASE), "Authorization: [redacted secret]"),
+    (
+        re.compile(
+            r"(client_secret|access_token|api_key|password|token)=[^\s&]+",
+            re.IGNORECASE,
+        ),
+        r"\1=[redacted secret]",
+    ),
+    (re.compile(r"token=[^\s&]+", re.IGNORECASE), "token=[redacted secret]"),
+]
+
+
+def sanitize_error_message(value: object) -> str:
+    text = " ".join(str(value).split())
+    for pattern, replacement in _SECRET_PATTERNS:
+        text = pattern.sub(replacement, text)
+    if len(text) > 500:
+        text = f"{text[:497].rstrip()}..."
+    return text
+
+
+def _http_status_hint(exc: httpx.HTTPStatusError) -> str:
+    code = exc.response.status_code
+    if code in (401, 403):
+        return (
+            "Credentials, authorization, or rate limits are likely involved. "
+            "Check API keys and restart the API after updating .env."
+        )
+    if code == 429:
+        return "Rate limit reached; lower the limit or add credentials if the connector supports them."
+    return ""
+
+
+def connector_failure_message(source_type: str, exc: Exception) -> str:
+    display = connector_display_name(source_type)
+    detail = sanitize_error_message(exc).rstrip(".!?")
+    parts = [f"{display} scan failed: {detail}."]
+
+    if isinstance(exc, httpx.HTTPStatusError):
+        hint = _http_status_hint(exc)
+        if hint:
+            parts.append(hint)
+    elif isinstance(
+        exc,
+        (httpx.TimeoutException, httpx.ConnectError, httpx.ConnectTimeout, TimeoutError),
+    ):
+        parts.append("Network or service timeout; retry with a smaller limit.")
+
+    guidance = SOURCE_GUIDANCE.get(source_type)
+    if guidance:
+        parts.append(guidance)
+    return " ".join(parts)
 
 
 def without_raw_author(source: str, item: dict[str, Any]) -> dict[str, Any]:
