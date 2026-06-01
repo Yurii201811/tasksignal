@@ -21,6 +21,7 @@ import {
   TableShell,
 } from "@/components/ui";
 import type { EvidenceItem, ScoreBreakdown } from "@/lib/types";
+import { safeExternalUrl } from "@/lib/url";
 
 const SCORE_ROWS = [
   { key: "frequency", label: "Frequency", weight: 0.25 },
@@ -333,19 +334,21 @@ export function OpportunityDetail({ id }: { id: string }) {
               </p>
             </Card>
           ) : null}
-          {data.evidence_items.map((item) => (
-            <article
-              key={item.id}
-              className="rounded-product border border-border bg-surface p-4 shadow-soft"
-            >
+          {data.evidence_items.map((item) => {
+            const sourceUrl = safeExternalUrl(item.url);
+            return (
+              <article
+                key={item.id}
+                className="rounded-product border border-border bg-surface p-4 shadow-soft"
+              >
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex min-w-0 flex-wrap items-center gap-2">
                   <Badge tone="blue">{item.source}</Badge>
                   <Badge tone="green">{item.signal_type?.replace("_", " ")}</Badge>
                 </div>
-                {item.url ? (
+                {sourceUrl ? (
                   <a
-                    href={item.url}
+                    href={sourceUrl}
                     className="inline-flex min-h-9 items-center gap-1 rounded-product text-sm font-semibold text-signal hover:text-[var(--ts-accent-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]"
                     rel="noreferrer"
                     target="_blank"
@@ -375,8 +378,9 @@ export function OpportunityDetail({ id }: { id: string }) {
                   </blockquote>
                 ))}
               </div>
-            </article>
-          ))}
+              </article>
+            );
+          })}
         </div>
       </section>
     </div>

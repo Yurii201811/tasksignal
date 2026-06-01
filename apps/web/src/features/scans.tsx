@@ -44,8 +44,8 @@ export function Scans() {
           <Button
             onClick={() =>
               create.mutate({
-                source: "github",
-                query: "manually copy paste is:issue is:open",
+                source: "hackernews",
+                query: "ask",
                 limit: 30,
               })
             }
@@ -57,7 +57,7 @@ export function Scans() {
             ) : (
               <Plus size={16} />
             )}
-            {create.isPending ? "Running scan" : "Run public GitHub scan"}
+            {create.isPending ? "Running scan" : "Run public HN scan"}
           </Button>
         }
       />
@@ -109,7 +109,7 @@ export function Scans() {
                     </p>
                     <p className="mt-2 text-sm leading-6 text-muted">
                       Run fixture processing from the dashboard or start the
-                      public GitHub scan to create an auditable scan record.
+                      public Hacker News scan to create an auditable scan record.
                     </p>
                   </div>
                 </td>

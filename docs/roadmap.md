@@ -21,7 +21,7 @@ TaskSignal is early-stage open source. The roadmap prioritizes maintainability, 
 
 - Maintain a lightweight threat model for live connectors, prompt export, and stored public-source data.
 - Add regression tests for credential handling and author-hash behavior.
-- Document rate-limit behavior and connector terms before expanding live scanning.
+- Keep source-limit and connector-terms notes current before expanding live scanning.
 - Add redaction checks before accepting sample datasets from contributors.
 
 ## Later

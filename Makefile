@@ -36,4 +36,4 @@ format:
 	cd apps/web && npm run format
 
 reset-data:
-	curl -X POST http://localhost:8000/api/process/demo?reset=true
+	curl -X POST -H "X-Demo-Reset-Token: $$DEMO_RESET_TOKEN" http://localhost:8000/api/process/demo?reset=true

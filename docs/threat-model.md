@@ -25,6 +25,8 @@ TaskSignal is a local-first research app for public discussion data. This threat
 - **Prompt injection:** source text may include instructions that should remain evidence text, not maintainer instructions.
 - **SSRF and unsafe URLs:** future connector expansion could fetch arbitrary URLs if source validation is loosened.
 - **Rate-limit or terms violations:** live scans may exceed source expectations if scheduling is added without limits.
+- **Credentialed scan abuse:** unauthenticated callers must not be able to run connector searches with server-side tokens.
+- **Unsafe source links:** public-source URL fields must not become clickable non-http(s) links in the operator UI.
 - **Weak release hygiene:** unreviewed dependencies or generated artifacts could be published unintentionally.
 
 ## Current Mitigations
@@ -33,6 +35,12 @@ TaskSignal is a local-first research app for public discussion data. This threat
 - Normalization stores `author_hash` values by default instead of raw usernames.
 - Fixture mode works without external credentials or paid LLM APIs.
 - Live connectors use official APIs and explicit credential configuration where required.
+- Public scan exposure is limited to non-credentialed sources (`fixture` and
+  `hackernews`) and can be narrowed further with `PUBLIC_SCAN_SOURCES`.
+- Destructive demo resets require `DEMO_RESET_TOKEN` plus the matching
+  `X-Demo-Reset-Token` header when that token is configured.
+- Normalization and frontend rendering only expose absolute `http` and `https`
+  source links.
 - Exported prompts keep source excerpts as evidence and include privacy constraints.
 - CI runs backend and frontend checks before public release work.
 - Security reports are directed away from public issue details.

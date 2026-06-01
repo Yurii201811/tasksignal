@@ -24,6 +24,7 @@ services:
       LLM_PROVIDER: none
       EMBEDDING_MODEL: sentence-transformers/all-MiniLM-L6-v2
       AUTO_CREATE_TABLES: "true"
+      PUBLIC_SCAN_SOURCES: fixture,hackernews
     ports:
       - "8000:8000"
     volumes:
@@ -44,4 +45,3 @@ services:
 
 volumes:
   postgres_data:
-

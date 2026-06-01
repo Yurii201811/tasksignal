@@ -4,6 +4,7 @@ import { FormEvent, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { RefreshCw, SearchIcon } from "lucide-react";
 import { api } from "@/lib/api";
+import { safeExternalUrl } from "@/lib/url";
 import { Badge, Button, Card, Input, PageHeader, StateMessage } from "@/components/ui";
 
 function errorMessage(error: unknown) {
@@ -79,6 +80,7 @@ export function SemanticSearch() {
         {(search.data?.items ?? []).map((result, index) => {
           const item = result.item as SearchItem;
           const title = item.title || "Untitled evidence item";
+          const sourceUrl = safeExternalUrl(item.url);
           return (
             <Card key={`${title}-${index}`}>
               <div className="flex flex-wrap items-center gap-2">
@@ -96,9 +98,9 @@ export function SemanticSearch() {
                   {item.body}
                 </p>
               ) : null}
-              {item.url ? (
+              {sourceUrl ? (
                 <a
-                  href={item.url}
+                  href={sourceUrl}
                   className="mt-3 inline-flex min-h-9 items-center rounded-product text-sm font-semibold text-signal hover:text-[var(--ts-accent-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]"
                   rel="noreferrer"
                   target="_blank"

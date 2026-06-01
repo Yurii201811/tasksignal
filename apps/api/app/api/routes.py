@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from secrets import compare_digest
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.db.session import get_db
 from app.models.all_models import (
     Cluster,
@@ -34,9 +36,43 @@ from app.services.embeddings.service import EmbeddingService, cosine_similarity
 from app.services.generation.service import generate_opportunity
 from app.services.scoring.service import score_opportunity
 from app.workers.demo_pipeline import ensure_sources, process_demo, stats
-from app.workers.scan_pipeline import process_scan
+from app.workers.scan_pipeline import CONNECTOR_FACTORIES, canonical_source, process_scan
 
 router = APIRouter(prefix="/api")
+
+PUBLIC_SCAN_API_SOURCES = {"fixture", "hackernews"}
+
+
+def configured_public_scan_sources() -> set[str]:
+    configured = settings.public_scan_sources.strip()
+    if not configured or configured == "*":
+        return set(PUBLIC_SCAN_API_SOURCES)
+
+    requested_sources = {
+        canonical_source(source) for source in configured.split(",") if source.strip()
+    }
+    return requested_sources & PUBLIC_SCAN_API_SOURCES
+
+
+def public_scan_source(source: str) -> str:
+    source_type = canonical_source(source)
+    if source_type not in CONNECTOR_FACTORIES:
+        supported = ", ".join(sorted(CONNECTOR_FACTORIES))
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported source '{source}'. Supported sources: {supported}.",
+        )
+
+    allowed_sources = configured_public_scan_sources()
+    if source_type not in allowed_sources:
+        allowed = ", ".join(sorted(allowed_sources))
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                f"Source '{source}' is not enabled for this deployment. Allowed sources: {allowed}."
+            ),
+        )
+    return source_type
 
 
 def item_to_out(item: NormalizedItem, signal: ItemSignal | None = None) -> ItemOut:
@@ -164,10 +200,11 @@ def delete_source(source_id: UUID, db: Session = Depends(get_db)) -> dict:
 
 @router.post("/scans", response_model=ScanOut)
 def create_scan(payload: ScanCreate, db: Session = Depends(get_db)) -> ScanJob:
+    source_type = public_scan_source(payload.source)
     try:
         return process_scan(
             db,
-            source=payload.source,
+            source=source_type,
             query=payload.query,
             limit=payload.limit,
         )
@@ -213,7 +250,20 @@ def get_item(item_id: UUID, db: Session = Depends(get_db)) -> ItemOut:
 
 
 @router.post("/process/demo", response_model=ProcessSummary)
-def run_demo(reset: bool = True, db: Session = Depends(get_db)) -> dict[str, int]:
+def run_demo(
+    reset: bool = False,
+    x_demo_reset_token: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> dict[str, int]:
+    if reset and (
+        not settings.demo_reset_token
+        or x_demo_reset_token is None
+        or not compare_digest(x_demo_reset_token, settings.demo_reset_token)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Demo reset requires a valid X-Demo-Reset-Token header",
+        )
     return process_demo(db, reset=reset)
 
 
@@ -249,7 +299,9 @@ def regenerate_opportunity(opportunity_id: UUID, db: Session = Depends(get_db)) 
 
     rows = cluster_signal_rows(db, opportunity.cluster_id)
     if not rows:
-        raise HTTPException(status_code=409, detail="Opportunity has no evidence to regenerate from")
+        raise HTTPException(
+            status_code=409, detail="Opportunity has no evidence to regenerate from"
+        )
 
     generation_items = [row_to_generation_item(item, signal) for item, signal in rows]
     cluster = db.get(Cluster, opportunity.cluster_id)

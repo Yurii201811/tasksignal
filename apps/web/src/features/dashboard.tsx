@@ -39,9 +39,6 @@ const chartColors = [
 ];
 const scanDefaults: Record<string, string> = {
   hackernews: "ask",
-  github: "manually copy paste is:issue is:open",
-  stackexchange: "automation",
-  reddit: "manual workflow automation",
 };
 const scanGuidance: Record<
   string,
@@ -53,27 +50,8 @@ const scanGuidance: Record<
       "Use ask, new, top, best, show, or job; other text filters Ask HN client-side.",
     privacy: "Stores source URLs and normalized public post fields.",
   },
-  github: {
-    credential: "GITHUB_TOKEN is optional but recommended for higher rate limits.",
-    query:
-      "Use GitHub issue search syntax, for example: is:issue is:open bug automation.",
-    privacy:
-      "Stores source URLs and author hashes; raw usernames are not exported.",
-  },
-  stackexchange: {
-    credential: "STACK_EXCHANGE_KEY is optional and increases quota.",
-    query: "Query searches Stack Overflow question titles.",
-    privacy: "Stores question links and minimized public question fields.",
-  },
-  reddit: {
-    credential:
-      "Requires REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, and REDDIT_USER_AGENT.",
-    query: "Searches public Reddit posts through OAuth.",
-    privacy:
-      "Stores source URLs and author hashes; avoid using results for outreach.",
-  },
 };
-const scanSourceOrder = ["hackernews", "github", "stackexchange", "reddit"];
+const scanSourceOrder = ["hackernews"];
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "The request failed.";
@@ -81,8 +59,8 @@ function errorMessage(error: unknown) {
 
 export function Dashboard() {
   const queryClient = useQueryClient();
-  const [scanSource, setScanSource] = useState("github");
-  const [scanQuery, setScanQuery] = useState(scanDefaults.github);
+  const [scanSource, setScanSource] = useState("hackernews");
+  const [scanQuery, setScanQuery] = useState(scanDefaults.hackernews);
   const [scanLimit, setScanLimit] = useState(30);
   const stats = useQuery({ queryKey: ["stats"], queryFn: api.stats });
   const opportunities = useQuery({
@@ -153,11 +131,7 @@ export function Dashboard() {
           name:
             type === "hackernews"
               ? "Hacker News"
-              : type === "github"
-                ? "GitHub Issues"
-                : type === "stackexchange"
-                  ? "Stack Exchange"
-                  : "Reddit",
+              : type,
           type,
           config_json: {},
           enabled: true,
@@ -219,9 +193,10 @@ export function Dashboard() {
             </h2>
             <p className="mt-1 max-w-3xl text-sm leading-6 text-muted">
               Start with demo data for a reliable review path, or run a
-              credential-aware public source scan when connectors are configured.
-              The ranking pass remains local-first and does not require a paid
-              LLM.
+              public Hacker News scan. Credentialed sources are reserved for
+              trusted internal jobs so public callers cannot spend server-side
+              tokens. The ranking pass remains local-first and does not require
+              a paid LLM.
             </p>
           </div>
           {latestScan ? (
@@ -297,7 +272,7 @@ export function Dashboard() {
 
         <div className="mt-3 text-xs leading-5 text-muted">
           Default queries are intentionally modest so reviewers can see the
-          workflow before widening a live scan.
+          workflow before widening a live scan through trusted internal jobs.
         </div>
 
         {selectedScanGuidance ? (

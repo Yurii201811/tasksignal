@@ -14,10 +14,13 @@ Then open `http://localhost:3000`, go to Dashboard, and click **Process demo dat
 For API-only verification:
 
 ```bash
-curl -X POST "http://localhost:8000/api/process/demo?reset=true"
+curl -X POST "http://localhost:8000/api/process/demo"
 curl "http://localhost:8000/api/stats"
 curl "http://localhost:8000/api/opportunities"
 ```
+
+To force a destructive reset over the API, set `DEMO_RESET_TOKEN` and include
+the matching `X-Demo-Reset-Token` header with `reset=true`.
 
 ## Fixture Run Summary
 
@@ -60,15 +63,19 @@ Source mix:
 
 ## Live Connector Smoke Test
 
-The default live scan is a no-credential GitHub Issues search:
+The default public live scan uses Hacker News, which does not require server-side
+credentials:
 
 ```bash
 curl -X POST "http://localhost:8000/api/scans" \
   -H "Content-Type: application/json" \
-  -d '{"source":"github","query":"manually copy paste is:issue is:open","limit":30}'
+  -d '{"source":"hackernews","query":"ask","limit":30}'
 ```
 
-This should create a completed scan record, save public GitHub issue records, detect repeated workflow signals, and generate at least one opportunity when enough related signals are returned. GitHub rate limits may apply when no `GITHUB_TOKEN` is configured.
+This should create a completed scan record, save public Hacker News records,
+detect repeated workflow signals, and generate at least one opportunity when
+enough related signals are returned. Credentialed connectors such as GitHub and
+Reddit are reserved for trusted internal jobs.
 
 ## Current Limits
 

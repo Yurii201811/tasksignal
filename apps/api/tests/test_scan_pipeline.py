@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy import select
 
+from app.api import routes
 from app.models.all_models import NormalizedItem, Opportunity, RawItem
 from app.services.ingestion.connectors import BaseConnector
 from app.services.ingestion.types import RawFetchedItem, utc_now
@@ -126,6 +127,8 @@ def test_scan_deduplicates_normalized_items(db_session) -> None:
 
 
 def test_scan_api_route_runs_pipeline_with_request_payload(client, monkeypatch) -> None:
+    monkeypatch.setattr(routes, "PUBLIC_SCAN_API_SOURCES", {"fixture", "hackernews", "mockapi"})
+    monkeypatch.setattr(routes.settings, "public_scan_sources", "fixture,hackernews,mockapi")
     monkeypatch.setitem(
         scan_pipeline.CONNECTOR_FACTORIES,
         "mockapi",
@@ -158,6 +161,23 @@ def test_scan_api_route_runs_pipeline_with_request_payload(client, monkeypatch) 
     assert len(scans) == 1
     assert scans[0]["status"] == "completed"
     assert client.get("/api/opportunities").json()
+
+
+def test_scan_api_route_rejects_credentialed_source_before_connector(client, monkeypatch) -> None:
+    def github_connector() -> BaseConnector:
+        raise AssertionError("GitHub connector should not be created")
+
+    monkeypatch.setattr(routes.settings, "public_scan_sources", "fixture,hackernews")
+    monkeypatch.setitem(scan_pipeline.CONNECTOR_FACTORIES, "github", github_connector)
+
+    response = client.post(
+        "/api/scans",
+        json={"source": "github", "query": "is:issue is:open", "limit": 3},
+    )
+
+    assert response.status_code == 403
+    assert "not enabled for this deployment" in response.json()["detail"]
+    assert client.get("/api/scans").json() == []
 
 
 def test_scan_api_route_rejects_unsupported_source(client) -> None:

@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     reddit_user_agent: str = "tasksignal-local-demo/0.1"
     github_token: str = ""
     stack_exchange_key: str = ""
+    demo_reset_token: str = ""
+    public_scan_sources: str = "fixture,hackernews"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

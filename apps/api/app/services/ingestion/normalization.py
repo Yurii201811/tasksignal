@@ -5,6 +5,7 @@ import re
 from datetime import UTC, datetime
 from html import unescape
 from typing import Any
+from urllib.parse import urlparse
 
 from app.core.config import settings
 from app.services.ingestion.types import RawFetchedItem
@@ -44,6 +45,20 @@ def text_hash(title: str, body: str) -> str:
     return hashlib.sha256(normalized.encode()).hexdigest()
 
 
+def safe_source_url(value: Any, fallback: str = "") -> str:
+    if not isinstance(value, str):
+        return fallback
+
+    candidate = value.strip()
+    if not candidate:
+        return fallback
+
+    parsed = urlparse(candidate)
+    if parsed.scheme in {"http", "https"} and parsed.netloc:
+        return candidate
+    return fallback
+
+
 def normalize(raw: RawFetchedItem) -> dict[str, Any]:
     item = raw.raw_json
     source = raw.source
@@ -53,36 +68,49 @@ def normalize(raw: RawFetchedItem) -> dict[str, Any]:
         body = clean_text(item.get("body") or item.get("selftext"))
         author = item.get("author")
         created = parse_datetime(item.get("created_at") or item.get("created_utc"))
-        url = item.get("url") or f"https://reddit.com/comments/{raw.external_id}"
+        url = safe_source_url(
+            item.get("url"),
+            fallback=f"https://reddit.com/comments/{raw.external_id}",
+        )
         tags = item.get("tags") or item.get("subreddit") and [item.get("subreddit")] or []
     elif source == "hackernews":
         title = clean_text(item.get("title"))
         body = clean_text(item.get("body") or item.get("text") or item.get("url"))
         author = item.get("by")
         created = parse_datetime(item.get("created_at") or item.get("time"))
-        url = item.get("url") or f"https://news.ycombinator.com/item?id={raw.external_id}"
+        url = safe_source_url(
+            item.get("url"),
+            fallback=f"https://news.ycombinator.com/item?id={raw.external_id}",
+        )
         tags = item.get("tags") or ["hackernews"]
     elif source == "github":
         title = clean_text(item.get("title"))
         body = clean_text(item.get("body"))
-        author = (item.get("user") or {}).get("login") if isinstance(item.get("user"), dict) else item.get("author")
+        author = (
+            (item.get("user") or {}).get("login")
+            if isinstance(item.get("user"), dict)
+            else item.get("author")
+        )
         created = parse_datetime(item.get("created_at"))
-        url = item.get("html_url") or item.get("url") or ""
-        tags = [label["name"] if isinstance(label, dict) else str(label) for label in item.get("labels", [])]
+        url = safe_source_url(item.get("html_url") or item.get("url"))
+        tags = [
+            label["name"] if isinstance(label, dict) else str(label)
+            for label in item.get("labels", [])
+        ]
     elif source == "stackexchange":
         title = clean_text(item.get("title"))
         body = clean_text(item.get("body") or item.get("excerpt"))
         owner = item.get("owner") if isinstance(item.get("owner"), dict) else {}
         author = owner.get("display_name") or item.get("author")
         created = parse_datetime(item.get("creation_date") or item.get("created_at"))
-        url = item.get("link") or ""
+        url = safe_source_url(item.get("link"))
         tags = item.get("tags") or []
     else:
         title = clean_text(item.get("title"))
         body = clean_text(item.get("body") or item.get("text"))
         author = item.get("author")
         created = parse_datetime(item.get("created_at"))
-        url = item.get("url") or ""
+        url = safe_source_url(item.get("url"))
         tags = item.get("tags") or []
 
     return {

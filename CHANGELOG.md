@@ -2,6 +2,18 @@
 
 All notable public-facing changes to TaskSignal are recorded here.
 
+## Unreleased
+
+### Added
+
+- Source limits and terms guide for live connectors, hosted demos, and rate-limit review.
+
+### Fixed
+
+- Fixture demo processing is non-destructive by default, and destructive resets require `DEMO_RESET_TOKEN`.
+- Public scan source exposure defaults to `fixture,hackernews` through `PUBLIC_SCAN_SOURCES` so unauthenticated callers cannot spend server-side connector credentials.
+- Source URLs are limited to absolute `http` and `https` links before storage and before frontend rendering.
+
 ## 0.1.3 - 2026-06-01
 
 Evidence and screenshot polish.

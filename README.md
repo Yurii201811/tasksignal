@@ -20,6 +20,7 @@ Useful starting points:
 - [Demo evidence snapshot](docs/demo-evidence.md)
 - [Deployment notes](docs/deployment.md)
 - [Data ethics](docs/data-ethics.md)
+- [Source limits and terms](docs/source-limits.md)
 - [Model card](docs/model-card.md)
 - [Roadmap](docs/roadmap.md)
 - [Threat model](docs/threat-model.md)
@@ -154,13 +155,19 @@ Fixture mode is the default. It loads records from `data/fixtures`, processes th
 
 ## API Connector Setup
 
-Live scans use official APIs and keep the same local-first scoring/generation pipeline as fixture mode:
+Live scans use official APIs and keep the same local-first scoring/generation pipeline as fixture mode. The unauthenticated `POST /api/scans` endpoint is restricted to public API-safe sources (`fixture` and `hackernews`) so network callers cannot spend server-side credentials or retrieve data visible to server-side tokens.
+
+Trusted operators can still configure the internal connector pipeline with source credentials when running controlled jobs outside the public endpoint:
 
 - `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`, `REDDIT_USER_AGENT`
 - `GITHUB_TOKEN`
 - `STACK_EXCHANGE_KEY`
 
 Hacker News works without credentials through the public Firebase API. GitHub and Stack Exchange can run without keys at lower rate limits. Reddit requires OAuth credentials. No paid LLM key is required. `LLM_PROVIDER=none` is the default.
+
+`PUBLIC_SCAN_SOURCES` can narrow the public endpoint further, for example to `hackernews` only. Credentialed sources such as GitHub, Reddit, and Stack Exchange stay reserved for trusted internal scan jobs.
+
+Destructive fixture resets require `DEMO_RESET_TOKEN` and the matching `X-Demo-Reset-Token` request header. The normal dashboard demo-processing action is non-destructive by default.
 
 ## ML/NLP Approach
 

@@ -16,7 +16,11 @@ Returns item counts, source breakdown, and pain score distribution.
 
 `POST /api/process/demo`
 
-Runs the full fixture pipeline.
+Runs the full fixture pipeline without deleting existing data by default. The
+demo processor deduplicates existing records, so repeated runs do not duplicate
+normalized items, signals, clusters, or opportunities. Use `?reset=true` to
+clear existing demo records before processing fixtures. When `DEMO_RESET_TOKEN`
+is configured, reset requests must include `X-Demo-Reset-Token`.
 
 Response:
 
@@ -37,6 +41,10 @@ Runs one synchronous live-source scan and stores a `ScanJob` with `queued`,
 selected connector, normalizes and deduplicates items, detects problem signals,
 embeds matching items with the local embedding service or deterministic fallback,
 clusters related signals, scores opportunities, and generates prompt-ready cards.
+This public endpoint only accepts public API-safe sources (`fixture` and
+`hackernews`). `PUBLIC_SCAN_SOURCES` can narrow that public allowlist further,
+but it cannot enable credentialed connectors through this unauthenticated
+endpoint.
 
 Request:
 
@@ -48,20 +56,24 @@ Request:
 }
 ```
 
-Supported source values:
+Public scan source values:
 
 - `hackernews`: official Hacker News Firebase API. Query can be `ask`, `new`,
   `top`, `best`, `show`, or `job`; other query text filters the selected Ask HN
   feed client-side.
-- `github`: official GitHub Issues search API. `GITHUB_TOKEN` is optional but
-  recommended for higher rate limits. Query is passed to GitHub search, for
-  example `is:issue is:open bug automation`.
-- `stackexchange`: official Stack Exchange advanced search API for Stack
-  Overflow. `STACK_EXCHANGE_KEY` is optional. Query searches question titles.
-- `reddit`: official Reddit OAuth API. Requires `REDDIT_CLIENT_ID`,
-  `REDDIT_CLIENT_SECRET`, and `REDDIT_USER_AGENT`.
 - `fixture`: fixture connector, mainly for local development; the primary demo
   path remains `POST /api/process/demo`.
+
+Credentialed connectors remain available to trusted internal jobs that call the
+scan pipeline directly:
+
+- `github`: official GitHub Issues search API. `GITHUB_TOKEN` is optional but
+  may expose private results visible to that token, so it is blocked from the
+  public scan API.
+- `stackexchange`: official Stack Exchange advanced search API for Stack
+  Overflow. `STACK_EXCHANGE_KEY` is optional.
+- `reddit`: official Reddit OAuth API. Requires `REDDIT_CLIENT_ID`,
+  `REDDIT_CLIENT_SECRET`, and `REDDIT_USER_AGENT`.
 
 Response:
 

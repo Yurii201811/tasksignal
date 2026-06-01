@@ -21,6 +21,11 @@ ranked opportunities remain attributable. Connector responses are minimized
 before storage so raw author fields from live APIs are not retained in
 `raw_items`.
 
+Review [source limits and terms](source-limits.md) before enabling a connector
+in a hosted deployment. The public scan API only exposes non-credentialed
+sources and can be narrowed further with `PUBLIC_SCAN_SOURCES`; credentialed
+sources belong in trusted internal jobs after review.
+
 TaskSignal does not include outreach automation. Use scan results for research,
 product discovery, and evidence review, not bulk replies or targeting people.
 
