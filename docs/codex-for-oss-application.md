@@ -7,7 +7,7 @@ This page keeps the application story honest and easy to verify. It should be up
 - Repository: <https://github.com/Yurii201811/tasksignal>
 - Role: primary maintainer and repository owner
 - License: MIT
-- Current release: `v0.1.2`
+- Current release: `v0.1.3`
 - Current maturity: early-stage public OSS MVP
 
 ## Public Evidence
@@ -16,7 +16,7 @@ This page keeps the application story honest and easy to verify. It should be up
 | --- | --- |
 | Public repository | `Yurii201811/tasksignal` is public on GitHub. |
 | Maintainer role | Yurii owns the repository and authored the public release commits. |
-| Release hygiene | `v0.1.2` release, changelog, CI, issue templates, PR template, security policy, and contributing guide. |
+| Release hygiene | `v0.1.3` release, changelog, CI, issue templates, PR template, security policy, and contributing guide. |
 | Active maintenance | Public roadmap, five open issues, labels for `good first issue`, `help wanted`, `roadmap`, and `security`, plus a release-readiness workflow. |
 | Product scope | Local-first app that turns public developer/community complaints into evidence-backed project ideas and Codex-ready MVP prompts. |
 | Safety posture | Author hashes by default, official APIs for live sources, no paid LLM dependency, threat model, data ethics notes, and private vulnerability-reporting path. |
@@ -36,7 +36,7 @@ TaskSignal is a credible early OSS project, but it is not yet a high-certainty C
 
 ## Best Short Application Answer
 
-TaskSignal is a new MIT-licensed public OSS app for privacy-conscious product-discovery research. It mines public developer/community complaints, hashes authors by default, clusters repeated pain signals, and generates Codex-ready MVP prompts. Evidence today is maintenance readiness rather than adoption: v0.1.2 release, passing CI, roadmap, SECURITY/CONTRIBUTING docs, issue templates, and open contributor issues. Do not claim stars, downloads, users, or dependents until public evidence exists.
+TaskSignal is a new MIT-licensed public OSS app for privacy-conscious product-discovery research. It mines public developer/community complaints, hashes authors by default, clusters repeated pain signals, and generates Codex-ready MVP prompts. Evidence today is maintenance readiness rather than adoption: v0.1.3 release, passing CI, roadmap, SECURITY/CONTRIBUTING docs, issue templates, and open contributor issues. Do not claim stars, downloads, users, or dependents until public evidence exists.
 
 ## API Credits Answer
 
@@ -49,7 +49,7 @@ Codex Security would help review live-source ingestion, connector credential bou
 ## Follow-Up Package
 
 - Repository: <https://github.com/Yurii201811/tasksignal>
-- Release: <https://github.com/Yurii201811/tasksignal/releases/tag/v0.1.2>
+- Release: <https://github.com/Yurii201811/tasksignal/releases/tag/v0.1.3>
 - Issues: <https://github.com/Yurii201811/tasksignal/issues>
 - Demo evidence: [docs/demo-evidence.md](demo-evidence.md)
 - Maintainer automation: [docs/maintainer-automation.md](maintainer-automation.md)

@@ -126,7 +126,7 @@ TaskSignal is currently an application repository, not a published Python or npm
 
 For a quick public review, inspect:
 
-- [Latest release](https://github.com/Yurii201811/tasksignal/releases/tag/v0.1.2)
+- [Latest release](https://github.com/Yurii201811/tasksignal/releases/tag/v0.1.3)
 - [Open contributor issues](https://github.com/Yurii201811/tasksignal/issues)
 - [Release-readiness workflow](https://github.com/Yurii201811/tasksignal/actions/workflows/release-check.yml)
 - [Demo evidence snapshot](docs/demo-evidence.md)

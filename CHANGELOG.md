@@ -2,6 +2,22 @@
 
 All notable public-facing changes to TaskSignal are recorded here.
 
+## 0.1.3 - 2026-06-01
+
+Evidence and screenshot polish.
+
+### Added
+
+- Connector guidance in the dashboard so live-source scans show credential, query, and privacy expectations before running.
+- Evidence trail and export-readiness UI for opportunity detail and generated prompt review.
+- Prompt generation now includes source mix, evidence focus terms, traceability checks, and current TaskSignal endpoints/schema.
+
+### Fixed
+
+- Live scan failures now return redacted, connector-specific guidance without leaking credential values.
+- README dashboard screenshot now reflects the current production UI and fixture demo data.
+- API and model-card docs now match the default thematic clustering path and current scan endpoint behavior.
+
 ## 0.1.2 - 2026-06-01
 
 OSS review-readiness polish.
