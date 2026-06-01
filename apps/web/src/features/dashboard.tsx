@@ -43,6 +43,36 @@ const scanDefaults: Record<string, string> = {
   stackexchange: "automation",
   reddit: "manual workflow automation",
 };
+const scanGuidance: Record<
+  string,
+  { credential: string; query: string; privacy: string }
+> = {
+  hackernews: {
+    credential: "No credentials required.",
+    query:
+      "Use ask, new, top, best, show, or job; other text filters Ask HN client-side.",
+    privacy: "Stores source URLs and normalized public post fields.",
+  },
+  github: {
+    credential: "GITHUB_TOKEN is optional but recommended for higher rate limits.",
+    query:
+      "Use GitHub issue search syntax, for example: is:issue is:open bug automation.",
+    privacy:
+      "Stores source URLs and author hashes; raw usernames are not exported.",
+  },
+  stackexchange: {
+    credential: "STACK_EXCHANGE_KEY is optional and increases quota.",
+    query: "Query searches Stack Overflow question titles.",
+    privacy: "Stores question links and minimized public question fields.",
+  },
+  reddit: {
+    credential:
+      "Requires REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, and REDDIT_USER_AGENT.",
+    query: "Searches public Reddit posts through OAuth.",
+    privacy:
+      "Stores source URLs and author hashes; avoid using results for outreach.",
+  },
+};
 const scanSourceOrder = ["hackernews", "github", "stackexchange", "reddit"];
 
 function errorMessage(error: unknown) {
@@ -140,6 +170,7 @@ export function Dashboard() {
       : latestScan?.status === "completed"
         ? "success"
         : "info";
+  const selectedScanGuidance = scanGuidance[scanSource];
 
   function updateScanSource(source: string) {
     setScanSource(source);
@@ -269,6 +300,32 @@ export function Dashboard() {
           workflow before widening a live scan.
         </div>
 
+        {selectedScanGuidance ? (
+          <div className="mt-4 rounded-product border border-border bg-surface-muted p-4">
+            <p className="text-sm font-semibold text-ink">Connector guidance</p>
+            <dl className="mt-3 grid gap-3 text-sm leading-6 sm:grid-cols-3">
+              <div>
+                <dt className="font-semibold text-muted">Credential</dt>
+                <dd className="mt-1 break-words text-ink">
+                  {selectedScanGuidance.credential}
+                </dd>
+              </div>
+              <div>
+                <dt className="font-semibold text-muted">Query</dt>
+                <dd className="mt-1 break-words text-ink">
+                  {selectedScanGuidance.query}
+                </dd>
+              </div>
+              <div>
+                <dt className="font-semibold text-muted">Privacy</dt>
+                <dd className="mt-1 break-words text-ink">
+                  {selectedScanGuidance.privacy}
+                </dd>
+              </div>
+            </dl>
+          </div>
+        ) : null}
+
         {scanError ? (
           <StateMessage tone="danger" title="Live scan did not complete" className="mt-4">
             {errorMessage(scanError)}
@@ -313,11 +370,13 @@ export function Dashboard() {
           tone={latestScanTone}
           title={`Recent scan: ${latestScan.source_name ?? latestScan.source_type ?? "Selected source"} (${latestScan.status})`}
         >
-          {latestScan.items_saved} saved from {latestScan.items_found} found.
-          {latestScan.query ? ` Query: ${latestScan.query}.` : ""}
-          {latestScan.status === "failed" && latestScan.error_message
-            ? ` Error: ${latestScan.error_message}`
-            : ""}
+          <span className="break-words">
+            {latestScan.items_saved} saved from {latestScan.items_found} found.
+            {latestScan.query ? ` Query: ${latestScan.query}.` : ""}
+            {latestScan.status === "failed" && latestScan.error_message
+              ? ` Error: ${latestScan.error_message}`
+              : ""}
+          </span>
         </StateMessage>
       )}
 

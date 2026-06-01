@@ -95,6 +95,18 @@ export function OpportunityDetail({ id }: { id: string }) {
   const commonPhrases = Array.isArray(breakdown.common_phrases)
     ? breakdown.common_phrases
     : [];
+  const sourceMix = data.evidence_items.reduce<Record<string, number>>(
+    (counts, item) => {
+      counts[item.source] = (counts[item.source] ?? 0) + 1;
+      return counts;
+    },
+    {},
+  );
+  const sourceMixLabel = Object.entries(sourceMix)
+    .map(([source, count]) => `${source} ${count}`)
+    .join(", ");
+  const sourcesWithUrls = data.evidence_items.filter((item) => Boolean(item.url)).length;
+  const formula = String(breakdown.score_formula ?? "");
 
   return (
     <div className="space-y-6">
@@ -162,6 +174,25 @@ export function OpportunityDetail({ id }: { id: string }) {
           response.
         </StateMessage>
       ) : null}
+
+      <Card variant="muted">
+        <h2 className="text-lg font-semibold text-ink">Evidence trail</h2>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Badge tone="blue">{data.signal_count} signals</Badge>
+          {sourceMixLabel ? (
+            <Badge>Source mix: {sourceMixLabel}</Badge>
+          ) : (
+            <Badge>No source mix yet</Badge>
+          )}
+          <Badge tone="green">
+            {sourcesWithUrls}/{data.evidence_items.length} with source URLs
+          </Badge>
+        </div>
+        <p className="mt-3 text-sm leading-6 text-muted">
+          Evidence excerpts come from detector spans. Author identity is omitted
+          from exports; source URLs are preserved for review.
+        </p>
+      </Card>
 
       <div className="grid gap-4 lg:grid-cols-[1.05fr_0.95fr]">
         <Card className="space-y-5">
@@ -265,6 +296,14 @@ export function OpportunityDetail({ id }: { id: string }) {
               </ul>
             </div>
           )}
+          {formula ? (
+            <div className="mt-5 border-t border-border pt-4">
+              <p className="text-sm font-semibold text-ink">Formula</p>
+              <p className="mt-2 break-words font-mono text-xs leading-6 text-muted">
+                {formula}
+              </p>
+            </div>
+          ) : null}
           {breakdown.explanation ? (
             <p className="mt-4 text-sm leading-6 text-muted">
               {String(breakdown.explanation)}
@@ -286,6 +325,14 @@ export function OpportunityDetail({ id }: { id: string }) {
         </div>
 
         <div className="grid gap-4">
+          {data.evidence_items.length === 0 ? (
+            <Card variant="muted">
+              <p className="text-sm leading-6 text-muted">
+                No evidence items were returned for this opportunity. Regenerate
+                after processing demo data.
+              </p>
+            </Card>
+          ) : null}
           {data.evidence_items.map((item) => (
             <article
               key={item.id}

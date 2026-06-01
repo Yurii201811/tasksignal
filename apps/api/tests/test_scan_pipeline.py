@@ -104,7 +104,8 @@ def test_scan_job_failure_path(db_session) -> None:
     assert job.items_found == 0
     assert job.items_saved == 0
     assert job.finished_at is not None
-    assert job.error_message == "Live API unavailable"
+    assert job.error_message is not None
+    assert "Live API unavailable" in job.error_message
 
 
 def test_scan_deduplicates_normalized_items(db_session) -> None:

@@ -20,7 +20,7 @@ The MVP detector is rule-based. It looks for:
 
 - Rule-based detection can miss subtle or sarcastic posts.
 - Fallback embeddings are lower quality than sentence-transformer embeddings.
-- DBSCAN settings are tuned for the small demo dataset.
+- Thematic fallback clustering is the default path; optional DBSCAN can be enabled with `TASKSIGNAL_USE_SKLEARN_CLUSTERING=1` and is tuned for the small demo dataset.
 - Public discussion data can overrepresent loud complaints.
 
 ## Bias And Failure Modes
