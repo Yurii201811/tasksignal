@@ -308,7 +308,6 @@ def connector_failure_message(source_type: str, exc: Exception) -> str:
     ):
         parts.append("Network or service timeout; retry with a smaller limit.")
 
-    # 
     elif "credentials" in detail.lower() or "unauthorized" in detail.lower():
         parts.append("Missing or invalid credentials; check setup guidance.")
     elif "rate limit" in detail.lower() or "too many requests" in detail.lower():

@@ -12,12 +12,23 @@ import {
   TableShell,
 } from "@/components/ui";
 
-function errorMessage(error: any) {
-//Checking if the backend sent a specific detail error string
-  if (error?.response?.data?.detail) {
-    return error.response.data.detail;
+
+function errorMessage(error: unknown) {
+  if (error instanceof Error) {
+    try {
+      // The local fetch wrapper puts backend JSON strings inside error.message
+      const parsed = JSON.parse(error.message);
+      if (parsed?.detail) {
+        return typeof parsed.detail === "string" 
+          ? parsed.detail 
+          : JSON.stringify(parsed.detail);
+      }
+    } catch {
+      // Fallback to the raw error text if it isn't JSON string formatted
+      return error.message;
+    }
   }
-  return error instanceof Error ? error.message : "The request failed.";
+  return "The request failed.";
 }
 
 function statusTone(status: string): "green" | "amber" | "blue" | "red" {
