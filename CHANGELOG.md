@@ -6,6 +6,7 @@ All notable public-facing changes to TaskSignal are recorded here.
 
 ### Added
 
+- Local `make doctor` setup check for fresh clones and contributor onboarding.
 - Source limits and terms guide for live connectors, hosted demos, and rate-limit review.
 
 ### Fixed

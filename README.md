@@ -85,6 +85,12 @@ make up
 
 Open the frontend at [http://localhost:3000](http://localhost:3000), go to Dashboard, and click **Process demo data**. To use live data, choose a source, query, and limit in **Live source**, then click **Run scan**.
 
+If setup fails or a fresh checkout looks incomplete, run:
+
+```bash
+make doctor
+```
+
 API health check:
 
 ```bash

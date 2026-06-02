@@ -1,4 +1,4 @@
-.PHONY: dev up down migrate seed process-demo test lint format reset-data verify release-check
+.PHONY: dev up down migrate seed process-demo doctor test lint format reset-data verify release-check
 
 dev:
 	@printf "Start API and web separately for local hacking:\n"
@@ -16,6 +16,9 @@ migrate:
 
 seed process-demo:
 	curl -X POST http://localhost:8000/api/process/demo
+
+doctor:
+	python3 scripts/doctor.py
 
 test:
 	cd apps/api && pytest

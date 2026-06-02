@@ -32,6 +32,12 @@ npm run dev
 
 ## Checks
 
+Run a quick local setup check when starting from a fresh checkout:
+
+```bash
+make doctor
+```
+
 Run the main checks before opening or merging changes:
 
 ```bash
