@@ -308,6 +308,16 @@ def connector_failure_message(source_type: str, exc: Exception) -> str:
     ):
         parts.append("Network or service timeout; retry with a smaller limit.")
 
+    # 
+    elif "credentials" in detail.lower() or "unauthorized" in detail.lower():
+        parts.append("Missing or invalid credentials; check setup guidance.")
+    elif "rate limit" in detail.lower() or "too many requests" in detail.lower():
+        parts.append("Rate limit exceeded; try again later or increase delay.")
+    elif "empty" in detail.lower() or "no data" in detail.lower():
+        parts.append("Scan completed but returned no results.")
+    elif "unsupported" in detail.lower() or "database type" in detail.lower():
+        parts.append("Unsupported database configuration or engine type.")
+
     guidance = SOURCE_GUIDANCE.get(source_type)
     if guidance:
         parts.append(guidance)
