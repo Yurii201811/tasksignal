@@ -12,7 +12,11 @@ import {
   TableShell,
 } from "@/components/ui";
 
-function errorMessage(error: unknown) {
+function errorMessage(error: any) {
+//Checking if the backend sent a specific detail error string
+  if (error?.response?.data?.detail) {
+    return error.response.data.detail;
+  }
   return error instanceof Error ? error.message : "The request failed.";
 }
 
