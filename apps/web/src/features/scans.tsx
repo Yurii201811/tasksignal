@@ -12,15 +12,14 @@ import {
   TableShell,
 } from "@/components/ui";
 
-
 function errorMessage(error: unknown) {
   if (error instanceof Error) {
     try {
       // The local fetch wrapper puts backend JSON strings inside error.message
       const parsed = JSON.parse(error.message);
       if (parsed?.detail) {
-        return typeof parsed.detail === "string" 
-          ? parsed.detail 
+        return typeof parsed.detail === "string"
+          ? parsed.detail
           : JSON.stringify(parsed.detail);
       }
     } catch {
