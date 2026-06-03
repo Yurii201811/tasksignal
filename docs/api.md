@@ -123,6 +123,13 @@ ranking rationale, and privacy constraints so exported prompts remain auditable.
 
 Downloads the prompt as Markdown.
 
+`GET /api/opportunities/{id}/evidence.md`
+
+Downloads a compact evidence bundle as Markdown. The bundle includes the
+opportunity summary, score breakdown, rank drivers, evidence item titles,
+detector excerpts, source URLs when safe, and caveats. It omits raw usernames,
+author hashes, credential fields, and raw connector payloads.
+
 ## Search
 
 `POST /api/search/semantic`

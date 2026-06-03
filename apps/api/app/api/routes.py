@@ -34,6 +34,7 @@ from app.schemas.api import (
 )
 from app.services.embeddings.service import EmbeddingService, cosine_similarity
 from app.services.generation.service import generate_opportunity
+from app.services.ingestion.normalization import safe_source_url
 from app.services.scoring.service import score_opportunity
 from app.workers.demo_pipeline import ensure_sources, process_demo, stats
 from app.workers.scan_pipeline import CONNECTOR_FACTORIES, canonical_source, process_scan
@@ -154,6 +155,103 @@ def row_to_generation_item(item: NormalizedItem, signal: ItemSignal) -> dict:
         "buying_intent_score": signal.buying_intent_score,
         "evidence_spans": signal.evidence_spans_json,
     }
+
+
+def markdown_value(value: object) -> str:
+    return str(value).replace("\r", " ").replace("\n", " ").strip()
+
+
+def evidence_excerpt(item: ItemOut) -> str:
+    spans = [markdown_value(span) for span in item.evidence_spans if markdown_value(span)]
+    if spans:
+        return spans[0]
+    fallback = markdown_value(item.body or item.title)
+    return f"{fallback[:237].rstrip()}..." if len(fallback) > 240 else fallback
+
+
+def evidence_source_url(item: ItemOut) -> str:
+    return safe_source_url(item.url, fallback="No source URL stored")
+
+
+def evidence_bundle_markdown(opportunity: OpportunityOut) -> str:
+    breakdown = opportunity.scoring_breakdown_json
+    score_rows = [
+        ("Frequency", breakdown.get("frequency")),
+        ("Recency", breakdown.get("recency")),
+        ("Pain intensity", breakdown.get("pain_intensity")),
+        ("Task concreteness", breakdown.get("task_concreteness")),
+        ("Buying intent", breakdown.get("buying_intent")),
+        ("Feasibility", breakdown.get("feasibility")),
+        ("Competition penalty", breakdown.get("competition_penalty")),
+        ("Opportunity score", opportunity.opportunity_score),
+    ]
+    lines = [
+        f"# Evidence Bundle: {markdown_value(opportunity.title)}",
+        "",
+        "## Opportunity",
+        "",
+        f"- Problem: {markdown_value(opportunity.problem_statement)}",
+        f"- Target user: {markdown_value(opportunity.target_user)}",
+        f"- Current workaround: {markdown_value(opportunity.current_workaround)}",
+        f"- Suggested MVP: {markdown_value(opportunity.suggested_mvp)}",
+        f"- Why now: {markdown_value(opportunity.why_now)}",
+        f"- Competition notes: {markdown_value(opportunity.competition_notes)}",
+        f"- Generated prompt: /api/opportunities/{opportunity.id}/prompt",
+        "",
+        "## Score Breakdown",
+        "",
+    ]
+
+    for label, value in score_rows:
+        if isinstance(value, (int, float)):
+            lines.append(f"- {label}: {value:.3f}")
+
+    rank_drivers = breakdown.get("rank_drivers")
+    if isinstance(rank_drivers, list) and rank_drivers:
+        lines.extend(["", "## Rank Drivers", ""])
+        for driver in rank_drivers:
+            lines.append(f"- {markdown_value(driver)}")
+
+    lines.extend(
+        [
+            "",
+            "## Evidence Items",
+            "",
+        ]
+    )
+    if not opportunity.evidence_items:
+        lines.append("- No evidence items were returned for this opportunity.")
+
+    for index, item in enumerate(opportunity.evidence_items, start=1):
+        lines.extend(
+            [
+                f"### {index}. {markdown_value(item.title)}",
+                "",
+                f"- Source: {markdown_value(item.source)}",
+                f"- URL: {evidence_source_url(item)}",
+                f"- Signal type: {markdown_value(item.signal_type or 'unknown')}",
+            ]
+        )
+        if item.pain_score is not None:
+            lines.append(f"- Pain score: {item.pain_score:.3f}")
+        if item.task_concreteness_score is not None:
+            lines.append(f"- Task concreteness score: {item.task_concreteness_score:.3f}")
+        if item.buying_intent_score is not None:
+            lines.append(f"- Buying intent score: {item.buying_intent_score:.3f}")
+        lines.extend(["", "Evidence excerpt:", "", f"> {evidence_excerpt(item)}", ""])
+
+    lines.extend(
+        [
+            "## Caveats",
+            "",
+            "- This bundle is generated from public-source normalized items and detector spans.",
+            "- Raw usernames, author hashes, credential fields, and raw connector payloads are omitted.",
+            "- Scores are heuristic review aids, not proof of demand or adoption.",
+            "- Source URLs are preserved when available so reviewers can audit the evidence trail.",
+            "",
+        ]
+    )
+    return "\n".join(lines)
 
 
 @router.get("/stats")
@@ -345,6 +443,21 @@ def export_prompt(opportunity_id: UUID, db: Session = Depends(get_db)) -> Respon
         opportunity.generated_prompt,
         media_type="text/markdown",
         headers={"Content-Disposition": f'attachment; filename="{opportunity_id}.md"'},
+    )
+
+
+@router.get("/opportunities/{opportunity_id}/evidence.md")
+def export_evidence_bundle(opportunity_id: UUID, db: Session = Depends(get_db)) -> Response:
+    opportunity = db.get(Opportunity, opportunity_id)
+    if opportunity is None:
+        raise HTTPException(status_code=404, detail="Opportunity not found")
+    bundle = evidence_bundle_markdown(opportunity_to_out(db, opportunity))
+    return Response(
+        bundle,
+        media_type="text/markdown",
+        headers={
+            "Content-Disposition": f'attachment; filename="evidence-{opportunity_id}.md"'
+        },
     )
 
 

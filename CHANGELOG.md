@@ -6,6 +6,8 @@ All notable public-facing changes to TaskSignal are recorded here.
 
 ### Added
 
+- Evidence bundle Markdown export for opportunity detail pages and
+  `/api/opportunities/{id}/evidence.md`.
 - Local `make doctor` setup check for fresh clones and contributor onboarding.
 - Source limits and terms guide for live connectors, hosted demos, and rate-limit review.
 

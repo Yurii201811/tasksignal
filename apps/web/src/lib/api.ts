@@ -43,5 +43,7 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ query, limit: 8 })
     }),
+  promptExportUrl: (id: string) => `${API_BASE}/api/opportunities/${id}/export.md`,
+  evidenceExportUrl: (id: string) => `${API_BASE}/api/opportunities/${id}/evidence.md`,
   exportUrl: (id: string) => `${API_BASE}/api/opportunities/${id}/export.md`
 };

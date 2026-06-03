@@ -57,7 +57,7 @@ export function PromptView({ id }: { id: string }) {
               <Copy size={16} /> {copied ? "Copied" : "Copy prompt"}
             </Button>
             <a
-              href={api.exportUrl(id)}
+              href={api.promptExportUrl(id)}
               className="inline-flex min-h-11 items-center justify-center gap-2 rounded-product border border-border bg-surface px-4 py-2 text-sm font-semibold text-ink hover:bg-surface-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]"
             >
               <Download size={16} /> Download .md
