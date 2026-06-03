@@ -1,0 +1,24 @@
+{
+  "source": "reddit",
+  "items": [
+    {
+      "external_id": "r-edge-sparse-1",
+      "title": "Sparse reddit post about a painful manual reporting workflow"
+    },
+    {
+      "external_id": "r-edge-malformed-1",
+      "title": "Reddit post uses selftext and created_utc with no subreddit",
+      "selftext": "I manually export CSVs and clean them in a spreadsheet every Friday. It is painful.",
+      "author": "edge_reddit_user",
+      "created_utc": 1777204800,
+      "url": "https://reddit.com/comments/r-edge-malformed-1"
+    },
+    {
+      "external_id": "r-edge-empty-1",
+      "title": "<p></p>",
+      "body": "",
+      "selftext": "   ",
+      "author": "edge_reddit_empty"
+    }
+  ]
+}
