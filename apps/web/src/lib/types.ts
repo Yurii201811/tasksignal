@@ -74,6 +74,57 @@ export type Source = {
   created_at: string;
 };
 
+export type Integration = {
+  id: string;
+  name: string;
+  kind: string;
+  status: string;
+  credential_state: string;
+  public_scan_enabled: boolean;
+  operator_token_required: boolean;
+  required_env: string[];
+  optional_env: string[];
+  rate_limit_note: string;
+  privacy_note: string;
+  next_step: string;
+  last_scan_status: string | null;
+  last_scan_at: string | null;
+};
+
+export type IntegrationTest = {
+  id: string;
+  status: string;
+  detail: string;
+  items_found: number;
+};
+
+export type ResearchProject = {
+  id: string;
+  name: string;
+  description: string | null;
+  source_type: string;
+  query: string;
+  limit: number;
+  cadence: string;
+  labels: string[];
+  enabled: boolean;
+  last_scan_id: string | null;
+  last_scan_status: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ResearchProjectCreate = {
+  name: string;
+  description?: string | null;
+  source_type: string;
+  query: string;
+  limit: number;
+  cadence: string;
+  labels: string[];
+  enabled: boolean;
+};
+
 export type Scan = {
   id: string;
   source_id: string | null;
@@ -92,4 +143,16 @@ export type ScanCreate = {
   source: string;
   query: string;
   limit: number;
+};
+
+export type TaskPack = {
+  opportunity_id: string;
+  title: string;
+  problem: string;
+  suggested_mvp: string;
+  codex_prompt: string;
+  markdown: string;
+  evidence_urls: string[];
+  acceptance_criteria: string[];
+  privacy_constraints: string[];
 };

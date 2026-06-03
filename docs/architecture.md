@@ -14,7 +14,10 @@ TaskSignal is a local-first full-stack app with a fixture-powered demo path and 
 - `workers.scan_pipeline`: synchronous live-source scan orchestration for one
   selected source/query/limit without a background job framework.
 - `api`: FastAPI endpoints.
-- `apps/web`: Next.js dashboard and workflow UI.
+- `apps/web`: Next.js dashboard, saved research projects, integrations, and workflow UI.
+- `skills/tasksignal-opportunity-builder`: Codex-style skill package for
+  turning TaskSignal task packs into PRDs, issues, implementation plans, or
+  evidence reviews.
 
 ## Data Flow
 
@@ -28,6 +31,8 @@ flowchart LR
   Embeddings --> Clusters[clusters and cluster_items]
   Clusters --> Opportunities[opportunities]
   Opportunities --> Dashboard[Next.js dashboard]
+  Opportunities --> TaskPacks[Codex task packs]
+  Projects[Saved research projects] --> APIs
 ```
 
 ## Local Deployment

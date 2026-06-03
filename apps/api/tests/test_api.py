@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime
 from uuid import uuid4
 
@@ -27,6 +28,74 @@ def test_process_demo_endpoint(client) -> None:
     assert opportunities[0]["scoring_breakdown_json"]["rank_drivers"]
     assert opportunities[0]["evidence_items"][0]["evidence_spans"]
     assert "Ranking rationale" in opportunities[0]["generated_prompt"]
+
+
+def test_integrations_report_status_without_secret_values(client, monkeypatch) -> None:
+    monkeypatch.setattr(routes.settings, "github_token", "ghp_do_not_leak")
+
+    response = client.get("/api/integrations")
+
+    assert response.status_code == 200
+    text = json.dumps(response.json())
+    assert "ghp_do_not_leak" not in text
+    github = next(item for item in response.json() if item["id"] == "github")
+    assert github["credential_state"] == "configured"
+    assert "GITHUB_TOKEN" in github["optional_env"]
+
+
+def test_research_project_can_save_and_run_fixture_workflow(client) -> None:
+    create_response = client.post(
+        "/api/research-projects",
+        json={
+            "name": "Fixture opportunity review",
+            "description": "Repeatable fixture scan for agent handoff checks.",
+            "source_type": "fixture",
+            "query": "",
+            "limit": 20,
+            "cadence": "manual",
+            "labels": ["fixture", "codex"],
+            "enabled": True,
+        },
+    )
+
+    assert create_response.status_code == 200
+    project = create_response.json()
+    assert project["source_type"] == "fixture"
+    assert project["labels"] == ["fixture", "codex"]
+
+    run_response = client.post(f"/api/research-projects/{project['id']}/run")
+
+    assert run_response.status_code == 200
+    scan = run_response.json()
+    assert scan["source_type"] == "fixture"
+    assert scan["status"] == "completed"
+    assert scan["items_found"] >= 17
+
+    projects = client.get("/api/research-projects").json()
+    saved = next(item for item in projects if item["id"] == project["id"])
+    assert saved["last_scan_id"] == scan["id"]
+    assert saved["last_scan_status"] == "completed"
+
+
+def test_credentialed_research_project_run_requires_operator_token(client) -> None:
+    create_response = client.post(
+        "/api/research-projects",
+        json={
+            "name": "GitHub project",
+            "source_type": "github",
+            "query": "label:bug",
+            "limit": 5,
+            "cadence": "manual",
+            "labels": [],
+            "enabled": True,
+        },
+    )
+    project = create_response.json()
+
+    run_response = client.post(f"/api/research-projects/{project['id']}/run")
+
+    assert run_response.status_code == 403
+    assert "X-Operator-Scan-Token" in run_response.json()["detail"]
 
 
 def test_process_demo_is_idempotent_without_reset(client) -> None:
@@ -95,7 +164,7 @@ def test_evidence_bundle_export_includes_visible_evidence_without_authors(client
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/markdown")
-    assert f'evidence-{opportunity["id"]}.md' in response.headers["content-disposition"]
+    assert f"evidence-{opportunity['id']}.md" in response.headers["content-disposition"]
     text = response.text
     assert text.startswith("# Evidence Bundle:")
     assert opportunity["title"] in text
@@ -111,6 +180,31 @@ def test_evidence_bundle_export_includes_visible_evidence_without_authors(client
     assert "contributor-a" not in text
     assert "hn_builder" not in text
     assert "frontend_builder_41" not in text
+
+
+def test_task_pack_exports_codex_ready_markdown_and_json(client) -> None:
+    client.post("/api/process/demo")
+    opportunity = client.get("/api/opportunities").json()[0]
+
+    markdown_response = client.get(f"/api/opportunities/{opportunity['id']}/task-pack.md")
+    json_response = client.get(f"/api/opportunities/{opportunity['id']}/task-pack.json")
+
+    assert markdown_response.status_code == 200
+    assert markdown_response.headers["content-type"].startswith("text/markdown")
+    text = markdown_response.text
+    assert text.startswith("# TaskSignal Codex Task Pack:")
+    assert "## Acceptance Criteria" in text
+    assert "## Privacy And Safety Constraints" in text
+    assert "## Generated Build Prompt" in text
+    assert opportunity["title"] in text
+    assert "raw_author" not in text
+
+    assert json_response.status_code == 200
+    payload = json_response.json()
+    assert payload["opportunity_id"] == opportunity["id"]
+    assert payload["acceptance_criteria"]
+    assert payload["privacy_constraints"]
+    assert payload["markdown"] == text
 
 
 def test_prompt_markdown_export_remains_generated_prompt(client) -> None:

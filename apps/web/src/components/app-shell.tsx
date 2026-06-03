@@ -7,6 +7,7 @@ import { ReactNode } from "react";
 import {
   BarChart3,
   Database,
+  FolderKanban,
   Home,
   Radar,
   Search,
@@ -20,10 +21,11 @@ const NAV_ICON_CLASS = "h-[18px] w-[18px] shrink-0";
 const nav: { href: string; label: string; icon: LucideIcon }[] = [
   { href: "/", label: "Home", icon: Home },
   { href: "/dashboard", label: "Dashboard", icon: BarChart3 },
+  { href: "/projects", label: "Projects", icon: FolderKanban },
   { href: "/sources", label: "Sources", icon: Database },
   { href: "/scans", label: "Scans", icon: TimerReset },
   { href: "/search", label: "Search", icon: Search },
-  { href: "/settings", label: "Settings", icon: Settings },
+  { href: "/settings", label: "Integrations", icon: Settings },
 ];
 
 function isNavActive(pathname: string, href: string) {
@@ -107,8 +109,12 @@ function BrandMark() {
         <Radar className="h-[22px] w-[22px]" aria-hidden />
       </span>
       <span className="min-w-0">
-        <span className="block truncate text-base font-semibold lg:text-lg">TaskSignal</span>
-        <span className="block truncate text-xs text-muted">Problem discovery engine</span>
+        <span className="block truncate text-base font-semibold lg:text-lg">
+          TaskSignal
+        </span>
+        <span className="block truncate text-xs text-muted">
+          Problem discovery engine
+        </span>
       </span>
     </Link>
   );
@@ -128,10 +134,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       <header className="border-b border-border bg-surface px-4 py-3 lg:hidden">
         <BrandMark />
-        <nav
-          className="mt-3 grid grid-cols-3 gap-1"
-          aria-label="Primary"
-        >
+        <nav className="mt-3 grid grid-cols-3 gap-1" aria-label="Primary">
           {nav.map((item) => (
             <ShellNavLink
               key={item.href}
@@ -157,8 +160,10 @@ export function AppShell({ children }: { children: ReactNode }) {
         </nav>
       </aside>
 
-      <main id="main-content" tabIndex={-1} className="lg:pl-64">
-        <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8">{children}</div>
+      <main id="main-content" tabIndex={-1} className="min-w-0 lg:pl-64">
+        <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+          {children}
+        </div>
       </main>
     </div>
   );

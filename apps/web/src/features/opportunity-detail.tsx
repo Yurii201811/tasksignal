@@ -106,7 +106,9 @@ export function OpportunityDetail({ id }: { id: string }) {
   const sourceMixLabel = Object.entries(sourceMix)
     .map(([source, count]) => `${source} ${count}`)
     .join(", ");
-  const sourcesWithUrls = data.evidence_items.filter((item) => Boolean(item.url)).length;
+  const sourcesWithUrls = data.evidence_items.filter((item) =>
+    Boolean(item.url),
+  ).length;
   const formula = String(breakdown.score_formula ?? "");
 
   return (
@@ -130,6 +132,12 @@ export function OpportunityDetail({ id }: { id: string }) {
               >
                 <FileText size={16} /> View Codex Prompt
               </Link>
+              <a
+                href={api.taskPackExportUrl(id)}
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-product border border-border bg-surface px-4 py-2 text-sm font-semibold text-ink hover:bg-surface-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]"
+              >
+                <Download size={16} /> Task Pack
+              </a>
               <a
                 href={api.evidenceExportUrl(id)}
                 className="inline-flex min-h-11 items-center justify-center gap-2 rounded-product border border-border bg-surface px-4 py-2 text-sm font-semibold text-ink hover:bg-surface-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]"
@@ -252,7 +260,10 @@ export function OpportunityDetail({ id }: { id: string }) {
                   const value = scoreValue(breakdown, row.key);
                   const impact = value * row.weight * 100;
                   return (
-                    <tr key={row.key} className="border-b border-border last:border-b-0">
+                    <tr
+                      key={row.key}
+                      className="border-b border-border last:border-b-0"
+                    >
                       <td className="py-3 pr-3 font-medium text-ink">
                         {row.label}
                       </td>
@@ -341,43 +352,51 @@ export function OpportunityDetail({ id }: { id: string }) {
                 key={item.id}
                 className="rounded-product border border-border bg-surface p-4 shadow-soft"
               >
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex min-w-0 flex-wrap items-center gap-2">
-                  <Badge tone="blue">{item.source}</Badge>
-                  <Badge tone="green">{item.signal_type?.replace("_", " ")}</Badge>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                    <Badge tone="blue">{item.source}</Badge>
+                    <Badge tone="green">
+                      {item.signal_type?.replace("_", " ")}
+                    </Badge>
+                  </div>
+                  {sourceUrl ? (
+                    <a
+                      href={sourceUrl}
+                      className="inline-flex min-h-9 items-center gap-1 rounded-product text-sm font-semibold text-signal hover:text-[var(--ts-accent-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]"
+                      rel="noreferrer"
+                      target="_blank"
+                    >
+                      Source <ExternalLink size={14} />
+                    </a>
+                  ) : null}
                 </div>
-                {sourceUrl ? (
-                  <a
-                    href={sourceUrl}
-                    className="inline-flex min-h-9 items-center gap-1 rounded-product text-sm font-semibold text-signal hover:text-[var(--ts-accent-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]"
-                    rel="noreferrer"
-                    target="_blank"
-                  >
-                    Source <ExternalLink size={14} />
-                  </a>
-                ) : null}
-              </div>
-              <h3 className="mt-3 break-words font-semibold text-ink">
-                {item.title}
-              </h3>
-              <div className="mt-3 grid gap-3 md:grid-cols-3">
-                <MiniScore label="Pain" value={item.pain_score} />
-                <MiniScore label="Task" value={item.task_concreteness_score} />
-                <MiniScore label="Buying" value={item.buying_intent_score} />
-              </div>
-              <div className="mt-4 grid gap-2">
-                {evidenceSnippets(item).map((snippet) => (
-                  <blockquote
-                    key={snippet}
-                    className="rounded-product bg-surface-muted px-4 py-3 text-sm leading-6 text-muted"
-                  >
-                    <span className="mr-2 font-semibold text-signal" aria-hidden>
-                      &quot;
-                    </span>
-                    <span className="break-words">{snippet}</span>
-                  </blockquote>
-                ))}
-              </div>
+                <h3 className="mt-3 break-words font-semibold text-ink">
+                  {item.title}
+                </h3>
+                <div className="mt-3 grid gap-3 md:grid-cols-3">
+                  <MiniScore label="Pain" value={item.pain_score} />
+                  <MiniScore
+                    label="Task"
+                    value={item.task_concreteness_score}
+                  />
+                  <MiniScore label="Buying" value={item.buying_intent_score} />
+                </div>
+                <div className="mt-4 grid gap-2">
+                  {evidenceSnippets(item).map((snippet) => (
+                    <blockquote
+                      key={snippet}
+                      className="rounded-product bg-surface-muted px-4 py-3 text-sm leading-6 text-muted"
+                    >
+                      <span
+                        className="mr-2 font-semibold text-signal"
+                        aria-hidden
+                      >
+                        &quot;
+                      </span>
+                      <span className="break-words">{snippet}</span>
+                    </blockquote>
+                  ))}
+                </div>
               </article>
             );
           })}

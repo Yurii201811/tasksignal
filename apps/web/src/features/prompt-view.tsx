@@ -57,6 +57,12 @@ export function PromptView({ id }: { id: string }) {
               <Copy size={16} /> {copied ? "Copied" : "Copy prompt"}
             </Button>
             <a
+              href={api.taskPackExportUrl(id)}
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-product border border-border bg-surface px-4 py-2 text-sm font-semibold text-ink hover:bg-surface-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]"
+            >
+              <Download size={16} /> Task pack
+            </a>
+            <a
               href={api.promptExportUrl(id)}
               className="inline-flex min-h-11 items-center justify-center gap-2 rounded-product border border-border bg-surface px-4 py-2 text-sm font-semibold text-ink hover:bg-surface-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]"
             >
@@ -116,7 +122,9 @@ export function PromptView({ id }: { id: string }) {
       ) : null}
       {!isLoading && !isError && !prompt ? (
         <Card className="prose max-w-none break-words">
-          <p>Process demo data first, then open a generated opportunity prompt.</p>
+          <p>
+            Process demo data first, then open a generated opportunity prompt.
+          </p>
         </Card>
       ) : null}
     </div>

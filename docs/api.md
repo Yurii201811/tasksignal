@@ -12,6 +12,18 @@ Returns service status, selected LLM provider, embedding model, and fixture mode
 
 Returns item counts, source breakdown, and pain score distribution.
 
+`GET /api/integrations`
+
+Returns source, runtime, and Codex handoff readiness without returning secret
+values. Credential fields are reported as environment variable names only.
+
+`POST /api/integrations/{id}/test`
+
+Runs a small connector readiness check. Credentialed source tests require
+`X-Operator-Scan-Token` when `OPERATOR_SCAN_TOKEN` is configured. Runtime and
+Codex handoff integrations return configuration status rather than making model
+calls.
+
 ## Processing
 
 `POST /api/process/demo`
@@ -110,6 +122,39 @@ Returns one scan job with source, query, status, timestamps, found/saved counts,
 and any stored redacted error message. The web scan detail page uses this
 endpoint for completed, failed, queued, and running scan states.
 
+## Research Projects
+
+`GET /api/research-projects`
+
+Returns saved repeatable research workflows ordered by most recently updated.
+
+`POST /api/research-projects`
+
+Creates a saved workflow.
+
+Request:
+
+```json
+{
+  "name": "Track CI/CD pain",
+  "description": "Find repeated complaints that could become a focused developer-tool MVP.",
+  "source_type": "hackernews",
+  "query": "ask",
+  "limit": 30,
+  "cadence": "manual",
+  "labels": ["ci", "developer-tools"],
+  "enabled": true
+}
+```
+
+`POST /api/research-projects/{id}/run`
+
+Runs the saved source/query/limit and updates the project's `last_scan_id`.
+Public scan sources follow the same allowlist as `POST /api/scans`.
+Credentialed sources (`github`, `reddit`, `stackexchange`) require
+`X-Operator-Scan-Token` matching `OPERATOR_SCAN_TOKEN` so browser-triggered
+runs cannot silently spend server-side credentials.
+
 ## Opportunities
 
 `GET /api/opportunities`
@@ -139,6 +184,16 @@ Downloads a compact evidence bundle as Markdown. The bundle includes the
 opportunity summary, score breakdown, rank drivers, evidence item titles,
 detector excerpts, source URLs when safe, and caveats. It omits raw usernames,
 author hashes, credential fields, and raw connector payloads.
+
+`GET /api/opportunities/{id}/task-pack.json`
+
+Returns a structured Codex task pack with objective, suggested MVP, generated
+prompt, source URLs, acceptance criteria, and privacy constraints.
+
+`GET /api/opportunities/{id}/task-pack.md`
+
+Downloads the same task pack as Markdown for Codex, other coding agents, issue
+drafting, or local review workflows.
 
 ## Search
 

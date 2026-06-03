@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     github_token: str = ""
     stack_exchange_key: str = ""
     demo_reset_token: str = ""
+    operator_scan_token: str = ""
     public_scan_sources: str = "fixture,hackernews"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")

@@ -6,7 +6,7 @@ TaskSignal is a local-first research app for public discussion data. This threat
 
 - API credentials in local `.env` files or GitHub repository secrets.
 - Public-source records fetched from Reddit, Hacker News, GitHub Issues, and Stack Exchange.
-- Normalized records, source URLs, author hashes, opportunity cards, and exported prompts.
+- Normalized records, source URLs, author hashes, opportunity cards, exported prompts, and Codex task packs.
 - Local databases, generated exports, screenshots, and logs.
 
 ## Trust Boundaries
@@ -26,7 +26,9 @@ TaskSignal is a local-first research app for public discussion data. This threat
 - **SSRF and unsafe URLs:** future connector expansion could fetch arbitrary URLs if source validation is loosened.
 - **Rate-limit or terms violations:** live scans may exceed source expectations if scheduling is added without limits.
 - **Credentialed scan abuse:** unauthenticated callers must not be able to run connector searches with server-side tokens.
+- **Operator-token leakage:** the local operator token could be copied into logs, screenshots, or exports.
 - **Unsafe source links:** public-source URL fields must not become clickable non-http(s) links in the operator UI.
+- **Agent handoff drift:** exported task packs could be used by another agent without preserving evidence caveats or privacy constraints.
 - **Weak release hygiene:** unreviewed dependencies or generated artifacts could be published unintentionally.
 
 ## Current Mitigations
@@ -37,11 +39,14 @@ TaskSignal is a local-first research app for public discussion data. This threat
 - Live connectors use official APIs and explicit credential configuration where required.
 - Public scan exposure is limited to non-credentialed sources (`fixture` and
   `hackernews`) and can be narrowed further with `PUBLIC_SCAN_SOURCES`.
+- Browser-triggered credentialed source runs through research projects require
+  `OPERATOR_SCAN_TOKEN` plus `X-Operator-Scan-Token`.
 - Destructive demo resets require `DEMO_RESET_TOKEN` plus the matching
   `X-Demo-Reset-Token` header when that token is configured.
 - Normalization and frontend rendering only expose absolute `http` and `https`
   source links.
-- Exported prompts keep source excerpts as evidence and include privacy constraints.
+- Exported prompts and task packs keep source excerpts as evidence and include
+  privacy constraints.
 - CI runs backend and frontend checks before public release work.
 - Security reports are directed away from public issue details.
 
@@ -51,3 +56,5 @@ TaskSignal is a local-first research app for public discussion data. This threat
 - New export target: confirm no secrets, raw identifiers, or private records can be included by default.
 - New automation: keep human approval gates for labels, outreach, issue creation, and release actions.
 - Hosted deployment: add authentication, retention policy, log redaction, and administrative deletion paths.
+- Agent integration: keep TaskSignal evidence as untrusted quoted material and
+  preserve the no-spam/no-bulk-outreach boundary.

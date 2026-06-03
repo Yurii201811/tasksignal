@@ -237,14 +237,16 @@ export function PageHeader({
   return (
     <header
       className={clsx(
-        "flex flex-col justify-between gap-4 sm:flex-row sm:items-end",
+        "flex min-w-0 flex-col justify-between gap-4 sm:flex-row sm:items-end",
         className,
       )}
     >
       <div className="min-w-0">
         <h1 className="text-3xl font-semibold tracking-tight text-ink">{title}</h1>
         {description ? (
-          <p className="mt-2 max-w-3xl text-base leading-7 text-muted">{description}</p>
+          <p className="mt-2 max-w-3xl break-words text-base leading-7 text-muted">
+            {description}
+          </p>
         ) : null}
       </div>
       {actions ? (

@@ -1,5 +1,11 @@
 import Link from "next/link";
-import { ArrowRight, ClipboardCheck, FileText, Layers3, Search } from "lucide-react";
+import {
+  ArrowRight,
+  ClipboardCheck,
+  FileText,
+  Layers3,
+  Search,
+} from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { Badge, ButtonLink, Card, PageHeader } from "@/components/ui";
 
@@ -23,18 +29,21 @@ const examples = [
 
 const workflow = [
   {
-    title: "Process demo data",
-    description: "Load local fixtures and generate ranked opportunities without credentials.",
+    title: "Create a research project",
+    description:
+      "Save the source, query, limits, and labels for a repeatable opportunity search.",
     icon: Layers3,
   },
   {
-    title: "Review the evidence",
-    description: "Inspect source attribution, signal scores, and ranking drivers before trusting a result.",
+    title: "Run real scans",
+    description:
+      "Use public APIs by default, then add operator-gated credentials when needed.",
     icon: ClipboardCheck,
   },
   {
-    title: "Export a Codex prompt",
-    description: "Carry the evidence trail into an MVP prompt without rewriting the source material.",
+    title: "Export a task pack",
+    description:
+      "Carry evidence, acceptance criteria, and privacy constraints into Codex or another agent.",
     icon: FileText,
   },
 ];
@@ -45,15 +54,15 @@ export default function LandingPage() {
       <div className="space-y-6 py-4">
         <PageHeader
           title="TaskSignal"
-          description="A local-first workbench for finding software opportunities from public complaints, repetitive workflows, and fixture data."
+          description="A local-first research-to-build workbench for finding software opportunities from public complaints, reviewing evidence, and handing focused tasks to Codex."
           actions={
             <>
-              <ButtonLink href="/dashboard">Open dashboard</ButtonLink>
+              <ButtonLink href="/projects">Create project</ButtonLink>
               <Link
-                href="/search"
+                href="/settings"
                 className="inline-flex min-h-11 items-center justify-center gap-2 rounded-product border border-border bg-surface px-4 py-2 text-sm font-semibold text-ink hover:bg-surface-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]"
               >
-                <Search size={16} /> Search evidence
+                <Search size={16} /> Connect sources
               </Link>
             </>
           }
@@ -63,9 +72,9 @@ export default function LandingPage() {
           <Card>
             <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="text-sm font-semibold text-muted">Try first</p>
+                <p className="text-sm font-semibold text-muted">Start here</p>
                 <h2 className="mt-1 text-xl font-semibold text-ink">
-                  Evidence workflow
+                  Research workflow
                 </h2>
               </div>
               <Badge tone="green">No paid LLM required</Badge>
@@ -93,7 +102,7 @@ export default function LandingPage() {
             <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
               <div>
                 <p className="text-sm font-semibold text-muted">
-                  Fixture demo output
+                  Evidence output
                 </p>
                 <h2 className="mt-1 text-xl font-semibold text-ink">
                   Ranked opportunities
@@ -116,7 +125,9 @@ export default function LandingPage() {
                     </p>
                   </div>
                   <div className="flex items-center justify-between gap-3 sm:block sm:text-right">
-                    <span className="text-sm font-semibold text-muted">Score</span>
+                    <span className="text-sm font-semibold text-muted">
+                      Score
+                    </span>
                     <span className="text-2xl font-semibold tabular-nums text-signal">
                       {example.score}
                     </span>
@@ -128,7 +139,7 @@ export default function LandingPage() {
               href="/dashboard"
               className="mt-5 inline-flex min-h-9 items-center gap-1 rounded-product text-sm font-semibold text-signal hover:text-[var(--ts-accent-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]"
             >
-              Process fixtures and open the live dashboard <ArrowRight size={15} />
+              Open dashboard and review ranked evidence <ArrowRight size={15} />
             </Link>
           </Card>
         </div>

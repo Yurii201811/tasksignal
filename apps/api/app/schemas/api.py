@@ -38,6 +38,58 @@ class ScanOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class IntegrationOut(BaseModel):
+    id: str
+    name: str
+    kind: str
+    status: str
+    credential_state: str
+    public_scan_enabled: bool = False
+    operator_token_required: bool = False
+    required_env: list[str] = []
+    optional_env: list[str] = []
+    rate_limit_note: str
+    privacy_note: str
+    next_step: str
+    last_scan_status: str | None = None
+    last_scan_at: datetime | None = None
+
+
+class IntegrationTestOut(BaseModel):
+    id: str
+    status: str
+    detail: str
+    items_found: int = 0
+
+
+class ResearchProjectCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    description: str | None = Field(default=None, max_length=500)
+    source_type: str = "hackernews"
+    query: str = Field(default="", max_length=300)
+    limit: int = Field(default=30, ge=1, le=100)
+    cadence: str = Field(default="manual", max_length=60)
+    labels: list[str] = Field(default_factory=list, max_length=12)
+    enabled: bool = True
+
+
+class ResearchProjectOut(BaseModel):
+    id: UUID
+    name: str
+    description: str | None
+    source_type: str
+    query: str
+    limit: int
+    cadence: str
+    labels: list[str] = []
+    enabled: bool
+    last_scan_id: UUID | None
+    last_scan_status: str | None = None
+    created_at: datetime
+    updated_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+
 class ItemOut(BaseModel):
     id: UUID
     source: str
@@ -95,3 +147,15 @@ class LabelCreate(BaseModel):
     item_id: UUID
     label: str
     user_note: str | None = None
+
+
+class TaskPackOut(BaseModel):
+    opportunity_id: UUID
+    title: str
+    problem: str
+    suggested_mvp: str
+    codex_prompt: str
+    markdown: str
+    evidence_urls: list[str]
+    acceptance_criteria: list[str]
+    privacy_constraints: list[str]

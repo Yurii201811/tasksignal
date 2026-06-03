@@ -58,6 +58,36 @@ class ScanJob(Base):
         return self.source.name if self.source else None
 
 
+class ResearchProject(Base):
+    __tablename__ = "research_projects"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(Text)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_type: Mapped[str] = mapped_column(Text, index=True)
+    query: Mapped[str] = mapped_column(Text, default="")
+    limit: Mapped[int] = mapped_column(Integer, default=30)
+    cadence: Mapped[str] = mapped_column(Text, default="manual")
+    labels_json: Mapped[list[str]] = mapped_column(JSON, default=list)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    last_scan_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("scan_jobs.id"),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+    last_scan: Mapped[ScanJob | None] = relationship()
+
+    @property
+    def last_scan_status(self) -> str | None:
+        return self.last_scan.status if self.last_scan else None
+
+    @property
+    def labels(self) -> list[str]:
+        return self.labels_json
+
+
 class RawItem(Base):
     __tablename__ = "raw_items"
 
