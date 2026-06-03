@@ -100,6 +100,16 @@ user-actionable and avoid echoing secrets or raw credential values. Messages
 include connector-specific guidance for missing credentials, authorization
 failures, and rate limits when applicable.
 
+`GET /api/scans`
+
+Returns recent scan jobs ordered by newest started timestamp first.
+
+`GET /api/scans/{id}`
+
+Returns one scan job with source, query, status, timestamps, found/saved counts,
+and any stored redacted error message. The web scan detail page uses this
+endpoint for completed, failed, queued, and running scan states.
+
 ## Opportunities
 
 `GET /api/opportunities`

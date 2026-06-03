@@ -33,6 +33,7 @@ export const api = {
   processDemo: () => request<ProcessSummary>("/api/process/demo", { method: "POST" }),
   sources: () => request<Source[]>("/api/sources"),
   scans: () => request<Scan[]>("/api/scans"),
+  scan: (id: string) => request<Scan>(`/api/scans/${id}`),
   createScan: (payload: ScanCreate) =>
     request<Scan>("/api/scans", {
       method: "POST",

@@ -1,7 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, RefreshCw } from "lucide-react";
+import { ArrowRight, Plus, RefreshCw } from "lucide-react";
 import { api } from "@/lib/api";
 import {
   Badge,
@@ -103,20 +104,21 @@ export function Scans() {
               <th className="py-3 pr-4">Started</th>
               <th className="py-3 pr-4">Finished</th>
               <th className="py-3 pr-4">Found</th>
-              <th className="py-3">Saved</th>
+              <th className="py-3 pr-4">Saved</th>
+              <th className="py-3">Detail</th>
             </tr>
           </thead>
           <tbody>
             {scans.isLoading ? (
               <tr>
-                <td colSpan={7} className="py-8 text-center text-sm text-muted">
+                <td colSpan={8} className="py-8 text-center text-sm text-muted">
                   Loading scan history...
                 </td>
               </tr>
             ) : null}
             {!scans.isLoading && (scans.data ?? []).length === 0 ? (
               <tr>
-                <td colSpan={7} className="py-8 text-center">
+                <td colSpan={8} className="py-8 text-center">
                   <div className="mx-auto max-w-md rounded-product border border-dashed border-border bg-surface-muted px-4 py-6">
                     <p className="text-sm font-semibold text-ink">
                       No scans recorded yet
@@ -148,7 +150,15 @@ export function Scans() {
                     {dateOrDash(scan.finished_at)}
                   </td>
                   <td className="py-3 pr-4 tabular-nums">{scan.items_found}</td>
-                  <td className="py-3 tabular-nums">{scan.items_saved}</td>
+                  <td className="py-3 pr-4 tabular-nums">{scan.items_saved}</td>
+                  <td className="py-3">
+                    <Link
+                      href={`/scans/${scan.id}`}
+                      className="inline-flex min-h-9 items-center gap-1 rounded-product text-sm font-semibold text-signal hover:text-[var(--ts-accent-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]"
+                    >
+                      Open <ArrowRight size={14} />
+                    </Link>
+                  </td>
                 </tr>
               ))}
           </tbody>

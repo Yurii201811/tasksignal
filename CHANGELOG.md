@@ -10,6 +10,8 @@ All notable public-facing changes to TaskSignal are recorded here.
   `/api/opportunities/{id}/evidence.md`.
 - Local `make doctor` setup check for fresh clones and contributor onboarding.
 - Source limits and terms guide for live connectors, hosted demos, and rate-limit review.
+- Scan detail pages for reviewing one ingestion run's source, query, status,
+  timing, saved counts, and redacted connector error.
 
 ### Fixed
 
