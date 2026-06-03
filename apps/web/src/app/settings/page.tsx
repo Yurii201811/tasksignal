@@ -63,6 +63,10 @@ export default function SettingsPage() {
     queryKey: ["integrations"],
     queryFn: api.integrations,
   });
+  const readiness = useQuery({
+    queryKey: ["readiness"],
+    queryFn: api.readiness,
+  });
   const test = useMutation({
     mutationFn: (id: string) =>
       api.testIntegration(id, operatorToken.trim() || undefined),
@@ -116,6 +120,62 @@ export default function SettingsPage() {
             </label>
           </div>
         </Card>
+
+        {readiness.data ? (
+          <Card>
+            <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
+              <div>
+                <div className="flex flex-wrap gap-2">
+                  <Badge
+                    tone={readiness.data.status === "ready" ? "green" : "red"}
+                  >
+                    {readiness.data.status}
+                  </Badge>
+                  <Badge>
+                    Projects: {String(readiness.data.checks.projects ?? 0)}
+                  </Badge>
+                  <Badge>
+                    Opportunities:{" "}
+                    {String(readiness.data.checks.opportunities ?? 0)}
+                  </Badge>
+                  <Badge>
+                    Due: {String(readiness.data.checks.due_projects ?? 0)}
+                  </Badge>
+                </div>
+                <h2 className="mt-3 text-lg font-semibold text-ink">
+                  Workspace readiness
+                </h2>
+              </div>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => readiness.refetch()}
+                loading={readiness.isFetching}
+                disabled={readiness.isFetching}
+              >
+                <RefreshCw
+                  size={15}
+                  className={readiness.isFetching ? "animate-spin" : ""}
+                />
+                Refresh
+              </Button>
+            </div>
+            {readiness.data.blockers.length > 0 ? (
+              <ul className="mt-4 grid gap-2 text-sm text-danger">
+                {readiness.data.blockers.map((blocker) => (
+                  <li key={blocker}>{blocker}</li>
+                ))}
+              </ul>
+            ) : null}
+            {readiness.data.warnings.length > 0 ? (
+              <ul className="mt-4 grid gap-2 text-sm text-muted">
+                {readiness.data.warnings.map((warning) => (
+                  <li key={warning}>{warning}</li>
+                ))}
+              </ul>
+            ) : null}
+          </Card>
+        ) : null}
 
         {integrations.error ? (
           <StateMessage tone="danger" title="Could not load integrations">

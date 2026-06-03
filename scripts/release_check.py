@@ -48,6 +48,8 @@ REQUIRED_FILES = [
     "docs/threat-model.md",
     "docs/maintainer-automation.md",
     "docs/codex-for-oss-application.md",
+    "scripts/tasksignal_cli.py",
+    "skills/tasksignal-opportunity-builder/SKILL.md",
 ]
 
 BLOCKED_TRACKED_SUFFIXES = {".db", ".env", ".log"}

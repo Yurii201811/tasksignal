@@ -14,6 +14,15 @@ from app.db.session import engine
 from app.models import all_models  # noqa: F401
 
 
+def cors_allowed_origins() -> list[str]:
+    origins = [
+        origin.strip()
+        for origin in settings.cors_allowed_origins.split(",")
+        if origin.strip()
+    ]
+    return origins or ["http://localhost:3000", "http://127.0.0.1:3000"]
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     if settings.auto_create_tables:
@@ -30,7 +39,7 @@ def create_app() -> FastAPI:
     )
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+        allow_origins=cors_allowed_origins(),
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

@@ -1,8 +1,13 @@
 import json
 from datetime import UTC, datetime
-from uuid import uuid4
+from uuid import UUID, uuid4
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.api import routes
+from app.db.session import engine
+from app.models.all_models import ResearchProject
 from app.schemas.api import ItemOut, OpportunityOut
 
 
@@ -11,6 +16,19 @@ def test_health(client) -> None:
 
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
+
+
+def test_cors_preflight_allows_configured_frontend_origin(client) -> None:
+    response = client.options(
+        "/api/readiness",
+        headers={
+            "Origin": "http://localhost:3000",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://localhost:3000"
 
 
 def test_process_demo_endpoint(client) -> None:
@@ -43,6 +61,20 @@ def test_integrations_report_status_without_secret_values(client, monkeypatch) -
     assert "GITHUB_TOKEN" in github["optional_env"]
 
 
+def test_readiness_reports_workspace_state_without_secret_values(client, monkeypatch) -> None:
+    monkeypatch.setattr(routes.settings, "operator_scan_token", "do-not-leak")
+
+    response = client.get("/api/readiness")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "ready"
+    assert payload["checks"]["ready_sources"]
+    assert payload["checks"]["codex_task_packs"] is True
+    assert payload["checks"]["operator_scan_token_configured"] is True
+    assert "do-not-leak" not in json.dumps(payload)
+
+
 def test_research_project_can_save_and_run_fixture_workflow(client) -> None:
     create_response = client.post(
         "/api/research-projects",
@@ -52,7 +84,7 @@ def test_research_project_can_save_and_run_fixture_workflow(client) -> None:
             "source_type": "fixture",
             "query": "",
             "limit": 20,
-            "cadence": "manual",
+            "cadence": "daily",
             "labels": ["fixture", "codex"],
             "enabled": True,
         },
@@ -62,6 +94,9 @@ def test_research_project_can_save_and_run_fixture_workflow(client) -> None:
     project = create_response.json()
     assert project["source_type"] == "fixture"
     assert project["labels"] == ["fixture", "codex"]
+    assert project["cadence"] == "daily"
+    assert project["next_run_at"] is not None
+    assert project["run_count"] == 0
 
     run_response = client.post(f"/api/research-projects/{project['id']}/run")
 
@@ -75,6 +110,76 @@ def test_research_project_can_save_and_run_fixture_workflow(client) -> None:
     saved = next(item for item in projects if item["id"] == project["id"])
     assert saved["last_scan_id"] == scan["id"]
     assert saved["last_scan_status"] == "completed"
+    assert saved["last_run_at"] is not None
+    assert saved["next_run_at"] is not None
+    assert saved["run_count"] == 1
+
+
+def test_due_research_project_run_advances_schedule(client) -> None:
+    create_response = client.post(
+        "/api/research-projects",
+        json={
+            "name": "Due fixture project",
+            "source_type": "fixture",
+            "query": "",
+            "limit": 20,
+            "cadence": "custom",
+            "schedule_interval_hours": 1,
+            "labels": [],
+            "enabled": True,
+        },
+    )
+    project_id = create_response.json()["id"]
+    with Session(engine) as session:
+        project = session.scalars(
+            select(ResearchProject).where(ResearchProject.id == UUID(project_id))
+        ).one()
+        project.next_run_at = datetime(2026, 6, 3, tzinfo=UTC)
+        session.commit()
+
+    response = client.post("/api/research-projects/run-due")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ran"] == 1
+    assert payload["skipped"] == 0
+    assert payload["scans"][0]["status"] == "completed"
+
+    saved = client.get(f"/api/research-projects/{project_id}").json()
+    assert saved["last_scan_status"] == "completed"
+    assert saved["schedule_interval_hours"] == 1
+    assert saved["last_run_at"] is not None
+    assert saved["next_run_at"] is not None
+    assert saved["run_count"] == 1
+
+
+def test_due_credentialed_research_project_skips_without_operator_token(client) -> None:
+    create_response = client.post(
+        "/api/research-projects",
+        json={
+            "name": "Due GitHub project",
+            "source_type": "github",
+            "query": "label:bug",
+            "limit": 5,
+            "cadence": "custom",
+            "schedule_interval_hours": 1,
+            "labels": [],
+            "enabled": True,
+        },
+    )
+    project_id = create_response.json()["id"]
+    with Session(engine) as session:
+        project = session.scalars(
+            select(ResearchProject).where(ResearchProject.id == UUID(project_id))
+        ).one()
+        project.next_run_at = datetime(2026, 6, 3, tzinfo=UTC)
+        session.commit()
+
+    response = client.post("/api/research-projects/run-due")
+
+    assert response.status_code == 200
+    assert response.json()["ran"] == 0
+    assert response.json()["skipped"] == 1
 
 
 def test_credentialed_research_project_run_requires_operator_token(client) -> None:
@@ -153,6 +258,38 @@ def test_regenerate_opportunity_rebuilds_prompt_from_evidence(client) -> None:
     assert "Top source excerpts" in payload["generated_prompt"]
     assert payload["scoring_breakdown_json"]["common_phrases"]
     assert payload["problem_statement"].count("People repeatedly describe") == 1
+
+
+def test_prompt_enhancement_requires_configured_runtime(client) -> None:
+    client.post("/api/process/demo")
+    opportunity = client.get("/api/opportunities").json()[0]
+
+    response = client.post(f"/api/opportunities/{opportunity['id']}/enhance")
+
+    assert response.status_code == 409
+    assert "LLM_PROVIDER" in response.json()["detail"]
+
+
+def test_prompt_enhancement_can_apply_generated_prompt(client, monkeypatch) -> None:
+    client.post("/api/process/demo")
+    opportunity = client.get("/api/opportunities").json()[0]
+
+    def fake_enhance(prompt: str) -> tuple[str, str, str]:
+        return "openai", "test-model", f"{prompt}\n\n## Implementation Checklist\n- Verify."
+
+    monkeypatch.setattr(routes, "enhance_prompt", fake_enhance)
+
+    response = client.post(f"/api/opportunities/{opportunity['id']}/enhance?apply=true")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["provider"] == "openai"
+    assert payload["model"] == "test-model"
+    assert payload["applied"] is True
+    assert "Implementation Checklist" in payload["enhanced_prompt"]
+
+    saved = client.get(f"/api/opportunities/{opportunity['id']}/prompt").json()
+    assert saved["prompt"] == payload["enhanced_prompt"]
 
 
 def test_evidence_bundle_export_includes_visible_evidence_without_authors(client) -> None:

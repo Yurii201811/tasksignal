@@ -20,6 +20,8 @@ REQUIRED_PATHS = [
     "apps/api/pyproject.toml",
     "apps/web/package.json",
     "apps/web/package-lock.json",
+    "scripts/tasksignal_cli.py",
+    "skills/tasksignal-opportunity-builder/SKILL.md",
     "data/fixtures/github_issues_sample.json",
     "data/fixtures/hn_sample.json",
     "data/fixtures/reddit_sample.json",

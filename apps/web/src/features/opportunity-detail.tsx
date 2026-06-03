@@ -9,6 +9,7 @@ import {
   ExternalLink,
   FileText,
   RotateCw,
+  Sparkles,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import {
@@ -50,7 +51,19 @@ function evidenceSnippets(item: EvidenceItem) {
 }
 
 function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : "The request failed.";
+  if (error instanceof Error) {
+    try {
+      const parsed = JSON.parse(error.message);
+      if (parsed?.detail) {
+        return typeof parsed.detail === "string"
+          ? parsed.detail
+          : JSON.stringify(parsed.detail);
+      }
+    } catch {
+      return error.message;
+    }
+  }
+  return "The request failed.";
 }
 
 export function OpportunityDetail({ id }: { id: string }) {
@@ -61,6 +74,11 @@ export function OpportunityDetail({ id }: { id: string }) {
   });
   const regenerate = useMutation({
     mutationFn: () => api.regenerateOpportunity(id),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["opportunity", id] }),
+  });
+  const enhance = useMutation({
+    mutationFn: () => api.enhanceOpportunity(id, true),
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: ["opportunity", id] }),
   });
@@ -124,6 +142,7 @@ export function OpportunityDetail({ id }: { id: string }) {
         <PageHeader
           title={data.title}
           description={data.problem_statement}
+          className="sm:flex-col sm:items-start"
           actions={
             <>
               <Link
@@ -148,13 +167,25 @@ export function OpportunityDetail({ id }: { id: string }) {
                 variant="secondary"
                 onClick={() => regenerate.mutate()}
                 loading={regenerate.isPending}
-                disabled={regenerate.isPending}
+                disabled={regenerate.isPending || enhance.isPending}
               >
                 <RotateCw
                   size={16}
                   className={regenerate.isPending ? "animate-spin" : ""}
                 />
                 Regenerate
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => enhance.mutate()}
+                loading={enhance.isPending}
+                disabled={regenerate.isPending || enhance.isPending}
+              >
+                <Sparkles
+                  size={16}
+                  className={enhance.isPending ? "animate-pulse" : ""}
+                />
+                Enhance Prompt
               </Button>
             </>
           }
@@ -181,6 +212,17 @@ export function OpportunityDetail({ id }: { id: string }) {
         <StateMessage tone="success" title="Opportunity regenerated">
           The score, prompt, and evidence view were refreshed from the API
           response.
+        </StateMessage>
+      ) : null}
+      {enhance.error ? (
+        <StateMessage tone="danger" title="Prompt enhancement did not complete">
+          {errorMessage(enhance.error)}
+        </StateMessage>
+      ) : null}
+      {enhance.data ? (
+        <StateMessage tone="success" title="Prompt enhanced">
+          {enhance.data.provider} updated the build prompt with{" "}
+          {enhance.data.model}.
         </StateMessage>
       ) : null}
 

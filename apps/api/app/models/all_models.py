@@ -68,12 +68,16 @@ class ResearchProject(Base):
     query: Mapped[str] = mapped_column(Text, default="")
     limit: Mapped[int] = mapped_column(Integer, default=30)
     cadence: Mapped[str] = mapped_column(Text, default="manual")
+    schedule_interval_hours: Mapped[int | None] = mapped_column(Integer, nullable=True)
     labels_json: Mapped[list[str]] = mapped_column(JSON, default=list)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     last_scan_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("scan_jobs.id"),
         nullable=True,
     )
+    last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    next_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    run_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
 

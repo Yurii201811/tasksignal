@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./tasksignal.db"
     api_base_url: str = "http://localhost:8000"
     llm_provider: str = "none"
+    llm_model: str = "gpt-5"
     openai_api_key: str = ""
     ollama_base_url: str = "http://localhost:11434"
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
@@ -21,6 +22,7 @@ class Settings(BaseSettings):
     demo_reset_token: str = ""
     operator_scan_token: str = ""
     public_scan_sources: str = "fixture,hackernews"
+    cors_allowed_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

@@ -6,7 +6,6 @@ TaskSignal is a local-first problem discovery engine for builders who want evide
 
 The interface should feel like a serious research tool: dense, calm, transparent, and trustworthy. It should prioritize evidence, score explanations, source attribution, and useful export paths. It should avoid fabricated metrics, decorative dashboards, spam-enabling language, and generic productivity claims.
 
-Primary action: process fixture data, review ranked opportunities, inspect evidence, and export a Codex-ready prompt.
+Primary action: save or run a research workflow, review ranked opportunities, inspect evidence, and export a Codex-ready prompt or task pack.
 
 Tone: technical, utilitarian, research-grade.
-

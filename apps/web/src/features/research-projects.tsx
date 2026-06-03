@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, Play, Plus, RefreshCw } from "lucide-react";
+import { ArrowRight, CalendarClock, Play, Plus, RefreshCw } from "lucide-react";
 import { api } from "@/lib/api";
 import {
   Badge,
@@ -32,6 +32,14 @@ const sourceOptions = [
   },
 ];
 
+const cadenceOptions = [
+  { value: "manual", label: "Manual" },
+  { value: "hourly", label: "Hourly" },
+  { value: "daily", label: "Daily" },
+  { value: "weekly", label: "Weekly" },
+  { value: "custom", label: "Custom" },
+];
+
 function errorMessage(error: unknown) {
   if (error instanceof Error) {
     try {
@@ -55,6 +63,11 @@ function statusTone(status: string | null): "green" | "blue" | "red" | "slate" {
   return "slate";
 }
 
+function formatDateTime(value: string | null) {
+  if (!value) return "Not scheduled";
+  return new Date(value).toLocaleString();
+}
+
 export function ResearchProjects() {
   const queryClient = useQueryClient();
   const [name, setName] = useState("Track CI/CD pain");
@@ -64,6 +77,8 @@ export function ResearchProjects() {
   const [sourceType, setSourceType] = useState("hackernews");
   const [query, setQuery] = useState("ask");
   const [limit, setLimit] = useState(30);
+  const [cadence, setCadence] = useState("manual");
+  const [intervalHours, setIntervalHours] = useState(24);
   const [labels, setLabels] = useState("ci, developer-tools");
   const [operatorToken, setOperatorToken] = useState("");
   const projects = useQuery({
@@ -80,6 +95,16 @@ export function ResearchProjects() {
   const run = useMutation({
     mutationFn: (project: ResearchProject) =>
       api.runResearchProject(project.id, operatorToken.trim() || undefined),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["research-projects"] });
+      queryClient.invalidateQueries({ queryKey: ["scans"] });
+      queryClient.invalidateQueries({ queryKey: ["stats"] });
+      queryClient.invalidateQueries({ queryKey: ["opportunities"] });
+    },
+  });
+  const runDue = useMutation({
+    mutationFn: () =>
+      api.runDueResearchProjects(operatorToken.trim() || undefined),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["research-projects"] });
       queryClient.invalidateQueries({ queryKey: ["scans"] });
@@ -115,7 +140,9 @@ export function ResearchProjects() {
       source_type: sourceType,
       query: query.trim(),
       limit,
-      cadence: "manual",
+      cadence,
+      schedule_interval_hours:
+        cadence === "custom" ? Math.max(1, intervalHours) : null,
       labels: labels
         .split(",")
         .map((label) => label.trim())
@@ -209,18 +236,71 @@ export function ResearchProjects() {
                 className="mt-2"
               />
             </label>
-            <Button
-              type="submit"
-              loading={create.isPending}
-              disabled={create.isPending}
-            >
-              {create.isPending ? (
-                <RefreshCw className="animate-spin" size={16} />
-              ) : (
-                <Plus size={16} />
-              )}
-              {create.isPending ? "Saving project" : "Save project"}
-            </Button>
+            <div className="grid min-w-0 gap-4 sm:grid-cols-[minmax(0,1fr)_150px]">
+              <label className="block min-w-0">
+                <span className="text-sm font-semibold text-muted">
+                  Cadence
+                </span>
+                <Select
+                  value={cadence}
+                  onChange={(event) => setCadence(event.target.value)}
+                  className="mt-2"
+                >
+                  {cadenceOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </Select>
+              </label>
+              <label className="block min-w-0">
+                <span className="text-sm font-semibold text-muted">Hours</span>
+                <Input
+                  type="number"
+                  min={1}
+                  max={744}
+                  value={intervalHours}
+                  onChange={(event) =>
+                    setIntervalHours(
+                      Math.max(
+                        1,
+                        Math.min(744, Number(event.target.value) || 1),
+                      ),
+                    )
+                  }
+                  className="mt-2"
+                  disabled={cadence !== "custom"}
+                />
+              </label>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="submit"
+                loading={create.isPending}
+                disabled={create.isPending}
+              >
+                {create.isPending ? (
+                  <RefreshCw className="animate-spin" size={16} />
+                ) : (
+                  <Plus size={16} />
+                )}
+                {create.isPending ? "Saving project" : "Save project"}
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => runDue.mutate()}
+                loading={runDue.isPending}
+                disabled={runDue.isPending}
+              >
+                {runDue.isPending ? (
+                  <RefreshCw className="animate-spin" size={16} />
+                ) : (
+                  <CalendarClock size={16} />
+                )}
+                {runDue.isPending ? "Running due" : "Run due"}
+              </Button>
+            </div>
           </form>
 
           <div className="min-w-0 rounded-product border border-border bg-surface-muted p-4">
@@ -270,6 +350,16 @@ export function ResearchProjects() {
           {run.data.items_saved} saved from {run.data.items_found} found.
         </StateMessage>
       ) : null}
+      {runDue.error ? (
+        <StateMessage tone="danger" title="Due projects did not complete">
+          {errorMessage(runDue.error)}
+        </StateMessage>
+      ) : null}
+      {runDue.data ? (
+        <StateMessage tone="success" title="Due projects processed">
+          {runDue.data.ran} ran and {runDue.data.skipped} skipped.
+        </StateMessage>
+      ) : null}
 
       {projects.error ? (
         <StateMessage tone="danger" title="Could not load projects">
@@ -316,6 +406,36 @@ export function ResearchProjects() {
                     {project.query || "-"}
                   </span>
                   {" · "}Limit: {project.limit}
+                </p>
+                <div className="mt-3 grid gap-2 text-sm text-muted sm:grid-cols-3">
+                  <p>
+                    Cadence:{" "}
+                    <span className="font-medium text-ink">
+                      {project.schedule_interval_hours
+                        ? `${project.schedule_interval_hours}h`
+                        : project.cadence}
+                    </span>
+                  </p>
+                  <p>
+                    Last:{" "}
+                    <span className="font-medium text-ink">
+                      {project.last_run_at
+                        ? formatDateTime(project.last_run_at)
+                        : "Never"}
+                    </span>
+                  </p>
+                  <p>
+                    Next:{" "}
+                    <span className="font-medium text-ink">
+                      {formatDateTime(project.next_run_at)}
+                    </span>
+                  </p>
+                </div>
+                <p className="mt-2 text-sm text-muted">
+                  Runs:{" "}
+                  <span className="font-medium text-ink">
+                    {project.run_count}
+                  </span>
                 </p>
               </div>
               <div className="flex shrink-0 flex-wrap gap-2">

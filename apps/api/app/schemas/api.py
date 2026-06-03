@@ -62,6 +62,13 @@ class IntegrationTestOut(BaseModel):
     items_found: int = 0
 
 
+class ReadinessOut(BaseModel):
+    status: str
+    blockers: list[str] = []
+    warnings: list[str] = []
+    checks: dict
+
+
 class ResearchProjectCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     description: str | None = Field(default=None, max_length=500)
@@ -69,6 +76,7 @@ class ResearchProjectCreate(BaseModel):
     query: str = Field(default="", max_length=300)
     limit: int = Field(default=30, ge=1, le=100)
     cadence: str = Field(default="manual", max_length=60)
+    schedule_interval_hours: int | None = Field(default=None, ge=1, le=24 * 31)
     labels: list[str] = Field(default_factory=list, max_length=12)
     enabled: bool = True
 
@@ -81,13 +89,30 @@ class ResearchProjectOut(BaseModel):
     query: str
     limit: int
     cadence: str
+    schedule_interval_hours: int | None
     labels: list[str] = []
     enabled: bool
     last_scan_id: UUID | None
     last_scan_status: str | None = None
+    last_run_at: datetime | None
+    next_run_at: datetime | None
+    run_count: int
     created_at: datetime
     updated_at: datetime
     model_config = ConfigDict(from_attributes=True)
+
+
+class DueRunOut(BaseModel):
+    ran: int
+    skipped: int
+    scans: list[ScanOut] = []
+
+
+class EnhancementOut(BaseModel):
+    provider: str
+    model: str
+    enhanced_prompt: str
+    applied: bool = False
 
 
 class ItemOut(BaseModel):

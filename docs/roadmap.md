@@ -6,10 +6,11 @@ TaskSignal is early-stage open source. The roadmap prioritizes maintainability, 
 
 - Keep saved research projects, public scans, and fixture mode green in CI.
 - Expand the Integrations page with clearer connection tests and local runtime checks.
-- Improve Codex task-pack exports from opportunity evidence.
+- Keep Codex task-pack exports and the repo-local Codex skill aligned with opportunity evidence.
 - Add more representative parser fixtures for GitHub Issues, Hacker News, Reddit, and Stack Exchange.
 - Improve dashboard empty, loading, and connector-error states.
 - Add more browser-verified screenshots and keep the demo flow aligned with the current UI.
+- Add rate-limit backoff and retention-state views for scheduled source runs.
 
 ## Maintainer Workflow
 
@@ -29,8 +30,8 @@ TaskSignal is early-stage open source. The roadmap prioritizes maintainability, 
 
 ## Later
 
-- Add scheduled scans with explicit rate-limit state and opt-in storage retention.
+- Add hosted-worker examples for run-due scheduling with explicit rate-limit state and opt-in storage retention.
 - Add pgvector ANN search in production mode.
 - Add reviewer workflows for human labels and quality feedback.
-- Add a TaskSignal CLI and MCP server so Codex and other agents can query opportunities directly.
+- Add an MCP server so Codex and other agents can query opportunities directly.
 - Consider publishing reusable subpackages only if a stable library boundary emerges.

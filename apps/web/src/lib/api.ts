@@ -1,10 +1,13 @@
 import type {
+  DueRun,
+  Enhancement,
   Opportunity,
   Integration,
   IntegrationTest,
   ProcessSummary,
   ResearchProject,
   ResearchProjectCreate,
+  Readiness,
   Scan,
   ScanCreate,
   Source,
@@ -31,12 +34,17 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   stats: () => request<Stats>("/api/stats"),
+  readiness: () => request<Readiness>("/api/readiness"),
   opportunities: () => request<Opportunity[]>("/api/opportunities"),
   opportunity: (id: string) => request<Opportunity>(`/api/opportunities/${id}`),
   prompt: (id: string) =>
     request<{ prompt: string }>(`/api/opportunities/${id}/prompt`),
   regenerateOpportunity: (id: string) =>
     request<Opportunity>(`/api/opportunities/${id}/regenerate`, {
+      method: "POST",
+    }),
+  enhanceOpportunity: (id: string, apply = false) =>
+    request<Enhancement>(`/api/opportunities/${id}/enhance?apply=${apply}`, {
       method: "POST",
     }),
   processDemo: () =>
@@ -58,6 +66,13 @@ export const api = {
     }),
   runResearchProject: (id: string, operatorToken?: string) =>
     request<Scan>(`/api/research-projects/${id}/run`, {
+      method: "POST",
+      headers: operatorToken
+        ? { "X-Operator-Scan-Token": operatorToken }
+        : undefined,
+    }),
+  runDueResearchProjects: (operatorToken?: string) =>
+    request<DueRun>("/api/research-projects/run-due", {
       method: "POST",
       headers: operatorToken
         ? { "X-Operator-Scan-Token": operatorToken }

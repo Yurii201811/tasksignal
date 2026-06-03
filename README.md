@@ -41,7 +41,7 @@ TaskSignal is for maintainers, builders, indie hackers, developer-tool teams, an
 ## What It Does
 
 - Loads demo fixture data with no API keys.
-- Saves repeatable research projects with source, query, limit, labels, and last scan status.
+- Saves repeatable research projects with source, query, limit, labels, cadence, last run, next run, and run count.
 - Reports integration readiness without exposing secret values.
 - Normalizes Reddit, Hacker News, GitHub Issues, Stack Exchange, and fixture-style records.
 - Stores author hashes instead of raw usernames by default.
@@ -51,6 +51,7 @@ TaskSignal is for maintainers, builders, indie hackers, developer-tool teams, an
 - Clusters signals with a local thematic fallback by default, with optional DBSCAN when `TASKSIGNAL_USE_SKLEARN_CLUSTERING=1`.
 - Scores opportunities using frequency, recency, pain, concreteness, buying intent, feasibility, and competition penalty.
 - Generates opportunity cards, full Codex-ready build prompts, and richer Codex task packs.
+- Optionally enhances generated prompts through OpenAI API or local Ollama when explicitly configured.
 
 ## Architecture
 
@@ -127,6 +128,15 @@ Run the release-readiness gate before tagging a release:
 make release-check
 ```
 
+Use the local CLI for headless operation:
+
+```bash
+scripts/tasksignal_cli.py readiness
+scripts/tasksignal_cli.py create-project --name "Track CI/CD pain" --source hackernews --query ask --cadence daily
+scripts/tasksignal_cli.py run-due
+scripts/tasksignal_cli.py task-pack <opportunity-id> --output task-pack.md
+```
+
 ## Distribution
 
 TaskSignal is currently an application repository, not a published Python or npm library. Use the source checkout or Docker Compose workflow above. Reusable packages may be split out later if a stable library boundary emerges.
@@ -180,6 +190,17 @@ research projects only when `OPERATOR_SCAN_TOKEN` is configured on the API and
 the same token is entered locally in the Projects or Integrations page. This
 keeps hosted deployments from silently spending server-side credentials while
 still letting trusted local operators connect APIs.
+
+Saved projects support manual, hourly, daily, weekly, and custom-hour cadences.
+TaskSignal does not hide a scheduler inside the web process. Run due projects
+from the Projects page, `scripts/tasksignal_cli.py run-due`, cron, GitHub
+Actions, or another explicit worker.
+
+Optional prompt enhancement uses `LLM_PROVIDER=openai` plus `OPENAI_API_KEY`, or
+`LLM_PROVIDER=ollama` plus a local Ollama server. ChatGPT/Codex subscriptions do
+not provide backend API credentials; TaskSignal supports subscription users by
+exporting task packs they can open in their own signed-in Codex app, CLI, IDE
+extension, or Codex web session.
 
 Destructive fixture resets require `DEMO_RESET_TOKEN` and the matching `X-Demo-Reset-Token` request header. The normal dashboard demo-processing action is non-destructive by default.
 

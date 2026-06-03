@@ -98,6 +98,22 @@ export type IntegrationTest = {
   items_found: number;
 };
 
+export type Readiness = {
+  status: string;
+  blockers: string[];
+  warnings: string[];
+  checks: {
+    projects?: number;
+    opportunities?: number;
+    due_projects?: number;
+    ready_sources?: string[];
+    codex_task_packs?: boolean;
+    operator_scan_token_configured?: boolean;
+    public_scan_sources?: string[];
+    [key: string]: unknown;
+  };
+};
+
 export type ResearchProject = {
   id: string;
   name: string;
@@ -106,10 +122,14 @@ export type ResearchProject = {
   query: string;
   limit: number;
   cadence: string;
+  schedule_interval_hours: number | null;
   labels: string[];
   enabled: boolean;
   last_scan_id: string | null;
   last_scan_status: string | null;
+  last_run_at: string | null;
+  next_run_at: string | null;
+  run_count: number;
   created_at: string;
   updated_at: string;
 };
@@ -121,8 +141,15 @@ export type ResearchProjectCreate = {
   query: string;
   limit: number;
   cadence: string;
+  schedule_interval_hours?: number | null;
   labels: string[];
   enabled: boolean;
+};
+
+export type DueRun = {
+  ran: number;
+  skipped: number;
+  scans: Scan[];
 };
 
 export type Scan = {
@@ -155,4 +182,11 @@ export type TaskPack = {
   evidence_urls: string[];
   acceptance_criteria: string[];
   privacy_constraints: string[];
+};
+
+export type Enhancement = {
+  provider: string;
+  model: string;
+  enhanced_prompt: string;
+  applied: boolean;
 };

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from secrets import compare_digest
 from uuid import UUID
 
+import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -23,12 +24,15 @@ from app.models.all_models import (
     Source,
 )
 from app.schemas.api import (
+    DueRunOut,
+    EnhancementOut,
     IntegrationOut,
     IntegrationTestOut,
     ItemOut,
     LabelCreate,
     OpportunityOut,
     ProcessSummary,
+    ReadinessOut,
     ResearchProjectCreate,
     ResearchProjectOut,
     ScanCreate,
@@ -39,6 +43,7 @@ from app.schemas.api import (
     TaskPackOut,
 )
 from app.services.embeddings.service import EmbeddingService, cosine_similarity
+from app.services.generation.enhancement import EnhancementUnavailable, enhance_prompt
 from app.services.generation.service import generate_opportunity
 from app.services.ingestion.connectors import connector_display_name, connector_failure_message
 from app.services.ingestion.normalization import safe_source_url
@@ -55,6 +60,12 @@ router = APIRouter(prefix="/api")
 
 PUBLIC_SCAN_API_SOURCES = {"fixture", "hackernews"}
 OPERATOR_SCAN_SOURCES = {"github", "reddit", "stackexchange"}
+CADENCE_INTERVAL_HOURS = {
+    "manual": None,
+    "hourly": 1,
+    "daily": 24,
+    "weekly": 24 * 7,
+}
 
 INTEGRATION_CATALOG = [
     {
@@ -125,7 +136,7 @@ INTEGRATION_CATALOG = [
         "optional_env": ["OLLAMA_BASE_URL", "LLM_PROVIDER"],
         "rate_limit_note": "Local runtime availability depends on your Ollama process and model cache.",
         "privacy_note": "Keeps model calls local when configured behind the runtime provider.",
-        "next_step": "Run Ollama locally and set LLM_PROVIDER=ollama when model enhancement is implemented.",
+        "next_step": "Run Ollama locally and set LLM_PROVIDER=ollama to enhance build prompts locally.",
     },
     {
         "id": "codex_export",
@@ -228,6 +239,8 @@ def optional_credential_configured(source_type: str) -> bool:
         return bool(settings.stack_exchange_key)
     if source_type == "openai_api":
         return bool(settings.openai_api_key)
+    if source_type == "ollama":
+        return settings.llm_provider == "ollama"
     return False
 
 
@@ -245,8 +258,8 @@ def integration_status(entry: dict, db: Session) -> IntegrationOut:
         status_value = "available"
         credential_state = "not_required"
     elif integration_id == "ollama":
-        status_value = "available"
-        credential_state = "not_required"
+        status_value = "ready" if settings.llm_provider == "ollama" else "available"
+        credential_state = "configured" if settings.llm_provider == "ollama" else "not_required"
     elif required_env and not has_required_credentials(source_type):
         status_value = "missing_credentials"
         credential_state = "missing"
@@ -281,6 +294,91 @@ def integration_status(entry: dict, db: Session) -> IntegrationOut:
 
 def research_project_to_out(project: ResearchProject) -> ResearchProjectOut:
     return ResearchProjectOut.model_validate(project)
+
+
+def interval_hours_for_project(
+    cadence: str,
+    explicit_interval: int | None,
+) -> int | None:
+    if explicit_interval:
+        return max(1, min(24 * 31, explicit_interval))
+    return CADENCE_INTERVAL_HOURS.get(cadence.strip().lower())
+
+
+def next_run_at_from(
+    start: datetime,
+    cadence: str,
+    explicit_interval: int | None,
+) -> datetime | None:
+    interval = interval_hours_for_project(cadence, explicit_interval)
+    if interval is None:
+        return None
+    return start + timedelta(hours=interval)
+
+
+def due_project_query(now: datetime):
+    return (
+        select(ResearchProject)
+        .where(
+            ResearchProject.enabled.is_(True),
+            ResearchProject.next_run_at.is_not(None),
+            ResearchProject.next_run_at <= now,
+        )
+        .order_by(ResearchProject.next_run_at.asc())
+    )
+
+
+def mark_project_ran(project: ResearchProject, scan: ScanJob, now: datetime) -> None:
+    project.last_scan_id = scan.id
+    project.last_run_at = now
+    project.next_run_at = next_run_at_from(
+        now,
+        project.cadence,
+        project.schedule_interval_hours,
+    )
+    project.run_count += 1
+    project.updated_at = now
+
+
+def readiness_payload(db: Session) -> ReadinessOut:
+    integrations = [integration_status(entry, db) for entry in INTEGRATION_CATALOG]
+    project_count = len(db.scalars(select(ResearchProject.id)).all())
+    opportunity_count = len(db.scalars(select(Opportunity.id)).all())
+    due_count = len(db.scalars(due_project_query(datetime.now(UTC))).all())
+    blockers: list[str] = []
+    warnings: list[str] = []
+
+    if project_count == 0:
+        warnings.append("Create at least one saved research project.")
+    if opportunity_count == 0:
+        warnings.append("Run a project or process fixtures before exporting task packs.")
+
+    ready_sources = [
+        integration.id
+        for integration in integrations
+        if integration.kind == "source" and integration.status in {"ready", "ready_limited"}
+    ]
+    if not ready_sources:
+        blockers.append("No source integrations are ready.")
+
+    checks = {
+        "projects": project_count,
+        "opportunities": opportunity_count,
+        "due_projects": due_count,
+        "ready_sources": ready_sources,
+        "codex_task_packs": any(
+            integration.id == "codex_export" and integration.status == "available"
+            for integration in integrations
+        ),
+        "operator_scan_token_configured": bool(settings.operator_scan_token),
+        "public_scan_sources": sorted(configured_public_scan_sources()),
+    }
+    return ReadinessOut(
+        status="blocked" if blockers else "ready",
+        blockers=blockers,
+        warnings=warnings,
+        checks=checks,
+    )
 
 
 def item_to_out(item: NormalizedItem, signal: ItemSignal | None = None) -> ItemOut:
@@ -613,6 +711,12 @@ def list_integrations(db: Session = Depends(get_db)) -> list[IntegrationOut]:
     return [integration_status(entry, db) for entry in INTEGRATION_CATALOG]
 
 
+@router.get("/readiness", response_model=ReadinessOut)
+def get_readiness(db: Session = Depends(get_db)) -> ReadinessOut:
+    ensure_sources(db)
+    return readiness_payload(db)
+
+
 @router.post("/integrations/{integration_id}/test", response_model=IntegrationTestOut)
 def test_integration(
     integration_id: str,
@@ -733,6 +837,12 @@ def create_research_project(
         query=payload.query.strip(),
         limit=payload.limit,
         cadence=payload.cadence.strip() or "manual",
+        schedule_interval_hours=payload.schedule_interval_hours,
+        next_run_at=next_run_at_from(
+            datetime.now(UTC),
+            payload.cadence.strip() or "manual",
+            payload.schedule_interval_hours,
+        ),
         labels_json=labels[:12],
         enabled=payload.enabled,
     )
@@ -740,6 +850,38 @@ def create_research_project(
     db.commit()
     db.refresh(project)
     return research_project_to_out(project)
+
+
+@router.post("/research-projects/run-due", response_model=DueRunOut)
+def run_due_research_projects(
+    x_operator_scan_token: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> DueRunOut:
+    now = datetime.now(UTC)
+    projects = db.scalars(due_project_query(now)).all()
+    scans: list[ScanJob] = []
+    skipped = 0
+
+    for project in projects:
+        try:
+            source_type = scan_source_for_operator(project.source_type, x_operator_scan_token)
+        except HTTPException:
+            skipped += 1
+            continue
+
+        scan = process_scan(
+            db,
+            source=source_type,
+            query=project.query,
+            limit=project.limit,
+        )
+        mark_project_ran(project, scan, datetime.now(UTC))
+        scans.append(scan)
+
+    db.commit()
+    for scan in scans:
+        db.refresh(scan)
+    return DueRunOut(ran=len(scans), skipped=skipped, scans=scans)
 
 
 @router.get("/research-projects/{project_id}", response_model=ResearchProjectOut)
@@ -772,8 +914,7 @@ def run_research_project(
         query=project.query,
         limit=project.limit,
     )
-    project.last_scan_id = scan.id
-    project.updated_at = datetime.now(UTC)
+    mark_project_ran(project, scan, datetime.now(UTC))
     db.commit()
     db.refresh(scan)
     return scan
@@ -880,6 +1021,40 @@ def regenerate_opportunity(opportunity_id: UUID, db: Session = Depends(get_db)) 
     db.commit()
     db.refresh(opportunity)
     return opportunity_to_out(db, opportunity)
+
+
+@router.post("/opportunities/{opportunity_id}/enhance", response_model=EnhancementOut)
+def enhance_opportunity_prompt(
+    opportunity_id: UUID,
+    apply: bool = False,
+    db: Session = Depends(get_db),
+) -> EnhancementOut:
+    opportunity = db.get(Opportunity, opportunity_id)
+    if opportunity is None:
+        raise HTTPException(status_code=404, detail="Opportunity not found")
+
+    try:
+        provider, model, enhanced_prompt = enhance_prompt(opportunity.generated_prompt)
+    except EnhancementUnavailable as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Prompt enhancement provider request failed: {exc.__class__.__name__}",
+        ) from exc
+
+    if apply:
+        opportunity.generated_prompt = enhanced_prompt
+        opportunity.updated_at = datetime.now(UTC)
+        db.commit()
+        db.refresh(opportunity)
+
+    return EnhancementOut(
+        provider=provider,
+        model=model,
+        enhanced_prompt=enhanced_prompt,
+        applied=apply,
+    )
 
 
 @router.get("/opportunities/{opportunity_id}/prompt")
