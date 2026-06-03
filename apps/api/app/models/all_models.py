@@ -46,6 +46,10 @@ class ScanJob(Base):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     items_found: Mapped[int] = mapped_column(Integer, default=0)
     items_saved: Mapped[int] = mapped_column(Integer, default=0)
+    signals_detected: Mapped[int] = mapped_column(Integer, default=0)
+    clusters_created: Mapped[int] = mapped_column(Integer, default=0)
+    opportunities_created: Mapped[int] = mapped_column(Integer, default=0)
+    outcome_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     source: Mapped[Source | None] = relationship()
 

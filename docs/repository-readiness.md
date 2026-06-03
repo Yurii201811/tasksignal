@@ -32,6 +32,11 @@ AI-assisted problem discovery engine that turns public developer complaints into
 
 Current public evidence is mostly maintainer-created: release hygiene, tests, screenshots, documentation, issues, and a reproducible fixture demo. That is enough to show seriousness, but it is not the same as adoption.
 
+The live-source path now records scan outcome counts and guidance, so a public
+scan that saves records but produces zero opportunities is still auditable. This
+improves product maturity, but it does not remove the need for independent
+tester feedback or better source/query examples.
+
 The next material readiness improvements are:
 
 1. Get at least three independent testers to run the fixture demo and file feedback issues.

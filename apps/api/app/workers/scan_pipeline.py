@@ -74,6 +74,36 @@ class ScanPipelineResult:
     opportunities_created: int
 
 
+def scan_outcome_message(result: ScanPipelineResult) -> str:
+    if result.raw_items_loaded == 0:
+        return (
+            "The connector returned no records. Try a broader query, a different feed, "
+            "or a larger limit before judging the source."
+        )
+    if result.normalized_items_created == 0:
+        return (
+            "The scan completed but saved no new records. The returned items were empty, "
+            "duplicate, or already normalized."
+        )
+    if result.signals_detected == 0:
+        return (
+            "The scan saved public records but did not detect concrete problem or task "
+            "signals. Try a more pain-oriented query such as 'manual workflow', "
+            "'broken onboarding', or 'github actions failed'."
+        )
+    if result.opportunities_created == 0:
+        return (
+            "The scan found problem signals but not enough related evidence to form a "
+            "ranked opportunity. Try a narrower workflow query or increase the limit."
+        )
+    return (
+        f"The scan generated {result.opportunities_created} ranked "
+        f"{'opportunity' if result.opportunities_created == 1 else 'opportunities'} "
+        f"from {result.signals_detected} detected "
+        f"{'signal' if result.signals_detected == 1 else 'signals'}."
+    )
+
+
 def canonical_source(source: str) -> str:
     normalized = source.strip().lower().replace(" ", "-")
     return SOURCE_ALIASES.get(normalized, normalized)
@@ -363,6 +393,10 @@ def process_scan(
         job.finished_at = datetime.now(UTC)
         job.items_found = result.raw_items_loaded
         job.items_saved = result.normalized_items_created
+        job.signals_detected = result.signals_detected
+        job.clusters_created = result.clusters_created
+        job.opportunities_created = result.opportunities_created
+        job.outcome_message = scan_outcome_message(result)
         job.error_message = None
         db.commit()
         db.refresh(job)
@@ -375,6 +409,7 @@ def process_scan(
         failed_job.status = "failed"
         failed_job.finished_at = datetime.now(UTC)
         failed_job.error_message = connector_failure_message(source_type, exc)
+        failed_job.outcome_message = "The scan failed before a complete outcome could be computed."
         db.commit()
         db.refresh(failed_job)
         return failed_job

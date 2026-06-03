@@ -22,6 +22,7 @@ This page keeps the application story honest and easy to verify. It should be up
 | Safety posture | Author hashes by default, official APIs for live sources, no paid LLM dependency, threat model, data ethics notes, and private vulnerability-reporting path. |
 | API credit use | Maintainer automation: PR review, issue triage, CI diagnosis, release notes, fixture redaction, and contributor task drafting. |
 | Demo proof | Browser-verified screenshot and [demo evidence snapshot](demo-evidence.md) showing fixture counts, generated opportunities, and reproducible API checks. |
+| Live-source maturity | Scan records expose saved items, detected signals, generated opportunity counts, and outcome guidance so zero-opportunity live scans remain auditable. |
 
 ## Claims To Avoid
 

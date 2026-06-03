@@ -60,6 +60,10 @@ function savedRate(scan: Scan) {
   return `${Math.round((scan.items_saved / scan.items_found) * 100)}%`;
 }
 
+function completedTone(scan: Scan): "success" | "warning" {
+  return scan.opportunities_created > 0 ? "success" : "warning";
+}
+
 function parsedErrorDetail(error: unknown) {
   if (!(error instanceof Error)) {
     return "The request failed.";
@@ -81,10 +85,16 @@ function parsedErrorDetail(error: unknown) {
 
 function statusMessage(scan: Scan) {
   if (scan.status === "completed") {
+    const hasOpportunities = scan.opportunities_created > 0;
     return (
-      <StateMessage tone="success" title="Scan completed">
+      <StateMessage
+        tone={completedTone(scan)}
+        title={hasOpportunities ? "Scan completed with opportunities" : "Scan completed without opportunities"}
+      >
         This run finished and saved {scan.items_saved} of {scan.items_found} found
-        public-source records.
+        public-source records. It detected {scan.signals_detected} signals and
+        generated {scan.opportunities_created} opportunities.
+        {scan.outcome_message ? ` ${scan.outcome_message}` : ""}
       </StateMessage>
     );
   }
@@ -173,7 +183,7 @@ export function ScanDetail({ id }: { id: string }) {
 
       <PageHeader
         title="Scan detail"
-        description="Inspect one ingestion run with source, query, status, timing, saved item counts, and any redacted connector error."
+        description="Inspect one ingestion run with source, query, timing, saved item counts, signal counts, generated opportunities, and any redacted connector error."
         actions={<Badge tone={statusTone(data.status)}>{data.status}</Badge>}
       />
 
@@ -190,6 +200,19 @@ export function ScanDetail({ id }: { id: string }) {
           value={data.items_saved}
           hint={`${savedRate(data)} saved rate`}
         />
+        <MetricTile
+          label="Signals"
+          value={data.signals_detected}
+          hint="Detected problem signals"
+        />
+        <MetricTile
+          label="Opportunities"
+          value={data.opportunities_created}
+          hint="Generated from this scan"
+        />
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <MetricTile label="Duration" value={durationLabel(data)} hint="Started to finished" />
         <MetricTile
           label="Source"
@@ -214,6 +237,10 @@ export function ScanDetail({ id }: { id: string }) {
               <DetailRow label="Finished" value={dateOrDash(data.finished_at)} />
               <DetailRow label="Items found" value={data.items_found} />
               <DetailRow label="Items saved" value={data.items_saved} />
+              <DetailRow label="Signals detected" value={data.signals_detected} />
+              <DetailRow label="Clusters created" value={data.clusters_created} />
+              <DetailRow label="Opportunities created" value={data.opportunities_created} />
+              <DetailRow label="Outcome" value={data.outcome_message} />
             </tbody>
           </TableShell>
         </Card>
@@ -231,9 +258,9 @@ export function ScanDetail({ id }: { id: string }) {
               <div className="min-w-0">
                 <h2 className="text-sm font-semibold text-ink">Operational state</h2>
                 <p className="mt-1 text-sm leading-6 text-muted">
-                  Completed and failed scans use the same detail surface so
-                  reviewers can compare connector behavior without inspecting
-                  raw logs.
+                  Completed, zero-opportunity, and failed scans use the same
+                  detail surface so reviewers can compare connector behavior
+                  without inspecting raw logs.
                 </p>
               </div>
             </div>

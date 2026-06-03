@@ -309,7 +309,9 @@ export function Dashboard() {
         {runScan.data ? (
           <StateMessage tone="success" title="Live scan response received" className="mt-4">
             {runScan.data.items_saved} saved from {runScan.data.items_found} found.
-            Status: {runScan.data.status}.
+            Signals: {runScan.data.signals_detected}. Opportunities:{" "}
+            {runScan.data.opportunities_created}. Status: {runScan.data.status}.
+            {runScan.data.outcome_message ? ` ${runScan.data.outcome_message}` : ""}
           </StateMessage>
         ) : null}
       </Card>
@@ -347,7 +349,9 @@ export function Dashboard() {
         >
           <span className="break-words">
             {latestScan.items_saved} saved from {latestScan.items_found} found.
+            {` Signals: ${latestScan.signals_detected}. Opportunities: ${latestScan.opportunities_created}.`}
             {latestScan.query ? ` Query: ${latestScan.query}.` : ""}
+            {latestScan.outcome_message ? ` Outcome: ${latestScan.outcome_message}` : ""}
             {latestScan.status === "failed" && latestScan.error_message
               ? ` Error: ${latestScan.error_message}`
               : ""}

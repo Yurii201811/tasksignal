@@ -44,6 +44,7 @@ TaskSignal is for maintainers, builders, indie hackers, developer-tool teams, an
 - Stores one local workspace profile with owner/focus/default research settings.
 - Saves repeatable research projects with source, query, limit, labels, cadence, last run, next run, and run count.
 - Reports integration readiness without exposing secret values.
+- Records scan outcomes with found/saved items, detected signals, generated opportunities, and guidance when live data produces no ranked opportunity.
 - Normalizes Reddit, Hacker News, GitHub Issues, Stack Exchange, and fixture-style records.
 - Stores author hashes instead of raw usernames by default.
 - Detects complaints, manual workflows, tool requests, workarounds, buying intent, and confusion.

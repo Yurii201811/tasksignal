@@ -132,9 +132,19 @@ Response:
   "finished_at": "2026-05-31T10:00:05Z",
   "error_message": null,
   "items_found": 30,
-  "items_saved": 18
+  "items_saved": 18,
+  "signals_detected": 4,
+  "clusters_created": 1,
+  "opportunities_created": 1,
+  "outcome_message": "The scan generated 1 ranked opportunity from 4 detected signals."
 }
 ```
+
+Completed live-source scans can still create zero opportunities. In that case,
+`status` remains `completed`, found/saved counts remain available, and
+`outcome_message` explains whether the run had no returned records, duplicate
+records, no detected problem signals, or signals that were too unrelated to form
+a ranked opportunity.
 
 Failed live-source scans return the stored scan job with `status: "failed"` and
 `error_message` populated so the dashboard can show the connector or credential
@@ -150,8 +160,9 @@ Returns recent scan jobs ordered by newest started timestamp first.
 `GET /api/scans/{id}`
 
 Returns one scan job with source, query, status, timestamps, found/saved counts,
-and any stored redacted error message. The web scan detail page uses this
-endpoint for completed, failed, queued, and running scan states.
+signal counts, generated opportunity counts, outcome guidance, and any stored
+redacted error message. The web scan detail page uses this endpoint for
+completed, zero-opportunity, failed, queued, and running scan states.
 
 ## Research Projects
 

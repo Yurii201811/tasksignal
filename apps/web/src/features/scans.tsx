@@ -85,7 +85,9 @@ export function Scans() {
       {create.data ? (
         <StateMessage tone="success" title="Scan response received">
           {create.data.items_saved} saved from {create.data.items_found} found.
-          Status: {create.data.status}.
+          Signals: {create.data.signals_detected}. Opportunities:{" "}
+          {create.data.opportunities_created}. Status: {create.data.status}.
+          {create.data.outcome_message ? ` ${create.data.outcome_message}` : ""}
         </StateMessage>
       ) : null}
       {scans.error ? (
@@ -105,20 +107,22 @@ export function Scans() {
               <th className="py-3 pr-4">Finished</th>
               <th className="py-3 pr-4">Found</th>
               <th className="py-3 pr-4">Saved</th>
+              <th className="py-3 pr-4">Signals</th>
+              <th className="py-3 pr-4">Opps</th>
               <th className="py-3">Detail</th>
             </tr>
           </thead>
           <tbody>
             {scans.isLoading ? (
               <tr>
-                <td colSpan={8} className="py-8 text-center text-sm text-muted">
+                <td colSpan={10} className="py-8 text-center text-sm text-muted">
                   Loading scan history...
                 </td>
               </tr>
             ) : null}
             {!scans.isLoading && (scans.data ?? []).length === 0 ? (
               <tr>
-                <td colSpan={8} className="py-8 text-center">
+                <td colSpan={10} className="py-8 text-center">
                   <div className="mx-auto max-w-md rounded-product border border-dashed border-border bg-surface-muted px-4 py-6">
                     <p className="text-sm font-semibold text-ink">
                       No scans recorded yet
@@ -151,6 +155,8 @@ export function Scans() {
                   </td>
                   <td className="py-3 pr-4 tabular-nums">{scan.items_found}</td>
                   <td className="py-3 pr-4 tabular-nums">{scan.items_saved}</td>
+                  <td className="py-3 pr-4 tabular-nums">{scan.signals_detected}</td>
+                  <td className="py-3 pr-4 tabular-nums">{scan.opportunities_created}</td>
                   <td className="py-3">
                     <Link
                       href={`/scans/${scan.id}`}

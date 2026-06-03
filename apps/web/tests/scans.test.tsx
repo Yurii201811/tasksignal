@@ -27,6 +27,10 @@ const completedScan: Scan = {
   error_message: null,
   items_found: 30,
   items_saved: 18,
+  signals_detected: 6,
+  clusters_created: 2,
+  opportunities_created: 1,
+  outcome_message: "The scan generated 1 ranked opportunity from 6 detected signals.",
 };
 
 const failedScan: Scan = {
@@ -37,6 +41,22 @@ const failedScan: Scan = {
   error_message: "Reddit credentials are not configured for this connector.",
   items_found: 0,
   items_saved: 0,
+  signals_detected: 0,
+  clusters_created: 0,
+  opportunities_created: 0,
+  outcome_message: "The scan failed before a complete outcome could be computed.",
+};
+
+const zeroOpportunityScan: Scan = {
+  ...completedScan,
+  id: "44444444-4444-4444-8444-444444444444",
+  items_found: 14,
+  items_saved: 14,
+  signals_detected: 0,
+  clusters_created: 0,
+  opportunities_created: 0,
+  outcome_message:
+    "The scan saved public records but did not detect concrete problem or task signals.",
 };
 
 function renderWithClient(ui: React.ReactElement) {
@@ -66,11 +86,25 @@ describe("Scans", () => {
 
     renderWithClient(<ScanDetail id={completedScan.id} />);
 
-    expect(await screen.findByText("Scan completed")).toBeInTheDocument();
+    expect(await screen.findByText("Scan completed with opportunities")).toBeInTheDocument();
     expect(screen.getAllByText("Hacker News").length).toBeGreaterThan(0);
     expect(screen.getAllByText("30").length).toBeGreaterThan(0);
     expect(screen.getAllByText("18").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("6").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("1").length).toBeGreaterThan(0);
     expect(screen.getByText("60% saved rate")).toBeInTheDocument();
+  });
+
+  it("renders completed scans with zero opportunities as an explicit outcome", async () => {
+    vi.mocked(api.scan).mockResolvedValue(zeroOpportunityScan);
+
+    renderWithClient(<ScanDetail id={zeroOpportunityScan.id} />);
+
+    expect(await screen.findByText("Scan completed without opportunities")).toBeInTheDocument();
+    expect(
+      screen.getAllByText(/did not detect concrete problem or task signals/i).length,
+    ).toBeGreaterThan(0);
+    expect(screen.getAllByText("0").length).toBeGreaterThan(0);
   });
 
   it("renders failed scan detail with the redacted API error", async () => {

@@ -5,6 +5,8 @@ TaskSignal is early-stage open source. The roadmap prioritizes maintainability, 
 ## Near Term
 
 - Keep saved research projects, public scans, and fixture mode green in CI.
+- Improve live-source query presets and examples so public scans more reliably
+  surface related problem signals instead of only saved records.
 - Expand the Integrations page with clearer connection tests and local runtime checks.
 - Keep Codex task-pack exports and the repo-local Codex skill aligned with opportunity evidence.
 - Add more representative parser fixtures for GitHub Issues, Hacker News, Reddit, and Stack Exchange.

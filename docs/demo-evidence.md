@@ -77,6 +77,12 @@ detect repeated workflow signals, and generate at least one opportunity when
 enough related signals are returned. Credentialed connectors such as GitHub and
 Reddit are reserved for trusted internal jobs.
 
+Live public feeds are not fixtures. A scan can complete, save records, and still
+generate zero opportunities when the returned posts do not contain enough
+related problem signals. In that case, scan records expose `signals_detected`,
+`clusters_created`, `opportunities_created`, and `outcome_message` so reviewers
+can distinguish a working connector from weak source/query fit.
+
 ## Current Limits
 
 - This is a fixture/demo snapshot, not evidence of broad adoption.

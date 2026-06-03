@@ -35,6 +35,22 @@ def live_signal_item(
     )
 
 
+def neutral_live_item(external_id: str) -> RawFetchedItem:
+    return RawFetchedItem(
+        source="mock",
+        external_id=external_id,
+        raw_json={
+            "title": f"New release notes {external_id}",
+            "body": "The project published a routine maintenance release with updated docs.",
+            "author": "raw-user",
+            "created_at": "2026-05-20T00:00:00Z",
+            "url": f"https://example.test/items/{external_id}",
+            "tags": ["release"],
+        },
+        fetched_at=utc_now(),
+    )
+
+
 class MockConnector(BaseConnector):
     name = "mock"
 
@@ -64,6 +80,11 @@ def test_scan_job_success_path_with_mocked_connector(db_session) -> None:
     assert job.status == "completed"
     assert job.items_found == 3
     assert job.items_saved == 3
+    assert job.signals_detected == 3
+    assert job.clusters_created == 1
+    assert job.opportunities_created == 1
+    assert job.outcome_message is not None
+    assert "generated 1 ranked opportunity" in job.outcome_message
     assert job.finished_at is not None
     assert job.error_message is None
     assert len(db_session.scalars(select(Opportunity.id)).all()) == 1
@@ -85,11 +106,32 @@ def test_scan_job_creates_live_opportunity_from_small_signal_set(db_session) -> 
     assert job.status == "completed"
     assert job.items_found == 2
     assert job.items_saved == 2
+    assert job.signals_detected == 2
+    assert job.opportunities_created == 1
 
     opportunities = db_session.scalars(select(Opportunity)).all()
     assert len(opportunities) == 1
     assert opportunities[0].generated_prompt
     assert "Top source excerpts" in opportunities[0].generated_prompt
+
+
+def test_scan_job_records_completed_zero_signal_outcome(db_session) -> None:
+    job = process_scan(
+        db_session,
+        source="mock",
+        query="release notes",
+        limit=2,
+        connector=MockConnector([neutral_live_item(str(index)) for index in range(2)]),
+    )
+
+    assert job.status == "completed"
+    assert job.items_found == 2
+    assert job.items_saved == 2
+    assert job.signals_detected == 0
+    assert job.clusters_created == 0
+    assert job.opportunities_created == 0
+    assert job.outcome_message is not None
+    assert "did not detect concrete problem" in job.outcome_message
 
 
 def test_scan_job_failure_path(db_session) -> None:
@@ -107,6 +149,7 @@ def test_scan_job_failure_path(db_session) -> None:
     assert job.finished_at is not None
     assert job.error_message is not None
     assert "Live API unavailable" in job.error_message
+    assert job.outcome_message == "The scan failed before a complete outcome could be computed."
 
 
 def test_scan_deduplicates_normalized_items(db_session) -> None:
@@ -123,6 +166,7 @@ def test_scan_deduplicates_normalized_items(db_session) -> None:
     assert job.status == "completed"
     assert job.items_found == 2
     assert job.items_saved == 1
+    assert job.signals_detected == 1
     assert len(db_session.scalars(select(NormalizedItem.id)).all()) == 1
 
 
@@ -156,6 +200,9 @@ def test_scan_api_route_runs_pipeline_with_request_payload(client, monkeypatch) 
     assert payload["source_type"] == "mockapi"
     assert payload["items_found"] == 3
     assert payload["items_saved"] == 3
+    assert payload["signals_detected"] == 3
+    assert payload["opportunities_created"] == 1
+    assert "generated 1 ranked opportunity" in payload["outcome_message"]
 
     scans = client.get("/api/scans").json()
     assert len(scans) == 1

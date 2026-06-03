@@ -366,6 +366,9 @@ export function ResearchProjects() {
       {run.data ? (
         <StateMessage tone="success" title="Project run finished">
           {run.data.items_saved} saved from {run.data.items_found} found.
+          Signals: {run.data.signals_detected}. Opportunities:{" "}
+          {run.data.opportunities_created}.
+          {run.data.outcome_message ? ` ${run.data.outcome_message}` : ""}
         </StateMessage>
       ) : null}
       {runDue.error ? (

@@ -35,6 +35,10 @@ class ScanOut(BaseModel):
     error_message: str | None
     items_found: int
     items_saved: int
+    signals_detected: int = 0
+    clusters_created: int = 0
+    opportunities_created: int = 0
+    outcome_message: str | None = None
     model_config = ConfigDict(from_attributes=True)
 
 

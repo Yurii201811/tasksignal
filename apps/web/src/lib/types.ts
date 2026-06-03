@@ -189,6 +189,10 @@ export type Scan = {
   error_message: string | null;
   items_found: number;
   items_saved: number;
+  signals_detected: number;
+  clusters_created: number;
+  opportunities_created: number;
+  outcome_message: string | null;
 };
 
 export type ScanCreate = {
