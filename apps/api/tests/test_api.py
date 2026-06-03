@@ -75,6 +75,59 @@ def test_readiness_reports_workspace_state_without_secret_values(client, monkeyp
     assert "do-not-leak" not in json.dumps(payload)
 
 
+def test_local_workspace_can_store_single_user_defaults(client) -> None:
+    initial = client.get("/api/local-workspace")
+
+    assert initial.status_code == 200
+    assert initial.json()["id"] == 1
+    assert initial.json()["configured"] is False
+    assert initial.json()["default_source_type"] == "hackernews"
+
+    response = client.patch(
+        "/api/local-workspace",
+        json={
+            "owner_name": "Local Builder",
+            "workspace_goal": "Find concrete developer-tool ideas",
+            "default_source_type": "fixture",
+            "default_query": "",
+            "default_limit": 20,
+            "default_cadence": "daily",
+            "default_schedule_interval_hours": None,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["configured"] is True
+    assert payload["owner_name"] == "Local Builder"
+    assert payload["workspace_goal"] == "Find concrete developer-tool ideas"
+    assert payload["default_source_type"] == "fixture"
+    assert payload["default_limit"] == 20
+    assert payload["default_cadence"] == "daily"
+
+    readiness = client.get("/api/readiness").json()
+    assert readiness["checks"]["local_workspace_configured"] is True
+    assert "Set the local workspace owner" not in " ".join(readiness["warnings"])
+
+
+def test_local_workspace_rejects_unknown_default_source(client) -> None:
+    response = client.patch(
+        "/api/local-workspace",
+        json={
+            "owner_name": "Local Builder",
+            "workspace_goal": "Find ideas",
+            "default_source_type": "unknown",
+            "default_query": "",
+            "default_limit": 20,
+            "default_cadence": "manual",
+            "default_schedule_interval_hours": None,
+        },
+    )
+
+    assert response.status_code == 400
+    assert "Unsupported source" in response.json()["detail"]
+
+
 def test_research_project_can_save_and_run_fixture_workflow(client) -> None:
     create_response = client.post(
         "/api/research-projects",

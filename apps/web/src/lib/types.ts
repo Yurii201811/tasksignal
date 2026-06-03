@@ -98,6 +98,30 @@ export type IntegrationTest = {
   items_found: number;
 };
 
+export type LocalWorkspace = {
+  id: number;
+  owner_name: string;
+  workspace_goal: string;
+  default_source_type: string;
+  default_query: string;
+  default_limit: number;
+  default_cadence: string;
+  default_schedule_interval_hours: number | null;
+  configured: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type LocalWorkspaceUpdate = {
+  owner_name: string;
+  workspace_goal: string;
+  default_source_type: string;
+  default_query: string;
+  default_limit: number;
+  default_cadence: string;
+  default_schedule_interval_hours?: number | null;
+};
+
 export type Readiness = {
   status: string;
   blockers: string[];
@@ -106,6 +130,7 @@ export type Readiness = {
     projects?: number;
     opportunities?: number;
     due_projects?: number;
+    local_workspace_configured?: boolean;
     ready_sources?: string[];
     codex_task_packs?: boolean;
     operator_scan_token_configured?: boolean;

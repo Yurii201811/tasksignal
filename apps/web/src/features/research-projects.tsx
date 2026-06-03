@@ -81,6 +81,11 @@ export function ResearchProjects() {
   const [intervalHours, setIntervalHours] = useState(24);
   const [labels, setLabels] = useState("ci, developer-tools");
   const [operatorToken, setOperatorToken] = useState("");
+  const [defaultsApplied, setDefaultsApplied] = useState(false);
+  const localWorkspace = useQuery({
+    queryKey: ["local-workspace"],
+    queryFn: api.localWorkspace,
+  });
   const projects = useQuery({
     queryKey: ["research-projects"],
     queryFn: api.researchProjects,
@@ -118,6 +123,19 @@ export function ResearchProjects() {
       window.localStorage.getItem("tasksignal.operatorToken") ?? "",
     );
   }, []);
+
+  useEffect(() => {
+    if (defaultsApplied || !localWorkspace.data?.configured) return;
+    setSourceType(localWorkspace.data.default_source_type);
+    setQuery(localWorkspace.data.default_query);
+    setLimit(localWorkspace.data.default_limit);
+    setCadence(localWorkspace.data.default_cadence);
+    setIntervalHours(localWorkspace.data.default_schedule_interval_hours ?? 24);
+    if (localWorkspace.data.workspace_goal) {
+      setDescription(localWorkspace.data.workspace_goal);
+    }
+    setDefaultsApplied(true);
+  }, [defaultsApplied, localWorkspace.data]);
 
   function updateOperatorToken(value: string) {
     setOperatorToken(value);

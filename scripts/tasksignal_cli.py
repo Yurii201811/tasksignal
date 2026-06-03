@@ -57,6 +57,23 @@ def command_integrations(_args: argparse.Namespace) -> None:
         )
 
 
+def command_workspace(_args: argparse.Namespace) -> None:
+    print_json(request_json("/api/local-workspace"))
+
+
+def command_configure_workspace(args: argparse.Namespace) -> None:
+    payload = {
+        "owner_name": args.owner,
+        "workspace_goal": args.goal,
+        "default_source_type": args.source,
+        "default_query": args.query,
+        "default_limit": args.limit,
+        "default_cadence": args.cadence,
+        "default_schedule_interval_hours": args.interval_hours,
+    }
+    print_json(request_json("/api/local-workspace", method="PATCH", payload=payload))
+
+
 def command_projects(_args: argparse.Namespace) -> None:
     projects = request_json("/api/research-projects")
     if not isinstance(projects, list):
@@ -153,6 +170,19 @@ def build_parser() -> argparse.ArgumentParser:
 
     integrations = subcommands.add_parser("integrations")
     integrations.set_defaults(func=command_integrations)
+
+    workspace = subcommands.add_parser("workspace")
+    workspace.set_defaults(func=command_workspace)
+
+    configure_workspace = subcommands.add_parser("configure-workspace")
+    configure_workspace.add_argument("--owner", default="")
+    configure_workspace.add_argument("--goal", default="")
+    configure_workspace.add_argument("--source", default="hackernews")
+    configure_workspace.add_argument("--query", default="ask")
+    configure_workspace.add_argument("--limit", type=int, default=30)
+    configure_workspace.add_argument("--cadence", default="manual")
+    configure_workspace.add_argument("--interval-hours", type=int, default=None)
+    configure_workspace.set_defaults(func=command_configure_workspace)
 
     projects = subcommands.add_parser("projects")
     projects.set_defaults(func=command_projects)

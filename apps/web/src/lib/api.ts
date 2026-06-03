@@ -4,6 +4,8 @@ import type {
   Opportunity,
   Integration,
   IntegrationTest,
+  LocalWorkspace,
+  LocalWorkspaceUpdate,
   ProcessSummary,
   ResearchProject,
   ResearchProjectCreate,
@@ -51,6 +53,12 @@ export const api = {
     request<ProcessSummary>("/api/process/demo", { method: "POST" }),
   sources: () => request<Source[]>("/api/sources"),
   integrations: () => request<Integration[]>("/api/integrations"),
+  localWorkspace: () => request<LocalWorkspace>("/api/local-workspace"),
+  updateLocalWorkspace: (payload: LocalWorkspaceUpdate) =>
+    request<LocalWorkspace>("/api/local-workspace", {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
   testIntegration: (id: string, operatorToken?: string) =>
     request<IntegrationTest>(`/api/integrations/${id}/test`, {
       method: "POST",

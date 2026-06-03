@@ -69,6 +69,24 @@ class ReadinessOut(BaseModel):
     checks: dict
 
 
+class LocalWorkspaceUpdate(BaseModel):
+    owner_name: str = Field(default="", max_length=120)
+    workspace_goal: str = Field(default="", max_length=300)
+    default_source_type: str = Field(default="hackernews", max_length=60)
+    default_query: str = Field(default="ask", max_length=300)
+    default_limit: int = Field(default=30, ge=1, le=100)
+    default_cadence: str = Field(default="manual", max_length=60)
+    default_schedule_interval_hours: int | None = Field(default=None, ge=1, le=24 * 31)
+
+
+class LocalWorkspaceOut(LocalWorkspaceUpdate):
+    id: int
+    configured: bool
+    created_at: datetime
+    updated_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+
 class ResearchProjectCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     description: str | None = Field(default=None, max_length=500)

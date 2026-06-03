@@ -8,7 +8,7 @@ TaskSignal is an AI-assisted engine that mines public developer and community di
 
 ## Project Status
 
-TaskSignal is a portfolio-ready MVP built by Yurii Bakurov. It is designed to run locally with fixture data out of the box, then run repeatable API-backed research workflows for supported public sources when credentials are provided.
+TaskSignal is a portfolio-ready MVP built by Yurii Bakurov. It is designed for one local operator on their own machine: fixture data works out of the box, a local workspace profile stores that user's research defaults, and repeatable API-backed workflows can be enabled for supported public sources when credentials are provided.
 
 Current public posture: TaskSignal is an early public application repository, not a widely adopted package. Its strongest evidence today is reproducibility, release hygiene, CI, security/privacy documentation, contributor issues, and a browser-verified demo flow. See the [demo evidence snapshot](docs/demo-evidence.md) and [Codex for OSS evidence](docs/codex-for-oss-application.md) for the current review package.
 
@@ -41,6 +41,7 @@ TaskSignal is for maintainers, builders, indie hackers, developer-tool teams, an
 ## What It Does
 
 - Loads demo fixture data with no API keys.
+- Stores one local workspace profile with owner/focus/default research settings.
 - Saves repeatable research projects with source, query, limit, labels, cadence, last run, next run, and run count.
 - Reports integration readiness without exposing secret values.
 - Normalizes Reddit, Hacker News, GitHub Issues, Stack Exchange, and fixture-style records.
@@ -132,10 +133,15 @@ Use the local CLI for headless operation:
 
 ```bash
 scripts/tasksignal_cli.py readiness
+scripts/tasksignal_cli.py configure-workspace --owner "Local Builder" --goal "Find developer-tool opportunities" --source hackernews --query ask --cadence daily
 scripts/tasksignal_cli.py create-project --name "Track CI/CD pain" --source hackernews --query ask --cadence daily
 scripts/tasksignal_cli.py run-due
 scripts/tasksignal_cli.py task-pack <opportunity-id> --output task-pack.md
 ```
+
+TaskSignal does not require multi-user accounts for this local mode. The local
+workspace profile is a singleton in the app database and is meant for the person
+running the app on that machine.
 
 ## Distribution
 

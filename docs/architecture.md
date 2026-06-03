@@ -1,6 +1,6 @@
 # Architecture
 
-TaskSignal is a local-first full-stack app with fixture data, optional live connectors, saved research workflows, and agent handoff exports.
+TaskSignal is a local-first full-stack app for one local operator on one machine, with fixture data, optional live connectors, saved research workflows, and agent handoff exports.
 
 ## Module Responsibilities
 
@@ -14,7 +14,7 @@ TaskSignal is a local-first full-stack app with fixture data, optional live conn
 - `workers.scan_pipeline`: synchronous live-source scan orchestration for one
   selected source/query/limit without a background job framework.
 - `api`: FastAPI endpoints.
-- `apps/web`: Next.js dashboard, saved research projects, integrations, and workflow UI.
+- `apps/web`: Next.js dashboard, singleton local workspace settings, saved research projects, integrations, and workflow UI.
 - `skills/tasksignal-opportunity-builder`: Codex-style skill package for
   turning TaskSignal task packs into PRDs, issues, implementation plans, or
   evidence reviews.
@@ -32,6 +32,7 @@ flowchart LR
   Clusters --> Opportunities[opportunities]
   Opportunities --> Dashboard[Next.js dashboard]
   Opportunities --> TaskPacks[Codex task packs]
+  Workspace[Local workspace profile] --> Projects
   Projects[Saved research projects] --> APIs
   Scheduler[CLI, cron, worker, or GitHub Actions] --> Projects
 ```
@@ -44,6 +45,10 @@ Scheduling is explicit: the API stores `next_run_at` and `run_count`, while the
 Projects page, CLI, cron, GitHub Actions, or another worker calls
 `POST /api/research-projects/run-due`. The web process does not contain a hidden
 background scheduler.
+
+The local workspace profile is a singleton row, not a multi-user identity
+system. It stores the local operator's owner/focus label and project defaults for
+the machine running TaskSignal.
 
 ## Hosted Deployment
 

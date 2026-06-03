@@ -7,6 +7,11 @@ cp .env.example .env
 make up
 ```
 
+The default deployment target is a single local operator. Configure the local
+workspace from Settings or with `scripts/tasksignal_cli.py configure-workspace`;
+do not add public multi-user access until authentication, tenant isolation,
+retention, and admin deletion paths are designed.
+
 ## Vercel Frontend
 
 - Root: `apps/web`

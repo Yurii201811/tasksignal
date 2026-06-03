@@ -92,6 +92,28 @@ class ResearchProject(Base):
         return self.labels_json
 
 
+class LocalWorkspaceSettings(Base):
+    __tablename__ = "local_workspace_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    owner_name: Mapped[str] = mapped_column(Text, default="")
+    workspace_goal: Mapped[str] = mapped_column(Text, default="")
+    default_source_type: Mapped[str] = mapped_column(Text, default="hackernews")
+    default_query: Mapped[str] = mapped_column(Text, default="ask")
+    default_limit: Mapped[int] = mapped_column(Integer, default=30)
+    default_cadence: Mapped[str] = mapped_column(Text, default="manual")
+    default_schedule_interval_hours: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+    @property
+    def configured(self) -> bool:
+        return bool(self.owner_name.strip() or self.workspace_goal.strip())
+
+
 class RawItem(Base):
     __tablename__ = "raw_items"
 

@@ -17,6 +17,7 @@ from app.models.all_models import (
     ItemEmbedding,
     ItemSignal,
     Label,
+    LocalWorkspaceSettings,
     NormalizedItem,
     Opportunity,
     ResearchProject,
@@ -30,6 +31,8 @@ from app.schemas.api import (
     IntegrationTestOut,
     ItemOut,
     LabelCreate,
+    LocalWorkspaceOut,
+    LocalWorkspaceUpdate,
     OpportunityOut,
     ProcessSummary,
     ReadinessOut,
@@ -296,6 +299,22 @@ def research_project_to_out(project: ResearchProject) -> ResearchProjectOut:
     return ResearchProjectOut.model_validate(project)
 
 
+def local_workspace_to_out(workspace: LocalWorkspaceSettings) -> LocalWorkspaceOut:
+    return LocalWorkspaceOut.model_validate(workspace)
+
+
+def get_or_create_local_workspace(db: Session) -> LocalWorkspaceSettings:
+    workspace = db.get(LocalWorkspaceSettings, 1)
+    if workspace is not None:
+        return workspace
+
+    workspace = LocalWorkspaceSettings(id=1)
+    db.add(workspace)
+    db.commit()
+    db.refresh(workspace)
+    return workspace
+
+
 def interval_hours_for_project(
     cadence: str,
     explicit_interval: int | None,
@@ -342,6 +361,7 @@ def mark_project_ran(project: ResearchProject, scan: ScanJob, now: datetime) -> 
 
 def readiness_payload(db: Session) -> ReadinessOut:
     integrations = [integration_status(entry, db) for entry in INTEGRATION_CATALOG]
+    local_workspace = get_or_create_local_workspace(db)
     project_count = len(db.scalars(select(ResearchProject.id)).all())
     opportunity_count = len(db.scalars(select(Opportunity.id)).all())
     due_count = len(db.scalars(due_project_query(datetime.now(UTC))).all())
@@ -352,6 +372,8 @@ def readiness_payload(db: Session) -> ReadinessOut:
         warnings.append("Create at least one saved research project.")
     if opportunity_count == 0:
         warnings.append("Run a project or process fixtures before exporting task packs.")
+    if not local_workspace.configured:
+        warnings.append("Set the local workspace owner or goal for this machine.")
 
     ready_sources = [
         integration.id
@@ -365,6 +387,7 @@ def readiness_payload(db: Session) -> ReadinessOut:
         "projects": project_count,
         "opportunities": opportunity_count,
         "due_projects": due_count,
+        "local_workspace_configured": local_workspace.configured,
         "ready_sources": ready_sources,
         "codex_task_packs": any(
             integration.id == "codex_export" and integration.status == "available"
@@ -715,6 +738,41 @@ def list_integrations(db: Session = Depends(get_db)) -> list[IntegrationOut]:
 def get_readiness(db: Session = Depends(get_db)) -> ReadinessOut:
     ensure_sources(db)
     return readiness_payload(db)
+
+
+@router.get("/local-workspace", response_model=LocalWorkspaceOut)
+def get_local_workspace(db: Session = Depends(get_db)) -> LocalWorkspaceOut:
+    return local_workspace_to_out(get_or_create_local_workspace(db))
+
+
+@router.patch("/local-workspace", response_model=LocalWorkspaceOut)
+def update_local_workspace(
+    payload: LocalWorkspaceUpdate,
+    db: Session = Depends(get_db),
+) -> LocalWorkspaceOut:
+    source_type = canonical_source(payload.default_source_type)
+    if source_type not in CONNECTOR_FACTORIES:
+        supported = ", ".join(sorted(CONNECTOR_FACTORIES))
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Unsupported source '{payload.default_source_type}'. "
+                f"Supported sources: {supported}."
+            ),
+        )
+
+    workspace = get_or_create_local_workspace(db)
+    workspace.owner_name = payload.owner_name.strip()
+    workspace.workspace_goal = payload.workspace_goal.strip()
+    workspace.default_source_type = source_type
+    workspace.default_query = payload.default_query.strip()
+    workspace.default_limit = payload.default_limit
+    workspace.default_cadence = payload.default_cadence.strip() or "manual"
+    workspace.default_schedule_interval_hours = payload.default_schedule_interval_hours
+    workspace.updated_at = datetime.now(UTC)
+    db.commit()
+    db.refresh(workspace)
+    return local_workspace_to_out(workspace)
 
 
 @router.post("/integrations/{integration_id}/test", response_model=IntegrationTestOut)
