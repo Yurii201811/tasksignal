@@ -15,7 +15,9 @@ PUBLIC_SCAN_SOURCES=fixture,hackernews
 `PUBLIC_SCAN_SOURCES` can narrow this further, for example to `hackernews`
 only. Credentialed connectors are reserved for trusted internal scan jobs after
 reviewing credential scope, stored fields, rate limits, source terms, retention,
-and acceptable use.
+and acceptable use. If the setting lists only credentialed sources, readiness
+warns that no browser-safe public scan source is enabled and scan requests
+return a 403 with `Allowed public scan sources: none`.
 
 ## Connector Notes
 

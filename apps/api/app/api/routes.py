@@ -165,6 +165,20 @@ def configured_public_scan_sources() -> set[str]:
     return requested_sources & PUBLIC_SCAN_API_SOURCES
 
 
+def public_scan_config_warning() -> str | None:
+    configured = settings.public_scan_sources.strip()
+    if not configured or configured == "*":
+        return None
+    if configured_public_scan_sources():
+        return None
+
+    allowed = ", ".join(sorted(PUBLIC_SCAN_API_SOURCES))
+    return (
+        "PUBLIC_SCAN_SOURCES does not enable a browser-safe source; "
+        f"use {allowed}, or both, for POST /api/scans."
+    )
+
+
 def operator_scan_authorized(token: str | None) -> bool:
     return bool(
         settings.operator_scan_token
@@ -201,12 +215,19 @@ def public_scan_source(source: str) -> str:
 
     allowed_sources = configured_public_scan_sources()
     if source_type not in allowed_sources:
-        allowed = ", ".join(sorted(allowed_sources))
+        if allowed_sources:
+            allowed = ", ".join(sorted(allowed_sources))
+        else:
+            allowed = "none"
+        detail = (
+            f"Source '{source}' is not enabled for this deployment. "
+            f"Allowed public scan sources: {allowed}."
+        )
+        if warning := public_scan_config_warning():
+            detail = f"{detail} {warning}"
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=(
-                f"Source '{source}' is not enabled for this deployment. Allowed sources: {allowed}."
-            ),
+            detail=detail,
         )
     return source_type
 
@@ -374,6 +395,8 @@ def readiness_payload(db: Session) -> ReadinessOut:
         warnings.append("Run a project or process fixtures before exporting task packs.")
     if not local_workspace.configured:
         warnings.append("Set the local workspace owner or goal for this machine.")
+    if warning := public_scan_config_warning():
+        warnings.append(warning)
 
     ready_sources = [
         integration.id
@@ -395,6 +418,7 @@ def readiness_payload(db: Session) -> ReadinessOut:
         ),
         "operator_scan_token_configured": bool(settings.operator_scan_token),
         "public_scan_sources": sorted(configured_public_scan_sources()),
+        "public_scan_sources_configured": bool(configured_public_scan_sources()),
     }
     return ReadinessOut(
         status="blocked" if blockers else "ready",

@@ -160,6 +160,14 @@ export function Dashboard() {
         : "info";
   const selectedScanGuidance = scanGuidance[scanSource];
   const readinessChecks = readiness.data?.checks;
+  const publicScanSources = readinessChecks?.public_scan_sources as
+    | string[]
+    | undefined;
+  const publicScanSourcesLabel = readiness.data
+    ? publicScanSources?.length
+      ? publicScanSources.join(", ")
+      : "none enabled"
+    : "checking";
   const workflowSteps = [
     {
       label: "Set workspace defaults",
@@ -238,9 +246,7 @@ export function Dashboard() {
                 {readiness.data?.status ?? "checking"}
               </Badge>
               <Badge>
-                Public sources:{" "}
-                {(readinessChecks?.public_scan_sources as string[] | undefined)?.join(", ") ||
-                  "checking"}
+                Public sources: {publicScanSourcesLabel}
               </Badge>
             </div>
             <h2 className="mt-3 text-lg font-semibold text-ink">

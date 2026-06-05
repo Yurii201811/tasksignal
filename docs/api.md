@@ -87,7 +87,10 @@ clusters related signals, scores opportunities, and generates prompt-ready cards
 This public endpoint only accepts public API-safe sources (`fixture` and
 `hackernews`). `PUBLIC_SCAN_SOURCES` can narrow that public allowlist further,
 but it cannot enable credentialed connectors through this unauthenticated
-endpoint.
+endpoint. If the configured value excludes every browser-safe source, readiness
+reports a warning and `POST /api/scans` returns a 403 with `Allowed public scan
+sources: none` so operators can distinguish intentional lockdown from a broken
+connector.
 
 Request:
 

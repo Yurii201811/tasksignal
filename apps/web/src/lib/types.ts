@@ -135,6 +135,7 @@ export type Readiness = {
     codex_task_packs?: boolean;
     operator_scan_token_configured?: boolean;
     public_scan_sources?: string[];
+    public_scan_sources_configured?: boolean;
     [key: string]: unknown;
   };
 };

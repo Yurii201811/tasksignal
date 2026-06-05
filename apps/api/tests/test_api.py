@@ -75,6 +75,21 @@ def test_readiness_reports_workspace_state_without_secret_values(client, monkeyp
     assert "do-not-leak" not in json.dumps(payload)
 
 
+def test_readiness_warns_when_public_scan_sources_exclude_browser_safe_sources(
+    client, monkeypatch
+) -> None:
+    monkeypatch.setattr(routes.settings, "public_scan_sources", "github,reddit")
+
+    response = client.get("/api/readiness")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["checks"]["public_scan_sources"] == []
+    assert payload["checks"]["public_scan_sources_configured"] is False
+    assert any("browser-safe source" in warning for warning in payload["warnings"])
+    assert "github" not in json.dumps(payload["checks"]["public_scan_sources"])
+
+
 def test_local_workspace_can_store_single_user_defaults(client) -> None:
     initial = client.get("/api/local-workspace")
 
@@ -254,6 +269,23 @@ def test_credentialed_research_project_run_requires_operator_token(client) -> No
 
     assert run_response.status_code == 403
     assert "X-Operator-Scan-Token" in run_response.json()["detail"]
+
+
+def test_public_scan_error_is_clear_when_no_public_scan_sources_are_enabled(
+    client, monkeypatch
+) -> None:
+    monkeypatch.setattr(routes.settings, "public_scan_sources", "github")
+
+    response = client.post(
+        "/api/scans",
+        json={"source": "hackernews", "query": "ask", "limit": 10},
+    )
+
+    assert response.status_code == 403
+    detail = response.json()["detail"]
+    assert "Allowed public scan sources: none" in detail
+    assert "PUBLIC_SCAN_SOURCES" in detail
+    assert "browser-safe source" in detail
 
 
 def test_process_demo_is_idempotent_without_reset(client) -> None:
