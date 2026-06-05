@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.api import routes
 from app.db.session import engine
-from app.models.all_models import ResearchProject
+from app.models.all_models import ResearchProject, Source
 from app.schemas.api import ItemOut, OpportunityOut
 
 
@@ -88,6 +88,99 @@ def test_readiness_warns_when_public_scan_sources_exclude_browser_safe_sources(
     assert payload["checks"]["public_scan_sources_configured"] is False
     assert any("browser-safe source" in warning for warning in payload["warnings"])
     assert "github" not in json.dumps(payload["checks"]["public_scan_sources"])
+
+
+def test_sources_redact_stored_config_values(client) -> None:
+    with Session(engine) as session:
+        session.add(
+            Source(
+                name="Configured GitHub",
+                type="github",
+                config_json={
+                    "owner": "public-org",
+                    "api_key": "do-not-leak",
+                    "nested": {"access_token": "also-secret"},
+                },
+                enabled=True,
+            )
+        )
+        session.commit()
+
+    response = client.get("/api/sources")
+
+    assert response.status_code == 200
+    text = json.dumps(response.json())
+    assert "do-not-leak" not in text
+    assert "also-secret" not in text
+    configured = next(item for item in response.json() if item["name"] == "Configured GitHub")
+    assert configured["config_json"] == {}
+
+
+def test_source_registry_mutations_require_operator_token(client, monkeypatch) -> None:
+    payload = {
+        "name": "Custom HN",
+        "type": "hackernews",
+        "config_json": {"feed": "ask"},
+        "enabled": True,
+    }
+
+    response = client.post("/api/sources", json=payload)
+
+    assert response.status_code == 403
+    assert "OPERATOR_SCAN_TOKEN" in response.json()["detail"]
+
+    monkeypatch.setattr(routes.settings, "operator_scan_token", "test-operator-token")
+    missing_token = client.post("/api/sources", json=payload)
+    bad_token = client.post(
+        "/api/sources",
+        headers={"X-Operator-Scan-Token": "wrong"},
+        json=payload,
+    )
+    created = client.post(
+        "/api/sources",
+        headers={"X-Operator-Scan-Token": "test-operator-token"},
+        json=payload,
+    )
+
+    assert missing_token.status_code == 403
+    assert bad_token.status_code == 403
+    assert created.status_code == 200
+    assert created.json()["name"] == "Custom HN"
+    assert created.json()["config_json"] == {}
+
+    source_id = created.json()["id"]
+    delete_without_token = client.delete(f"/api/sources/{source_id}")
+    delete_with_token = client.delete(
+        f"/api/sources/{source_id}",
+        headers={"X-Operator-Scan-Token": "test-operator-token"},
+    )
+
+    assert delete_without_token.status_code == 403
+    assert delete_with_token.status_code == 200
+
+
+def test_source_registry_rejects_secret_like_config_keys(client, monkeypatch) -> None:
+    monkeypatch.setattr(routes.settings, "operator_scan_token", "test-operator-token")
+
+    response = client.post(
+        "/api/sources",
+        headers={"X-Operator-Scan-Token": "test-operator-token"},
+        json={
+            "name": "Unsafe source config",
+            "type": "github",
+            "config_json": {
+                "filters": {"access_token": "do-not-leak"},
+                "display": "public",
+            },
+            "enabled": True,
+        },
+    )
+
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert "environment variables" in detail
+    assert "config_json.filters.access_token" in detail
+    assert "do-not-leak" not in detail
 
 
 def test_local_workspace_can_store_single_user_defaults(client) -> None:

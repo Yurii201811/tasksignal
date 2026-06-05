@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime, timedelta
 from secrets import compare_digest
 from uuid import UUID
@@ -63,6 +64,19 @@ router = APIRouter(prefix="/api")
 
 PUBLIC_SCAN_API_SOURCES = {"fixture", "hackernews"}
 OPERATOR_SCAN_SOURCES = {"github", "reddit", "stackexchange"}
+SOURCE_CONFIG_SECRET_KEY_PARTS = {
+    "accesstoken",
+    "apikey",
+    "authorization",
+    "clientsecret",
+    "cookie",
+    "credential",
+    "password",
+    "passwd",
+    "privatekey",
+    "secret",
+    "token",
+}
 CADENCE_INTERVAL_HOURS = {
     "manual": None,
     "hourly": 1,
@@ -185,6 +199,22 @@ def operator_scan_authorized(token: str | None) -> bool:
         and token
         and compare_digest(token, settings.operator_scan_token)
     )
+
+
+def require_operator_token(token: str | None, action: str) -> None:
+    if not settings.operator_scan_token:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                f"{action} requires OPERATOR_SCAN_TOKEN to be configured on the API "
+                "and sent as X-Operator-Scan-Token."
+            ),
+        )
+    if not token or not compare_digest(token, settings.operator_scan_token):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"{action} requires a valid X-Operator-Scan-Token.",
+        )
 
 
 def scan_source_for_operator(source: str, token: str | None) -> str:
@@ -320,8 +350,53 @@ def research_project_to_out(project: ResearchProject) -> ResearchProjectOut:
     return ResearchProjectOut.model_validate(project)
 
 
+def source_to_out(source: Source) -> SourceOut:
+    return SourceOut(
+        id=source.id,
+        name=source.name,
+        type=source.type,
+        config_json={},
+        enabled=source.enabled,
+        created_at=source.created_at,
+    )
+
+
 def local_workspace_to_out(workspace: LocalWorkspaceSettings) -> LocalWorkspaceOut:
     return LocalWorkspaceOut.model_validate(workspace)
+
+
+def normalized_config_key(key: object) -> str:
+    return re.sub(r"[^a-z0-9]", "", str(key).lower())
+
+
+def sensitive_config_paths(value: object, prefix: str = "config_json") -> list[str]:
+    paths: list[str] = []
+    if isinstance(value, dict):
+        for key, nested in value.items():
+            key_path = f"{prefix}.{key}"
+            normalized_key = normalized_config_key(key)
+            if any(part in normalized_key for part in SOURCE_CONFIG_SECRET_KEY_PARTS):
+                paths.append(key_path)
+            paths.extend(sensitive_config_paths(nested, key_path))
+    elif isinstance(value, list):
+        for index, nested in enumerate(value):
+            paths.extend(sensitive_config_paths(nested, f"{prefix}[{index}]"))
+    return paths
+
+
+def reject_sensitive_source_config(config: dict) -> None:
+    blocked_paths = sensitive_config_paths(config)
+    if blocked_paths:
+        preview = ", ".join(blocked_paths[:5])
+        if len(blocked_paths) > 5:
+            preview = f"{preview}, ..."
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Source config_json must not contain secret-like keys; store "
+                f"connector credentials in environment variables instead. Blocked: {preview}."
+            ),
+        )
 
 
 def get_or_create_local_workspace(db: Session) -> LocalWorkspaceSettings:
@@ -747,9 +822,9 @@ def get_stats(db: Session = Depends(get_db)) -> dict:
 
 
 @router.get("/sources", response_model=list[SourceOut])
-def list_sources(db: Session = Depends(get_db)) -> list[Source]:
+def list_sources(db: Session = Depends(get_db)) -> list[SourceOut]:
     ensure_sources(db)
-    return list(db.scalars(select(Source)).all())
+    return [source_to_out(source) for source in db.scalars(select(Source)).all()]
 
 
 @router.get("/integrations", response_model=list[IntegrationOut])
@@ -835,16 +910,29 @@ def test_integration(
 
 
 @router.post("/sources", response_model=SourceOut)
-def create_source(payload: SourceCreate, db: Session = Depends(get_db)) -> Source:
+def create_source(
+    payload: SourceCreate,
+    x_operator_scan_token: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> SourceOut:
+    require_operator_token(x_operator_scan_token, "Creating sources")
+    reject_sensitive_source_config(payload.config_json)
     source = Source(**payload.model_dump())
     db.add(source)
     db.commit()
     db.refresh(source)
-    return source
+    return source_to_out(source)
 
 
 @router.patch("/sources/{source_id}", response_model=SourceOut)
-def update_source(source_id: UUID, payload: SourceCreate, db: Session = Depends(get_db)) -> Source:
+def update_source(
+    source_id: UUID,
+    payload: SourceCreate,
+    x_operator_scan_token: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> SourceOut:
+    require_operator_token(x_operator_scan_token, "Updating sources")
+    reject_sensitive_source_config(payload.config_json)
     source = db.get(Source, source_id)
     if source is None:
         raise HTTPException(status_code=404, detail="Source not found")
@@ -852,11 +940,16 @@ def update_source(source_id: UUID, payload: SourceCreate, db: Session = Depends(
         setattr(source, key, value)
     db.commit()
     db.refresh(source)
-    return source
+    return source_to_out(source)
 
 
 @router.delete("/sources/{source_id}")
-def delete_source(source_id: UUID, db: Session = Depends(get_db)) -> dict:
+def delete_source(
+    source_id: UUID,
+    x_operator_scan_token: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> dict:
+    require_operator_token(x_operator_scan_token, "Deleting sources")
     source = db.get(Source, source_id)
     if source is None:
         raise HTTPException(status_code=404, detail="Source not found")

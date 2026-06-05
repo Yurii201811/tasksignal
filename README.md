@@ -199,6 +199,11 @@ Trusted operators can still configure the internal connector pipeline with sourc
 
 Hacker News works without credentials through the public Firebase API. GitHub and Stack Exchange can run without keys at lower rate limits. Reddit requires OAuth credentials. No paid LLM key is required. `LLM_PROVIDER=none` is the default.
 
+Connector credentials belong in environment variables, not source registry
+records. Source registry write endpoints require `OPERATOR_SCAN_TOKEN`, reject
+secret-like `config_json` keys, and read endpoints return redacted config so
+local rows cannot expose token values.
+
 `PUBLIC_SCAN_SOURCES` can narrow the public endpoint further, for example to `hackernews` only. Credentialed sources such as GitHub, Reddit, and Stack Exchange stay reserved for trusted internal scan jobs.
 
 Browser-triggered runs of credentialed sources are available through saved

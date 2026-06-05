@@ -27,6 +27,7 @@ TaskSignal is a local-first research app for public discussion data. This threat
 - **Rate-limit or terms violations:** scheduled live scans may exceed source expectations without per-source limits, review, and retention controls.
 - **Credentialed scan abuse:** unauthenticated callers must not be able to run connector searches with server-side tokens.
 - **Operator-token leakage:** the local operator token could be copied into logs, screenshots, or exports.
+- **Source registry credential drift:** source config records could accidentally become a second secret store if mutation and readback are not constrained.
 - **Unsafe source links:** public-source URL fields must not become clickable non-http(s) links in the operator UI.
 - **Agent handoff drift:** exported task packs could be used by another agent without preserving evidence caveats or privacy constraints.
 - **Weak release hygiene:** unreviewed dependencies or generated artifacts could be published unintentionally.
@@ -41,6 +42,8 @@ TaskSignal is a local-first research app for public discussion data. This threat
   `hackernews`) and can be narrowed further with `PUBLIC_SCAN_SOURCES`.
 - Browser-triggered credentialed source runs through research projects require
   `OPERATOR_SCAN_TOKEN` plus `X-Operator-Scan-Token`.
+- Source registry write endpoints require `OPERATOR_SCAN_TOKEN`, reject
+  secret-like `config_json` keys, and source read endpoints redact config values.
 - Scheduled workflows store cadence metadata only; operators must explicitly
   call `run-due` through the UI, CLI, cron, GitHub Actions, or another worker.
 - Destructive demo resets require `DEMO_RESET_TOKEN` plus the matching

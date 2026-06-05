@@ -44,3 +44,7 @@ The next material readiness improvements are:
 1. Keep the release-readiness workflow green before every public release.
 1. Close at least one security/privacy hardening issue with tests.
 1. Add a hosted read-only demo only after data retention, connector limits, and deployment credentials are reviewed.
+
+Before quoting active-maintenance signals in applications or follow-up emails,
+verify the current GitHub issue and PR counts live. Do not reuse old open-issue
+counts from earlier readiness passes.

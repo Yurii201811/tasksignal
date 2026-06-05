@@ -17,9 +17,9 @@ This page keeps the application story honest and easy to verify. It should be up
 | Public repository | `Yurii201811/tasksignal` is public on GitHub. |
 | Maintainer role | Yurii owns the repository and authored the public release commits. |
 | Release hygiene | `v0.1.3` release, changelog, CI, issue templates, PR template, security policy, and contributing guide. |
-| Active maintenance | Public roadmap, five open issues, labels for `good first issue`, `help wanted`, `roadmap`, and `security`, plus a release-readiness workflow. |
+| Active maintenance | Public roadmap, issue and PR templates, scoped contributor labels, release-readiness workflow, and three open contributor issues verified on 2026-06-05: #12 first-run smoke, #13 live-source presets, and #14 fixture redaction checks. |
 | Product scope | Local-first app that turns public developer/community complaints into evidence-backed project ideas and Codex-ready MVP prompts. |
-| Safety posture | Author hashes by default, official APIs for live sources, no paid LLM dependency, threat model, data ethics notes, and private vulnerability-reporting path. |
+| Safety posture | Author hashes by default, official APIs for live sources, redacted source config readback, operator-gated source registry writes, no paid LLM dependency, threat model, data ethics notes, and private vulnerability-reporting path. |
 | API credit use | Maintainer automation: PR review, issue triage, CI diagnosis, release notes, fixture redaction, and contributor task drafting. |
 | Demo proof | Browser-verified screenshot and [demo evidence snapshot](demo-evidence.md) showing fixture counts, generated opportunities, and reproducible API checks. |
 | Live-source maturity | Scan records expose saved items, detected signals, generated opportunity counts, and outcome guidance so zero-opportunity live scans remain auditable. |
@@ -33,11 +33,11 @@ This page keeps the application story honest and easy to verify. It should be up
 
 ## Approval Risk
 
-TaskSignal is a credible early OSS project, but it is not yet a high-certainty Codex for OSS candidate because public adoption signals are still missing. The strongest honest argument is ecosystem relevance: it helps maintainers and builders turn public developer pain into evidence-backed, privacy-conscious Codex prompts, and it has a concrete maintainer automation plan for API credits. The biggest remaining gap is external validation: stars, independent testers, feedback issues, mentions, or downstream usage.
+TaskSignal is a credible early OSS project, but it is not yet a high-certainty Codex for OSS candidate because public adoption signals are still missing. The strongest honest argument is ecosystem relevance: it helps maintainers and builders turn public developer pain into evidence-backed, privacy-conscious Codex prompts, and it has a concrete maintainer automation plan for API credits. The biggest remaining gap is external validation: stars, independent testers, feedback issues, mentions, or downstream usage. Keep public issue counts and activity claims tied to live GitHub state.
 
 ## Best Short Application Answer
 
-TaskSignal is a new MIT-licensed public OSS app for privacy-conscious product-discovery research. It mines public developer/community complaints, hashes authors by default, clusters repeated pain signals, and generates Codex-ready MVP prompts. Evidence today is maintenance readiness rather than adoption: v0.1.3 release, passing CI, roadmap, SECURITY/CONTRIBUTING docs, issue templates, and open contributor issues. Do not claim stars, downloads, users, or dependents until public evidence exists.
+TaskSignal is a new MIT-licensed public OSS app for privacy-conscious product-discovery research. It mines public developer/community complaints, hashes authors by default, clusters repeated pain signals, and generates Codex-ready MVP prompts. Evidence today is maintenance readiness rather than adoption: v0.1.3 release, passing CI, roadmap, SECURITY/CONTRIBUTING docs, issue templates, and scoped contributor workflow. Do not claim stars, downloads, users, or dependents until public evidence exists.
 
 ## API Credits Answer
 
@@ -55,3 +55,4 @@ Codex Security would help review live-source ingestion, connector credential bou
 - Demo evidence: [docs/demo-evidence.md](demo-evidence.md)
 - Maintainer automation: [docs/maintainer-automation.md](maintainer-automation.md)
 - Threat model: [docs/threat-model.md](threat-model.md)
+- Current contributor issues: <https://github.com/Yurii201811/tasksignal/issues/12>, <https://github.com/Yurii201811/tasksignal/issues/13>, <https://github.com/Yurii201811/tasksignal/issues/14>

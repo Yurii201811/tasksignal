@@ -21,6 +21,7 @@ Please do not include real API keys, private datasets, or third-party personal d
 
 - Keep secrets in `.env` locally or GitHub repository secrets in CI.
 - Do not commit `.env`, local databases, generated exports, API credentials, model caches, or service tokens.
+- Do not store connector credentials in source `config_json`; use environment variables or scheduler secrets instead.
 - Rotate credentials immediately if they are accidentally exposed.
 
 ## Data Handling

@@ -289,3 +289,13 @@ enhance endpoints; scans and labels do not have full CRUD in this release.
 Scheduling is explicit through `run-due` so operators can use cron, GitHub
 Actions, a worker, or the local CLI without hiding background jobs inside the web
 process.
+
+`GET /api/sources` returns source metadata with `config_json` redacted. Connector
+credentials must be supplied through environment variables or trusted scheduler
+secrets, not source registry records.
+
+`POST /api/sources`, `PATCH /api/sources/{id}`, and `DELETE /api/sources/{id}`
+are operator actions. They require `OPERATOR_SCAN_TOKEN` to be configured on the
+API and the matching `X-Operator-Scan-Token` request header. Source create/update
+requests reject secret-like `config_json` keys such as token, secret, password,
+authorization, cookie, private key, API key, or client secret names.
