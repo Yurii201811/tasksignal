@@ -2,6 +2,7 @@ import { clsx } from "clsx";
 import Link from "next/link";
 import {
   ButtonHTMLAttributes,
+  HTMLAttributes,
   InputHTMLAttributes,
   ReactNode,
   SelectHTMLAttributes,
@@ -28,9 +29,8 @@ export function Card({
   children,
   className,
   variant = "default",
-}: {
-  children: ReactNode;
-  className?: string;
+  ...props
+}: HTMLAttributes<HTMLElement> & {
   variant?: CardVariant;
 }) {
   return (
@@ -41,6 +41,7 @@ export function Card({
         cardVariants[variant],
         className,
       )}
+      {...props}
     >
       {children}
     </section>

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -378,6 +379,28 @@ export default function SettingsPage() {
                 Refresh
               </Button>
             </div>
+            <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <ReadinessCheck
+                label="Workspace defaults"
+                done={Boolean(readiness.data.checks.local_workspace_configured)}
+                detail="Owner or research focus is saved locally."
+              />
+              <ReadinessCheck
+                label="Saved projects"
+                done={Number(readiness.data.checks.projects ?? 0) > 0}
+                detail={`${String(readiness.data.checks.projects ?? 0)} configured`}
+              />
+              <ReadinessCheck
+                label="Ranked opportunities"
+                done={Number(readiness.data.checks.opportunities ?? 0) > 0}
+                detail={`${String(readiness.data.checks.opportunities ?? 0)} available for review`}
+              />
+              <ReadinessCheck
+                label="Codex task packs"
+                done={Boolean(readiness.data.checks.codex_task_packs)}
+                detail="Export path is available from opportunity detail."
+              />
+            </div>
             {readiness.data.blockers.length > 0 ? (
               <ul className="mt-4 grid gap-2 text-sm text-danger">
                 {readiness.data.blockers.map((blocker) => (
@@ -392,6 +415,20 @@ export default function SettingsPage() {
                 ))}
               </ul>
             ) : null}
+            <div className="mt-4 flex flex-wrap gap-2 border-t border-border pt-4">
+              <Link
+                href="/projects"
+                className="inline-flex min-h-9 items-center rounded-product px-2 text-sm font-semibold text-signal hover:bg-surface-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]"
+              >
+                Create or run projects
+              </Link>
+              <Link
+                href="/dashboard"
+                className="inline-flex min-h-9 items-center rounded-product px-2 text-sm font-semibold text-signal hover:bg-surface-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]"
+              >
+                Process demo data
+              </Link>
+            </div>
           </Card>
         ) : null}
 
@@ -507,5 +544,25 @@ export default function SettingsPage() {
         </div>
       </div>
     </AppShell>
+  );
+}
+
+function ReadinessCheck({
+  label,
+  done,
+  detail,
+}: {
+  label: string;
+  done: boolean;
+  detail: string;
+}) {
+  return (
+    <div className="rounded-product border border-border bg-surface-muted p-3">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-sm font-semibold text-ink">{label}</p>
+        <Badge tone={done ? "green" : "amber"}>{done ? "Ready" : "Needed"}</Badge>
+      </div>
+      <p className="mt-1 text-xs leading-5 text-muted">{detail}</p>
+    </div>
   );
 }

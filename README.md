@@ -85,6 +85,7 @@ Infra: Docker Compose, Makefile, GitHub Actions CI, scheduled ingestion template
 
 ```bash
 cp .env.example .env
+make doctor
 make up
 ```
 
@@ -95,6 +96,10 @@ If setup fails or a fresh checkout looks incomplete, run:
 ```bash
 make doctor
 ```
+
+`make doctor` checks the required files, local `.env`, Python, Node 20+, npm,
+repo-local Python dev tools, fixture files, and whether generated files are
+accidentally tracked. Docker is only required for the Compose quickstart.
 
 API health check:
 
@@ -108,7 +113,7 @@ Run the API and frontend separately:
 
 ```bash
 cd apps/api
-uvicorn app.main:app --reload
+../../.venv/bin/uvicorn app.main:app --reload
 ```
 
 ```bash
@@ -123,6 +128,10 @@ make test
 make lint
 make verify
 ```
+
+The Makefile prefers repo-local Python tools in `.venv/bin`. On Apple Silicon
+macOS it also prepends Homebrew Node 20 from `/opt/homebrew/opt/node@20/bin`
+when available, matching the runtime required by the Next.js web app.
 
 Run the release-readiness gate before tagging a release:
 

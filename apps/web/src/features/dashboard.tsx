@@ -15,7 +15,15 @@ import {
   Pie,
   Cell,
 } from "recharts";
-import { ArrowRight, Play, RefreshCw } from "lucide-react";
+import {
+  ArrowRight,
+  CheckCircle2,
+  FileText,
+  FolderKanban,
+  Play,
+  RefreshCw,
+  Settings,
+} from "lucide-react";
 import { api } from "@/lib/api";
 import {
   Badge,
@@ -69,12 +77,17 @@ export function Dashboard() {
   });
   const sources = useQuery({ queryKey: ["sources"], queryFn: api.sources });
   const scans = useQuery({ queryKey: ["scans"], queryFn: api.scans });
+  const readiness = useQuery({
+    queryKey: ["readiness"],
+    queryFn: api.readiness,
+  });
   const process = useMutation({
     mutationFn: api.processDemo,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["stats"] });
       queryClient.invalidateQueries({ queryKey: ["opportunities"] });
       queryClient.invalidateQueries({ queryKey: ["scans"] });
+      queryClient.invalidateQueries({ queryKey: ["readiness"] });
     },
   });
   const runScan = useMutation({
@@ -83,6 +96,7 @@ export function Dashboard() {
       queryClient.invalidateQueries({ queryKey: ["stats"] });
       queryClient.invalidateQueries({ queryKey: ["opportunities"] });
       queryClient.invalidateQueries({ queryKey: ["scans"] });
+      queryClient.invalidateQueries({ queryKey: ["readiness"] });
     },
   });
 
@@ -145,6 +159,41 @@ export function Dashboard() {
         ? "success"
         : "info";
   const selectedScanGuidance = scanGuidance[scanSource];
+  const readinessChecks = readiness.data?.checks;
+  const workflowSteps = [
+    {
+      label: "Set workspace defaults",
+      description: "Store the local owner, research focus, source, query, and cadence for this machine.",
+      href: "/settings",
+      icon: Settings,
+      done: Boolean(readinessChecks?.local_workspace_configured),
+      action: "Open integrations",
+    },
+    {
+      label: "Save a research project",
+      description: "Keep a source/query workflow that can be rerun manually or on a cadence.",
+      href: "/projects",
+      icon: FolderKanban,
+      done: Number(readinessChecks?.projects ?? 0) > 0,
+      action: "Create project",
+    },
+    {
+      label: "Generate ranked opportunities",
+      description: "Run fixtures or a public scan, then inspect the evidence trail behind each score.",
+      href: "#top-opportunities",
+      icon: CheckCircle2,
+      done: Number(readinessChecks?.opportunities ?? 0) > 0,
+      action: "Review results",
+    },
+    {
+      label: "Export a task pack",
+      description: "Open an opportunity and export evidence, acceptance criteria, and privacy constraints for Codex.",
+      href: topOpportunity ? `/opportunities/${topOpportunity.id}` : "/dashboard",
+      icon: FileText,
+      done: Boolean(readinessChecks?.codex_task_packs && topOpportunity),
+      action: topOpportunity ? "Open top opportunity" : "Run first",
+    },
+  ];
 
   function updateScanSource(source: string) {
     setScanSource(source);
@@ -180,6 +229,86 @@ export function Dashboard() {
           </Button>
         }
       />
+
+      <Card variant="muted">
+        <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
+          <div>
+            <div className="flex flex-wrap gap-2">
+              <Badge tone={readiness.data?.status === "ready" ? "green" : "amber"}>
+                {readiness.data?.status ?? "checking"}
+              </Badge>
+              <Badge>
+                Public sources:{" "}
+                {(readinessChecks?.public_scan_sources as string[] | undefined)?.join(", ") ||
+                  "checking"}
+              </Badge>
+            </div>
+            <h2 className="mt-3 text-lg font-semibold text-ink">
+              First useful run
+            </h2>
+            <p className="mt-1 max-w-3xl text-sm leading-6 text-muted">
+              TaskSignal is most useful when a saved workflow, scan history,
+              ranked evidence, and export path all exist together. These steps
+              use the current local database state.
+            </p>
+          </div>
+          <Button
+            variant="secondary"
+            onClick={() => readiness.refetch()}
+            loading={readiness.isFetching}
+            disabled={readiness.isFetching}
+          >
+            <RefreshCw
+              size={16}
+              className={readiness.isFetching ? "animate-spin" : ""}
+            />
+            Refresh readiness
+          </Button>
+        </div>
+
+        {readiness.error ? (
+          <StateMessage tone="danger" title="Readiness check failed" className="mt-4">
+            {errorMessage(readiness.error)}
+          </StateMessage>
+        ) : null}
+
+        <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          {workflowSteps.map((step) => (
+            <Link
+              key={step.label}
+              href={step.href}
+              className="group rounded-product border border-border bg-surface p-4 shadow-soft motion-safe:transition-[border-color,background-color] motion-safe:duration-200 hover:border-border-strong hover:bg-surface-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <span className="rounded-product bg-surface-muted p-2 text-signal group-hover:bg-surface">
+                  <step.icon size={18} />
+                </span>
+                <Badge tone={step.done ? "green" : "amber"}>
+                  {step.done ? "Done" : "Next"}
+                </Badge>
+              </div>
+              <p className="mt-3 text-sm font-semibold text-ink">{step.label}</p>
+              <p className="mt-1 text-sm leading-6 text-muted">
+                {step.description}
+              </p>
+              <span className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-signal">
+                {step.action} <ArrowRight size={14} />
+              </span>
+            </Link>
+          ))}
+        </div>
+
+        {readiness.data?.warnings.length ? (
+          <div className="mt-4 border-t border-border pt-4">
+            <p className="text-sm font-semibold text-muted">Current warnings</p>
+            <ul className="mt-2 grid gap-1 text-sm leading-6 text-muted">
+              {readiness.data.warnings.map((warning) => (
+                <li key={warning}>{warning}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+      </Card>
 
       <Card>
         <div className="mb-4 flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
@@ -371,7 +500,7 @@ export function Dashboard() {
       </div>
 
       <div className="grid gap-4 2xl:grid-cols-[minmax(0,1.45fr)_minmax(340px,0.75fr)]">
-        <Card className="min-w-0">
+        <Card className="min-w-0" id="top-opportunities">
           <div className="mb-4 flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
             <div>
               <h2 className="text-lg font-semibold text-ink">

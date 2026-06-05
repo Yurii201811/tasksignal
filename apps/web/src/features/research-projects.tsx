@@ -68,6 +68,35 @@ function formatDateTime(value: string | null) {
   return new Date(value).toLocaleString();
 }
 
+function sourceCapability(sourceType: string) {
+  if (sourceType === "hackernews" || sourceType === "fixture") {
+    return {
+      tone: "green" as const,
+      label: "Public/no secret",
+      detail: "Runs from the browser without an operator token.",
+    };
+  }
+  return {
+    tone: "amber" as const,
+    label: "Operator gated",
+    detail:
+      "Requires OPERATOR_SCAN_TOKEN on the API and the matching local token before browser runs.",
+  };
+}
+
+function nextAction(project: ResearchProject) {
+  if (!project.last_run_at) {
+    return "Run this project to create scan history and ranked evidence.";
+  }
+  if (project.last_scan_status === "failed") {
+    return "Open the scan detail to review the redacted connector error.";
+  }
+  if (project.next_run_at) {
+    return `Next scheduled run: ${formatDateTime(project.next_run_at)}.`;
+  }
+  return "Manual project; run again when you want fresh evidence.";
+}
+
 export function ResearchProjects() {
   const queryClient = useQueryClient();
   const [name, setName] = useState("Track CI/CD pain");
@@ -177,6 +206,27 @@ export function ResearchProjects() {
         title="Research projects"
         description="Save source and query workflows, rerun them, and turn the strongest evidence into Codex task packs."
       />
+
+      <Card variant="muted">
+        <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
+          <div>
+            <h2 className="text-lg font-semibold text-ink">
+              Repeatable research, not one-off scraping
+            </h2>
+            <p className="mt-1 max-w-3xl text-sm leading-6 text-muted">
+              A project stores the source, query, limit, cadence, and labels so
+              you can rerun the same evidence search, inspect its scan record,
+              and export only opportunities with visible source context.
+            </p>
+          </div>
+          <Link
+            href="/settings"
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-product border border-border bg-surface px-4 py-2 text-sm font-semibold text-ink hover:bg-surface-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]"
+          >
+            Workspace defaults <ArrowRight size={16} />
+          </Link>
+        </div>
+      </Card>
 
       <Card>
         <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(260px,0.8fr)]">
@@ -395,17 +445,31 @@ export function ResearchProjects() {
 
       <div className="grid gap-4">
         {(projects.data ?? []).length === 0 && !projects.isLoading ? (
-          <StateMessage tone="warning" title="No saved research projects yet">
+          <StateMessage
+            tone="warning"
+            title="No saved research projects yet"
+            action={
+              <Link
+                href="/settings"
+                className="inline-flex min-h-9 items-center gap-1 rounded-product px-2 text-sm font-semibold text-warning hover:bg-surface-warning focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-warning"
+              >
+                Set defaults <ArrowRight size={15} />
+              </Link>
+            }
+          >
             Save a source and query above, then run it whenever you want fresh
             evidence.
           </StateMessage>
         ) : null}
-        {(projects.data ?? []).map((project) => (
+        {(projects.data ?? []).map((project) => {
+          const capability = sourceCapability(project.source_type);
+          return (
           <Card key={project.id}>
             <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge tone="blue">{project.source_type}</Badge>
+                  <Badge tone={capability.tone}>{capability.label}</Badge>
                   <Badge tone={statusTone(project.last_scan_status)}>
                     {project.last_scan_status ?? "not run"}
                   </Badge>
@@ -427,6 +491,9 @@ export function ResearchProjects() {
                     {project.query || "-"}
                   </span>
                   {" · "}Limit: {project.limit}
+                </p>
+                <p className="mt-2 text-sm leading-6 text-muted">
+                  {capability.detail}
                 </p>
                 <div className="mt-3 grid gap-2 text-sm text-muted sm:grid-cols-3">
                   <p>
@@ -458,6 +525,9 @@ export function ResearchProjects() {
                     {project.run_count}
                   </span>
                 </p>
+                <p className="mt-2 text-sm font-medium text-ink">
+                  {nextAction(project)}
+                </p>
               </div>
               <div className="flex shrink-0 flex-wrap gap-2">
                 <Button
@@ -484,7 +554,8 @@ export function ResearchProjects() {
               </div>
             </div>
           </Card>
-        ))}
+        );
+        })}
       </div>
     </div>
   );

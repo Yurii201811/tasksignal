@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes import router
 from app.core.config import settings
 from app.db.base import Base
-from app.db.session import engine
+from app.db.session import engine, ensure_sqlite_schema_compatibility
 from app.models import all_models  # noqa: F401
 
 
@@ -27,6 +27,7 @@ def cors_allowed_origins() -> list[str]:
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     if settings.auto_create_tables:
         Base.metadata.create_all(bind=engine)
+        ensure_sqlite_schema_compatibility(engine)
     yield
 
 

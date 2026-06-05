@@ -12,32 +12,32 @@ import { Badge, ButtonLink, Card, PageHeader } from "@/components/ui";
 const examples = [
   {
     title: "AI-generated code needs production-readiness audits",
-    score: 88,
     source: "GitHub Issues",
+    output: "Fixture opportunity",
   },
   {
     title: "Developers need clearer GitHub Actions failure diagnosis",
-    score: 81,
     source: "Hacker News",
+    output: "Fixture opportunity",
   },
   {
     title: "Operators need spreadsheet-to-client-report automation",
-    score: 74,
     source: "Fixture data",
+    output: "Fixture opportunity",
   },
 ];
 
 const workflow = [
   {
-    title: "Create a research project",
+    title: "Set the local workspace",
     description:
-      "Save the source, query, limits, and labels for a repeatable opportunity search.",
+      "Store your research focus, default source, query, and cadence on this machine.",
     icon: Layers3,
   },
   {
-    title: "Run real scans",
+    title: "Save and run projects",
     description:
-      "Use public APIs by default, then add operator-gated credentials when needed.",
+      "Use public APIs by default, then add operator-gated credentials only when needed.",
     icon: ClipboardCheck,
   },
   {
@@ -54,15 +54,15 @@ export default function LandingPage() {
       <div className="space-y-6 py-4">
         <PageHeader
           title="TaskSignal"
-          description="A local-first research-to-build workbench for finding software opportunities from public complaints, reviewing evidence, and handing focused tasks to Codex."
+          description="A local-first research workbench for finding software opportunities from public complaints, reviewing the evidence, and handing focused tasks to Codex."
           actions={
             <>
-              <ButtonLink href="/projects">Create project</ButtonLink>
+              <ButtonLink href="/settings">Start setup</ButtonLink>
               <Link
-                href="/settings"
+                href="/dashboard"
                 className="inline-flex min-h-11 items-center justify-center gap-2 rounded-product border border-border bg-surface px-4 py-2 text-sm font-semibold text-ink hover:bg-surface-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]"
               >
-                <Search size={16} /> Connect sources
+                <Search size={16} /> Open dashboard
               </Link>
             </>
           }
@@ -74,7 +74,7 @@ export default function LandingPage() {
               <div>
                 <p className="text-sm font-semibold text-muted">Start here</p>
                 <h2 className="mt-1 text-xl font-semibold text-ink">
-                  Research workflow
+                  Real local workflow
                 </h2>
               </div>
               <Badge tone="green">No paid LLM required</Badge>
@@ -96,25 +96,39 @@ export default function LandingPage() {
                 </div>
               ))}
             </div>
+            <div className="mt-5 flex flex-wrap gap-2 border-t border-border pt-4">
+              <Link
+                href="/settings"
+                className="inline-flex min-h-9 items-center gap-1 rounded-product text-sm font-semibold text-signal hover:text-[var(--ts-accent-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]"
+              >
+                Configure workspace <ArrowRight size={15} />
+              </Link>
+              <Link
+                href="/projects"
+                className="inline-flex min-h-9 items-center gap-1 rounded-product text-sm font-semibold text-signal hover:text-[var(--ts-accent-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]"
+              >
+                Save a project <ArrowRight size={15} />
+              </Link>
+            </div>
           </Card>
 
           <Card>
             <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
               <div>
                 <p className="text-sm font-semibold text-muted">
-                  Evidence output
+                  Demo output
                 </p>
                 <h2 className="mt-1 text-xl font-semibold text-ink">
-                  Ranked opportunities
+                  Fixture opportunities
                 </h2>
               </div>
-              <Badge tone="blue">Evidence-backed scores</Badge>
+              <Badge tone="blue">Generated after processing fixtures</Badge>
             </div>
             <div className="mt-5 divide-y divide-border">
               {examples.map((example) => (
                 <div
                   key={example.title}
-                  className="grid gap-3 py-4 first:pt-0 last:pb-0 sm:grid-cols-[minmax(0,1fr)_72px]"
+                  className="grid gap-3 py-4 first:pt-0 last:pb-0 sm:grid-cols-[minmax(0,1fr)_170px]"
                 >
                   <div className="min-w-0">
                     <h3 className="break-words font-semibold text-ink">
@@ -124,13 +138,8 @@ export default function LandingPage() {
                       Top source: {example.source}
                     </p>
                   </div>
-                  <div className="flex items-center justify-between gap-3 sm:block sm:text-right">
-                    <span className="text-sm font-semibold text-muted">
-                      Score
-                    </span>
-                    <span className="text-2xl font-semibold tabular-nums text-signal">
-                      {example.score}
-                    </span>
+                  <div className="flex items-center gap-2 sm:justify-end">
+                    <Badge>{example.output}</Badge>
                   </div>
                 </div>
               ))}
