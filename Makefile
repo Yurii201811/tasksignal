@@ -6,7 +6,7 @@ UVICORN := $(if $(wildcard $(VENV_BIN)/uvicorn),../../$(VENV_BIN)/uvicorn,uvicor
 NODE20_BIN := /opt/homebrew/opt/node@20/bin
 WEB_PATH := $(if $(wildcard $(NODE20_BIN)/node),$(NODE20_BIN):$(PATH),$(PATH))
 
-.PHONY: dev up down migrate seed process-demo doctor test lint format reset-data verify release-check
+.PHONY: dev up down migrate seed process-demo doctor test lint fixture-check format reset-data verify release-check
 
 dev:
 	@printf "Start API and web separately for local hacking:\n"
@@ -36,7 +36,10 @@ lint:
 	$(RUFF) check apps/api/app apps/api/tests scripts
 	cd apps/web && PATH="$(WEB_PATH)" npm run lint
 
-verify: test lint
+fixture-check:
+	python3 scripts/check_fixture_redaction.py
+
+verify: fixture-check test lint
 	cd apps/web && PATH="$(WEB_PATH)" npm run build
 
 release-check: verify

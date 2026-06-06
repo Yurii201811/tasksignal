@@ -54,6 +54,9 @@ Backend checks live in `apps/api` and use `pytest` plus `ruff`. Frontend checks 
 - Do not commit `.env` files, API keys, exported private datasets, local databases, caches, or build output.
 - Use public APIs and respect source rate limits and terms.
 - Store author hashes rather than raw usernames unless a feature explicitly requires otherwise and documents why.
+- Keep contributed fixture files synthetic and sanitized: no emails, API tokens,
+  private/internal URLs, real usernames, or unsupported source payloads. Run
+  `make fixture-check` before opening fixture PRs.
 - Add or update docs when behavior, setup, deployment, data handling, or model assumptions change.
 
 ## Pull Request Checklist

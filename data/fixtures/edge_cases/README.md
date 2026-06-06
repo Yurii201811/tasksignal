@@ -12,5 +12,7 @@ Each source file contains at least one sparse record (missing most optional
 fields) and at least one malformed record (a field with an unexpected shape or
 type). Usernames are obviously fake and exist only so tests can confirm raw
 author fields are dropped before storage and `author_hash` is stored instead.
+Do not add emails, API tokens, private/internal URLs, real usernames, or payloads
+from unsupported sources. Run `make fixture-check` after changing these files.
 
 See `apps/api/tests/test_connector_fixtures.py` for the tests that consume these.
