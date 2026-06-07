@@ -143,7 +143,7 @@ INTEGRATION_CATALOG = [
         "optional_env": ["OPENAI_API_KEY", "LLM_PROVIDER"],
         "rate_limit_note": "API usage is billed separately from ChatGPT/Codex subscriptions.",
         "privacy_note": "Keep API use optional; deterministic local generation remains the default.",
-        "next_step": "Set LLM_PROVIDER=openai and OPENAI_API_KEY only if you want API-backed enhancement.",
+        "next_step": "Set LLM_PROVIDER=openai, OPENAI_API_KEY, and OPERATOR_SCAN_TOKEN before API-backed enhancement.",
     },
     {
         "id": "ollama",
@@ -153,7 +153,7 @@ INTEGRATION_CATALOG = [
         "optional_env": ["OLLAMA_BASE_URL", "LLM_PROVIDER"],
         "rate_limit_note": "Local runtime availability depends on your Ollama process and model cache.",
         "privacy_note": "Keeps model calls local when configured behind the runtime provider.",
-        "next_step": "Run Ollama locally and set LLM_PROVIDER=ollama to enhance build prompts locally.",
+        "next_step": "Run Ollama locally and set LLM_PROVIDER=ollama plus OPERATOR_SCAN_TOKEN before prompt enhancement.",
     },
     {
         "id": "codex_export",
@@ -327,7 +327,10 @@ def integration_status(entry: dict, db: Session) -> IntegrationOut:
         status_value = "ready"
         credential_state = "not_required"
 
-    operator_required = source_type in OPERATOR_SCAN_SOURCES
+    operator_required = source_type in OPERATOR_SCAN_SOURCES or integration_id in {
+        "openai_api",
+        "ollama",
+    }
     return IntegrationOut(
         id=integration_id,
         name=entry["name"],
@@ -1202,8 +1205,10 @@ def regenerate_opportunity(opportunity_id: UUID, db: Session = Depends(get_db)) 
 def enhance_opportunity_prompt(
     opportunity_id: UUID,
     apply: bool = False,
+    x_operator_scan_token: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ) -> EnhancementOut:
+    require_operator_token(x_operator_scan_token, "Enhancing prompts")
     opportunity = db.get(Opportunity, opportunity_id)
     if opportunity is None:
         raise HTTPException(status_code=404, detail="Opportunity not found")

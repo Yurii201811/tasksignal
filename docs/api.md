@@ -51,9 +51,8 @@ Request:
 `POST /api/integrations/{id}/test`
 
 Runs a small connector readiness check. Credentialed source tests require
-`X-Operator-Scan-Token` when `OPERATOR_SCAN_TOKEN` is configured. Runtime and
-Codex handoff integrations return configuration status rather than making model
-calls.
+`X-Operator-Scan-Token` matching `OPERATOR_SCAN_TOKEN`. Runtime and Codex
+handoff integrations return configuration status rather than making model calls.
 
 ## Processing
 
@@ -243,10 +242,12 @@ ranking rationale, and privacy constraints so exported prompts remain auditable.
 `POST /api/opportunities/{id}/enhance?apply=false`
 
 Optionally improves the generated build prompt through the configured model
-runtime. This endpoint is disabled unless `LLM_PROVIDER=openai` with
-`OPENAI_API_KEY`, or `LLM_PROVIDER=ollama` with a reachable local Ollama server,
-is configured. With `apply=true`, the enhanced prompt replaces the stored
-generated prompt.
+runtime. This endpoint requires `OPERATOR_SCAN_TOKEN` to be configured on the
+API and the matching `X-Operator-Scan-Token` request header before any model
+provider call is attempted. It is also disabled unless `LLM_PROVIDER=openai`
+with `OPENAI_API_KEY`, or `LLM_PROVIDER=ollama` with a reachable local Ollama
+server, is configured. With `apply=true`, the enhanced prompt replaces the
+stored generated prompt.
 
 `GET /api/opportunities/{id}/export.md`
 
@@ -299,3 +300,7 @@ are operator actions. They require `OPERATOR_SCAN_TOKEN` to be configured on the
 API and the matching `X-Operator-Scan-Token` request header. Source create/update
 requests reject secret-like `config_json` keys such as token, secret, password,
 authorization, cookie, private key, API key, or client secret names.
+
+`POST /api/opportunities/{id}/enhance` is also an operator action because it can
+spend configured model credentials or local model runtime capacity. It requires
+the same `OPERATOR_SCAN_TOKEN` and `X-Operator-Scan-Token` gate.

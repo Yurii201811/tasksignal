@@ -8,12 +8,14 @@ The `main` branch is the supported development line.
 
 ## Reporting A Vulnerability
 
-If you find a vulnerability, open a private GitHub security advisory for this repository or contact the repository owner directly through GitHub. Include:
+If you find a vulnerability, open a private GitHub security advisory for this repository when the **Security report** flow is available. Include:
 
 - a concise description of the issue
 - affected component or endpoint
 - reproduction steps
 - impact and suggested mitigation, if known
+
+If GitHub's private advisory form returns unavailable or a 404, do not post exploit details in a public issue. Open a minimal public issue asking the maintainer to enable private vulnerability reporting or provide a temporary secure contact path.
 
 Please do not include real API keys, private datasets, or third-party personal data in a report.
 

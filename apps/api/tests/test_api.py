@@ -438,14 +438,35 @@ def test_regenerate_opportunity_rebuilds_prompt_from_evidence(client) -> None:
     assert payload["problem_statement"].count("People repeatedly describe") == 1
 
 
-def test_prompt_enhancement_requires_configured_runtime(client) -> None:
+def test_prompt_enhancement_requires_configured_runtime(client, monkeypatch) -> None:
     client.post("/api/process/demo")
     opportunity = client.get("/api/opportunities").json()[0]
+    monkeypatch.setattr(routes.settings, "operator_scan_token", "test-operator-token")
 
-    response = client.post(f"/api/opportunities/{opportunity['id']}/enhance")
+    response = client.post(
+        f"/api/opportunities/{opportunity['id']}/enhance",
+        headers={"X-Operator-Scan-Token": "test-operator-token"},
+    )
 
     assert response.status_code == 409
     assert "LLM_PROVIDER" in response.json()["detail"]
+
+
+def test_prompt_enhancement_requires_operator_token(client, monkeypatch) -> None:
+    client.post("/api/process/demo")
+    opportunity = client.get("/api/opportunities").json()[0]
+    monkeypatch.setattr(routes.settings, "operator_scan_token", "test-operator-token")
+
+    missing_token = client.post(f"/api/opportunities/{opportunity['id']}/enhance")
+    bad_token = client.post(
+        f"/api/opportunities/{opportunity['id']}/enhance",
+        headers={"X-Operator-Scan-Token": "wrong"},
+    )
+
+    assert missing_token.status_code == 403
+    assert "X-Operator-Scan-Token" in missing_token.json()["detail"]
+    assert bad_token.status_code == 403
+    assert "X-Operator-Scan-Token" in bad_token.json()["detail"]
 
 
 def test_prompt_enhancement_can_apply_generated_prompt(client, monkeypatch) -> None:
@@ -455,9 +476,13 @@ def test_prompt_enhancement_can_apply_generated_prompt(client, monkeypatch) -> N
     def fake_enhance(prompt: str) -> tuple[str, str, str]:
         return "openai", "test-model", f"{prompt}\n\n## Implementation Checklist\n- Verify."
 
+    monkeypatch.setattr(routes.settings, "operator_scan_token", "test-operator-token")
     monkeypatch.setattr(routes, "enhance_prompt", fake_enhance)
 
-    response = client.post(f"/api/opportunities/{opportunity['id']}/enhance?apply=true")
+    response = client.post(
+        f"/api/opportunities/{opportunity['id']}/enhance?apply=true",
+        headers={"X-Operator-Scan-Token": "test-operator-token"},
+    )
 
     assert response.status_code == 200
     payload = response.json()

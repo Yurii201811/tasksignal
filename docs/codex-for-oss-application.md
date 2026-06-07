@@ -19,7 +19,7 @@ This page keeps the application story honest and easy to verify. It should be up
 | Release hygiene | `v0.1.3` release, changelog, CI, issue templates, PR template, security policy, and contributing guide. |
 | Active maintenance | Public roadmap, issue and PR templates, scoped contributor labels, release-readiness workflow, and three open contributor issues verified on 2026-06-05: #12 first-run smoke, #13 live-source presets, and #14 fixture redaction checks. |
 | Product scope | Local-first app that turns public developer/community complaints into evidence-backed project ideas and Codex-ready MVP prompts. |
-| Safety posture | Author hashes by default, official APIs for live sources, redacted source config readback, operator-gated source registry writes, no paid LLM dependency, threat model, data ethics notes, and private vulnerability-reporting path. |
+| Safety posture | Author hashes by default, official APIs for live sources, redacted source config readback, operator-gated source registry and prompt-enhancement writes, no paid LLM dependency, threat model, data ethics notes, and a documented vulnerability-reporting fallback when GitHub private reporting is unavailable. |
 | API credit use | Maintainer automation: PR review, issue triage, CI diagnosis, release notes, fixture redaction, and contributor task drafting. |
 | Demo proof | Browser-verified screenshot and [demo evidence snapshot](demo-evidence.md) showing fixture counts, generated opportunities, and reproducible API checks. |
 | Live-source maturity | Scan records expose saved items, detected signals, generated opportunity counts, and outcome guidance so zero-opportunity live scans remain auditable. |

@@ -21,6 +21,8 @@ All notable public-facing changes to TaskSignal are recorded here.
 - Public scan source exposure defaults to `fixture,hackernews` through `PUBLIC_SCAN_SOURCES` so unauthenticated callers cannot spend server-side connector credentials.
 - Public scan readiness now warns when `PUBLIC_SCAN_SOURCES` excludes every browser-safe source, and failed scan requests report `Allowed public scan sources: none` instead of an empty allowlist.
 - Source registry writes now require an operator token, reject secret-like `config_json` keys, and return redacted config on readback.
+- Prompt enhancement now requires an operator token before any configured OpenAI or Ollama request is made.
+- Security reporting docs now include a no-details public fallback when GitHub private vulnerability reporting is unavailable.
 - Source URLs are limited to absolute `http` and `https` links before storage and before frontend rendering.
 - API version metadata now matches the `0.1.3` package and public release docs.
 

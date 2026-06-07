@@ -26,6 +26,7 @@ TaskSignal is a local-first research app for public discussion data. This threat
 - **SSRF and unsafe URLs:** future connector expansion could fetch arbitrary URLs if source validation is loosened.
 - **Rate-limit or terms violations:** scheduled live scans may exceed source expectations without per-source limits, review, and retention controls.
 - **Credentialed scan abuse:** unauthenticated callers must not be able to run connector searches with server-side tokens.
+- **Model credential abuse:** unauthenticated callers must not be able to spend server-side OpenAI or local model runtime credentials through prompt enhancement.
 - **Operator-token leakage:** the local operator token could be copied into logs, screenshots, or exports.
 - **Source registry credential drift:** source config records could accidentally become a second secret store if mutation and readback are not constrained.
 - **Unsafe source links:** public-source URL fields must not become clickable non-http(s) links in the operator UI.
@@ -42,6 +43,8 @@ TaskSignal is a local-first research app for public discussion data. This threat
   `hackernews`) and can be narrowed further with `PUBLIC_SCAN_SOURCES`.
 - Browser-triggered credentialed source runs through research projects require
   `OPERATOR_SCAN_TOKEN` plus `X-Operator-Scan-Token`.
+- Browser-triggered prompt enhancement requires `OPERATOR_SCAN_TOKEN` plus
+  `X-Operator-Scan-Token` before any OpenAI or Ollama request is made.
 - Source registry write endpoints require `OPERATOR_SCAN_TOKEN`, reject
   secret-like `config_json` keys, and source read endpoints redact config values.
 - Scheduled workflows store cadence metadata only; operators must explicitly

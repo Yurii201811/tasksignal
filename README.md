@@ -218,10 +218,13 @@ from the Projects page, `scripts/tasksignal_cli.py run-due`, cron, GitHub
 Actions, or another explicit worker.
 
 Optional prompt enhancement uses `LLM_PROVIDER=openai` plus `OPENAI_API_KEY`, or
-`LLM_PROVIDER=ollama` plus a local Ollama server. ChatGPT/Codex subscriptions do
-not provide backend API credentials; TaskSignal supports subscription users by
-exporting task packs they can open in their own signed-in Codex app, CLI, IDE
-extension, or Codex web session.
+`LLM_PROVIDER=ollama` plus a local Ollama server. Browser-triggered enhancement
+requires `OPERATOR_SCAN_TOKEN` on the API and the matching
+`X-Operator-Scan-Token` request header so network callers cannot spend
+server-side model credentials. ChatGPT/Codex subscriptions do not provide
+backend API credentials; TaskSignal supports subscription users by exporting
+task packs they can open in their own signed-in Codex app, CLI, IDE extension,
+or Codex web session.
 
 Destructive fixture resets require `DEMO_RESET_TOKEN` and the matching `X-Demo-Reset-Token` request header. The normal dashboard demo-processing action is non-destructive by default.
 
