@@ -139,6 +139,19 @@ Run the release-readiness gate before tagging a release:
 make release-check
 ```
 
+Run the first-run smoke check to verify the credential-free fixture path against
+a temporary database, including dashboard route wiring and task-pack export:
+
+```bash
+make smoke
+```
+
+To also boot the Next.js dev server and request `/dashboard`, run:
+
+```bash
+apps/api/.venv/bin/python -u scripts/first_run_smoke.py --with-web-server
+```
+
 Use the local CLI for headless operation:
 
 ```bash

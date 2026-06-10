@@ -1,4 +1,5 @@
 VENV_BIN := .venv/bin
+API_PYTHON := $(if $(wildcard apps/api/.venv/bin/python),apps/api/.venv/bin/python,python3)
 PYTEST := $(if $(wildcard $(VENV_BIN)/pytest),$(VENV_BIN)/pytest,pytest)
 RUFF := $(if $(wildcard $(VENV_BIN)/ruff),$(VENV_BIN)/ruff,ruff)
 ALEMBIC := $(if $(wildcard $(VENV_BIN)/alembic),../../$(VENV_BIN)/alembic,alembic)
@@ -6,7 +7,7 @@ UVICORN := $(if $(wildcard $(VENV_BIN)/uvicorn),../../$(VENV_BIN)/uvicorn,uvicor
 NODE20_BIN := /opt/homebrew/opt/node@20/bin
 WEB_PATH := $(if $(wildcard $(NODE20_BIN)/node),$(NODE20_BIN):$(PATH),$(PATH))
 
-.PHONY: dev up down migrate seed process-demo doctor test lint format reset-data verify release-check
+.PHONY: dev up down migrate seed process-demo doctor smoke test lint format reset-data verify release-check
 
 dev:
 	@printf "Start API and web separately for local hacking:\n"
@@ -27,6 +28,9 @@ seed process-demo:
 
 doctor:
 	python3 scripts/doctor.py
+
+smoke:
+	$(API_PYTHON) -u scripts/first_run_smoke.py
 
 test:
 	$(PYTEST) apps/api/tests

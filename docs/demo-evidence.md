@@ -4,6 +4,24 @@ This snapshot records what the fixture demo produces without paid APIs, live cre
 
 ## How To Reproduce
 
+Fast clean smoke check:
+
+```bash
+make smoke
+```
+
+This uses a temporary SQLite database, processes fixture data, checks stats and
+opportunities, confirms the dashboard route is wired, exports a task pack, and
+removes the temporary database when it exits.
+
+To also boot the Next.js dev server and request `/dashboard`, run:
+
+```bash
+apps/api/.venv/bin/python -u scripts/first_run_smoke.py --with-web-server
+```
+
+Manual browser path:
+
 ```bash
 cp .env.example .env
 make up
