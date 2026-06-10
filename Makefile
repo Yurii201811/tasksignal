@@ -37,6 +37,7 @@ test:
 	cd apps/web && PATH="$(WEB_PATH)" npm test
 
 lint:
+	$(API_PYTHON) scripts/check_fixture_redaction.py
 	$(RUFF) check apps/api/app apps/api/tests scripts
 	cd apps/web && PATH="$(WEB_PATH)" npm run lint
 

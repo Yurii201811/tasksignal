@@ -47,9 +47,21 @@ make lint
 
 Backend checks live in `apps/api` and use `pytest` plus `ruff`. Frontend checks live in `apps/web` and use the Next.js build plus Vitest.
 
+Check contributed fixtures before opening a PR:
+
+```bash
+python3 scripts/check_fixture_redaction.py
+```
+
 ## Contribution Guidelines
 
 - Keep fixture mode working without paid services or live API credentials.
+- Keep fixture records synthetic or heavily sanitized. Do not include real
+  usernames, email addresses, API tokens, private/internal URLs, customer data,
+  private repository links, or source payloads from unsupported services.
+- If a fixture needs an author field to exercise hashing behavior, use an
+  obvious placeholder such as `contributor-a`, `edge_hn_user`, or
+  `backend_dev`.
 - Prefer transparent scoring, evidence links, and explainable rules over opaque automation.
 - Do not commit `.env` files, API keys, exported private datasets, local databases, caches, or build output.
 - Use public APIs and respect source rate limits and terms.
