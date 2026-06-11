@@ -37,6 +37,11 @@ import {
   StateMessage,
   TableShell,
 } from "@/components/ui";
+import {
+  browserSafeScanSourceOrder,
+  queryExamplesLabel,
+  sourceQueryPresetByType,
+} from "@/lib/source-query-presets";
 
 const chartColors = [
   "var(--ts-chart-1)",
@@ -45,22 +50,6 @@ const chartColors = [
   "var(--ts-chart-4)",
   "var(--ts-chart-5)",
 ];
-const scanDefaults: Record<string, string> = {
-  hackernews: "ask",
-};
-const scanGuidance: Record<
-  string,
-  { credential: string; query: string; privacy: string }
-> = {
-  hackernews: {
-    credential: "No credentials required.",
-    query:
-      "Use ask, new, top, best, show, or job; other text filters Ask HN client-side.",
-    privacy: "Stores source URLs and normalized public post fields.",
-  },
-};
-const scanSourceOrder = ["hackernews"];
-
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "The request failed.";
 }
@@ -68,7 +57,9 @@ function errorMessage(error: unknown) {
 export function Dashboard() {
   const queryClient = useQueryClient();
   const [scanSource, setScanSource] = useState("hackernews");
-  const [scanQuery, setScanQuery] = useState(scanDefaults.hackernews);
+  const [scanQuery, setScanQuery] = useState(
+    sourceQueryPresetByType.hackernews.defaultQuery,
+  );
   const [scanLimit, setScanLimit] = useState(30);
   const stats = useQuery({ queryKey: ["stats"], queryFn: api.stats });
   const opportunities = useQuery({
@@ -132,20 +123,18 @@ export function Dashboard() {
   const sourceBreakdown = stats.data?.source_breakdown ?? [];
   const painDistribution = stats.data?.pain_distribution ?? [];
   const liveSources = (sources.data ?? [])
-    .filter((source) => scanSourceOrder.includes(source.type))
+    .filter((source) => browserSafeScanSourceOrder.includes(source.type))
     .sort(
       (left, right) =>
-        scanSourceOrder.indexOf(left.type) - scanSourceOrder.indexOf(right.type),
+        browserSafeScanSourceOrder.indexOf(left.type) -
+        browserSafeScanSourceOrder.indexOf(right.type),
     );
   const sourceOptions =
     liveSources.length > 0
       ? liveSources
-      : scanSourceOrder.map((type) => ({
+      : browserSafeScanSourceOrder.map((type) => ({
           id: type,
-          name:
-            type === "hackernews"
-              ? "Hacker News"
-              : type,
+          name: sourceQueryPresetByType[type]?.label ?? type,
           type,
           config_json: {},
           enabled: true,
@@ -158,7 +147,8 @@ export function Dashboard() {
       : latestScan?.status === "completed"
         ? "success"
         : "info";
-  const selectedScanGuidance = scanGuidance[scanSource];
+  const selectedScanGuidance = sourceQueryPresetByType[scanSource];
+  const selectedExamples = queryExamplesLabel(scanSource);
   const readinessChecks = readiness.data?.checks;
   const publicScanSources = readinessChecks?.public_scan_sources as
     | string[]
@@ -205,7 +195,7 @@ export function Dashboard() {
 
   function updateScanSource(source: string) {
     setScanSource(source);
-    setScanQuery(scanDefaults[source] ?? "");
+    setScanQuery(sourceQueryPresetByType[source]?.defaultQuery ?? "");
   }
 
   function submitScan(event: FormEvent<HTMLFormElement>) {
@@ -374,6 +364,11 @@ export function Dashboard() {
               className="mt-2"
               placeholder="Search phrase or issue query"
             />
+            {selectedExamples ? (
+              <span className="mt-1 block text-xs leading-5 text-muted">
+                Examples: {selectedExamples}
+              </span>
+            ) : null}
           </label>
           <label className="block">
             <span className="text-sm font-semibold text-muted">Limit</span>
@@ -423,7 +418,7 @@ export function Dashboard() {
               <div>
                 <dt className="font-semibold text-muted">Query</dt>
                 <dd className="mt-1 break-words text-ink">
-                  {selectedScanGuidance.query}
+                  {selectedScanGuidance.guidance}
                 </dd>
               </div>
               <div>

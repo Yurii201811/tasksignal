@@ -71,6 +71,7 @@ describe("Dashboard", () => {
     expect(screen.getByText("Process demo data")).toBeInTheDocument();
     expect(screen.getByText("Live source")).toBeInTheDocument();
     expect(screen.getByText("Run scan")).toBeInTheDocument();
+    expect(screen.getByText(/Examples: ask, show, job/)).toBeInTheDocument();
   });
 
   it("renders readiness-driven first-use steps", async () => {

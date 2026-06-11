@@ -15,22 +15,17 @@ import {
   StateMessage,
 } from "@/components/ui";
 import type { ResearchProject } from "@/lib/types";
+import {
+  queryExamplesLabel,
+  sourceQueryPresetByType,
+  sourceQueryPresets,
+} from "@/lib/source-query-presets";
 
-const sourceOptions = [
-  { value: "hackernews", label: "Hacker News", defaultQuery: "ask" },
-  { value: "fixture", label: "Fixture files", defaultQuery: "" },
-  { value: "github", label: "GitHub Issues", defaultQuery: "label:bug" },
-  {
-    value: "reddit",
-    label: "Reddit",
-    defaultQuery: "manual workflow automation",
-  },
-  {
-    value: "stackexchange",
-    label: "Stack Exchange",
-    defaultQuery: "automation",
-  },
-];
+const sourceOptions = sourceQueryPresets.map(({ value, label, defaultQuery }) => ({
+  value,
+  label,
+  defaultQuery,
+}));
 
 const cadenceOptions = [
   { value: "manual", label: "Manual" },
@@ -199,6 +194,8 @@ export function ResearchProjects() {
   }
 
   const latestScan = scans.data?.[0];
+  const selectedSourcePreset = sourceQueryPresetByType[sourceType];
+  const selectedExamples = queryExamplesLabel(sourceType);
 
   return (
     <div className="space-y-6">
@@ -276,6 +273,11 @@ export function ResearchProjects() {
                   onChange={(event) => setQuery(event.target.value)}
                   className="mt-2"
                 />
+                {selectedExamples ? (
+                  <span className="mt-1 block text-xs leading-5 text-muted">
+                    Examples: {selectedExamples}
+                  </span>
+                ) : null}
               </label>
               <label className="block min-w-0">
                 <span className="text-sm font-semibold text-muted">Limit</span>
@@ -378,6 +380,13 @@ export function ResearchProjects() {
               Stack Exchange browser runs require `OPERATOR_SCAN_TOKEN` on the
               API and the matching local token here.
             </p>
+            {selectedSourcePreset ? (
+              <div className="mt-3 border-t border-border pt-3 text-sm leading-6">
+                <p className="font-semibold text-muted">Selected source</p>
+                <p className="mt-1 text-ink">{selectedSourcePreset.credential}</p>
+                <p className="mt-1 text-muted">{selectedSourcePreset.guidance}</p>
+              </div>
+            ) : null}
             <Input
               value={operatorToken}
               onChange={(event) => updateOperatorToken(event.target.value)}

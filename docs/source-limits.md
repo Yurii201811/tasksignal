@@ -29,6 +29,23 @@ return a 403 with `Allowed public scan sources: none`.
 | Stack Exchange | Optional `STACK_EXCHANGE_KEY` | Uses `pagesize` up to 100 through advanced search. Keys increase quota. | Follow Stack Exchange API terms, attribution expectations, and backoff behavior. |
 | Reddit | Required OAuth app credentials | Uses OAuth search with `limit` capped at 100. | Enable only after reviewing Reddit API terms and app credentials. Do not use results for outreach, harassment, or user profiling. |
 
+## Query Presets
+
+Use narrow phrases that describe repeated work, failures, or workaround pain.
+Completed scans with zero opportunities usually mean weak source/query fit, not
+a broken connector. Check the scan record fields `signals_detected`,
+`clusters_created`, `opportunities_created`, and `outcome_message` before
+widening credentials or limits.
+
+Safe examples:
+
+| Source | Example queries |
+| --- | --- |
+| Hacker News | `ask`, `show`, `job`, `manual workflow` |
+| GitHub Issues | `is:issue is:open "manual workflow"`, `"github actions" "error"`, `label:bug "export csv"` |
+| Stack Exchange | `automation manual workflow`, `github actions log analyzer`, `export csv report` |
+| Reddit | `manual workflow automation`, `spreadsheet report`, `onboarding analytics` |
+
 ## Maintainer Checklist
 
 - Keep `LLM_PROVIDER=none` unless a maintainer intentionally reviews paid-model
