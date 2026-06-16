@@ -14,6 +14,18 @@ This uses a temporary SQLite database, processes fixture data, checks stats and
 opportunities, confirms the dashboard route is wired, exports a task pack, and
 removes the temporary database when it exits.
 
+To keep a shareable Markdown proof from the same credential-free run:
+
+```bash
+apps/api/.venv/bin/python -u scripts/first_run_smoke.py \
+  --proof-out first-run-proof.md
+```
+
+The report records the API health/readiness checks, fixture counts, task-pack
+export evidence, dashboard route check, and runtime boundaries without including
+secret values, raw connector payloads, private scan data, or local database
+paths.
+
 To also boot the Next.js dev server and request `/dashboard`, run:
 
 ```bash

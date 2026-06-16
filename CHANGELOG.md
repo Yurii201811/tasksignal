@@ -6,6 +6,8 @@ All notable public-facing changes to TaskSignal are recorded here.
 
 ### Added
 
+- First-run smoke checks can now write a shareable Markdown proof report with
+  fixture counts, task-pack evidence, dashboard checks, and runtime boundaries.
 - Evidence bundle Markdown export for opportunity detail pages and
   `/api/opportunities/{id}/evidence.md`.
 - Local `make doctor` setup check for fresh clones and contributor onboarding.

@@ -14,6 +14,7 @@ import tempfile
 import time
 import warnings
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.error import URLError
 from urllib.request import urlopen
@@ -142,6 +143,120 @@ def client_json(client, method: str, path: str, payload: dict | None = None) -> 
     return response.json()
 
 
+def check_result(checked: bool | None) -> str:
+    if checked is None:
+        return "skipped"
+    return "passed" if checked else "failed"
+
+
+def check_evidence(checked: bool | None, passed_text: str) -> str:
+    if checked is None:
+        return "not requested"
+    return passed_text if checked else "failed before report generation"
+
+
+def report_value(value: object) -> str:
+    return str(value).replace("|", "\\|").replace("\r", " ").replace("\n", " ").strip()
+
+
+def source_breakdown_rows(source_breakdown: object) -> list[str]:
+    if not isinstance(source_breakdown, list) or not source_breakdown:
+        return ["| No source breakdown returned | 0 |"]
+
+    rows: list[str] = []
+    for entry in sorted(
+        source_breakdown,
+        key=lambda item: str(item.get("source", "")) if isinstance(item, dict) else "",
+    ):
+        if not isinstance(entry, dict):
+            continue
+        rows.append(
+            f"| {report_value(entry.get('source', 'unknown'))} | "
+            f"{report_value(entry.get('count', 0))} |"
+        )
+    return rows or ["| No source breakdown returned | 0 |"]
+
+
+def proof_report_markdown(
+    result: dict[str, object],
+    *,
+    dashboard_source_checked: bool | None,
+    live_dashboard_checked: bool | None,
+    generated_at: datetime | None = None,
+) -> str:
+    timestamp = (generated_at or datetime.now(UTC)).replace(microsecond=0).isoformat()
+    lines = [
+        "# TaskSignal First-Run Proof",
+        "",
+        f"Generated: {timestamp}",
+        "",
+        "Scope: credential-free fixture smoke run against a temporary SQLite database.",
+        "",
+        "## Checks",
+        "",
+        "| Check | Result | Evidence |",
+        "| --- | --- | --- |",
+        f"| API health | passed | status={report_value(result['health_status'])} |",
+        f"| Readiness endpoint | passed | status={report_value(result['readiness_status'])} |",
+        (
+            "| Fixture demo processing | passed | "
+            f"{result['raw_items_loaded']} raw records, "
+            f"{result['normalized_items_created']} normalized records, "
+            f"{result['signals_detected']} signals, "
+            f"{result['clusters_created']} clusters, "
+            f"{result['opportunities_created']} opportunities |"
+        ),
+        (
+            "| Stats endpoint | passed | "
+            f"{result['total_items']} total items, "
+            f"{result['stats_opportunities']} opportunities |"
+        ),
+        (
+            "| Task-pack export | passed | "
+            f"{result['task_pack_evidence_urls']} evidence URL(s) on the top opportunity |"
+        ),
+        (
+            "| Dashboard route source | "
+            f"{check_result(dashboard_source_checked)} | "
+            f"{check_evidence(dashboard_source_checked, 'route imports the dashboard feature')} |"
+        ),
+        (
+            "| Live dashboard request | "
+            f"{check_result(live_dashboard_checked)} | "
+            f"{check_evidence(live_dashboard_checked, '/dashboard returned HTML')} |"
+        ),
+        "",
+        "## Source Mix",
+        "",
+        "| Source | Count |",
+        "| --- | ---: |",
+        *source_breakdown_rows(result.get("source_breakdown")),
+        "",
+        "## Top Opportunity",
+        "",
+        f"- {report_value(result['top_opportunity'])}",
+        "",
+        "## Runtime Boundaries",
+        "",
+        f"- LLM_PROVIDER={report_value(result['llm_provider'])}",
+        f"- PUBLIC_SCAN_SOURCES={report_value(result['public_scan_sources'])}",
+        "- Database: temporary SQLite file created for this smoke run.",
+        "- Secrets, raw connector payloads, local database paths, and private scan data are omitted.",
+        "",
+        "## Follow-Up",
+        "",
+        "- For UI confidence, rerun with `--with-web-server` so the script boots Next.js and requests `/dashboard`.",
+        "- For release evidence, pair this proof with `make release-check` and the relevant GitHub Actions run URL.",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def write_proof_report(path: Path, report: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(report, encoding="utf-8")
+
+
 def run_api_checks(database_path: Path) -> dict[str, object]:
     os.environ.update(api_env(database_path))
     sys.path.insert(0, str(API_DIR))
@@ -208,10 +323,20 @@ def run_api_checks(database_path: Path) -> dict[str, object]:
         assert_condition(task_pack.get("evidence_urls"), "Task-pack has no evidence URLs.")
 
         return {
+            "health_status": health["status"],
+            "readiness_status": readiness["status"],
             "raw_items_loaded": summary["raw_items_loaded"],
+            "normalized_items_created": summary["normalized_items_created"],
             "signals_detected": summary["signals_detected"],
+            "clusters_created": summary["clusters_created"],
             "opportunities_created": summary["opportunities_created"],
+            "total_items": stats["total_items"],
+            "stats_opportunities": stats["opportunities"],
+            "source_breakdown": stats["source_breakdown"],
             "top_opportunity": first_opportunity["title"],
+            "task_pack_evidence_urls": len(task_pack["evidence_urls"]),
+            "llm_provider": os.environ["LLM_PROVIDER"],
+            "public_scan_sources": os.environ["PUBLIC_SCAN_SOURCES"],
         }
 
 
@@ -259,6 +384,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Also start Next.js and request /dashboard. This uses the native Next compiler.",
     )
+    parser.add_argument(
+        "--proof-out",
+        type=Path,
+        default=None,
+        help="Write a Markdown proof report after all requested smoke checks pass.",
+    )
     return parser
 
 
@@ -267,9 +398,9 @@ def main() -> int:
     processes: list[ManagedProcess] = []
     temp_dir = Path(tempfile.mkdtemp(prefix="tasksignal-smoke-"))
     passed = False
-    web_port = free_port()
     api_base = "http://127.0.0.1:8000"
-    web_base = f"http://127.0.0.1:{web_port}"
+    dashboard_source_checked: bool | None = None
+    live_dashboard_checked: bool | None = None
 
     try:
         result = run_api_checks(temp_dir / "tasksignal-smoke.db")
@@ -285,9 +416,12 @@ def main() -> int:
 
         if not args.skip_web:
             run_dashboard_source_check()
+            dashboard_source_checked = True
             print("[OK] Dashboard route source is wired", flush=True)
 
         if args.with_web_server and not args.skip_web:
+            web_port = free_port()
+            web_base = f"http://127.0.0.1:{web_port}"
             next_bin = WEB_DIR / "node_modules" / ".bin" / "next"
             if not next_bin.exists():
                 raise SmokeError(
@@ -323,7 +457,17 @@ def main() -> int:
                 check_dashboard,
                 timeout=args.web_timeout,
             )
+            live_dashboard_checked = True
             print(f"[OK] Dashboard route loaded at {web_base}/dashboard", flush=True)
+
+        if args.proof_out:
+            report = proof_report_markdown(
+                result,
+                dashboard_source_checked=dashboard_source_checked,
+                live_dashboard_checked=live_dashboard_checked,
+            )
+            write_proof_report(args.proof_out, report)
+            print(f"[OK] Proof report written to {args.proof_out}", flush=True)
         passed = True
 
     except SmokeError as exc:

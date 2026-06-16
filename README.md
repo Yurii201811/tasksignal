@@ -146,6 +146,12 @@ a temporary database, including dashboard route wiring and task-pack export:
 make smoke
 ```
 
+To save a reviewer-friendly Markdown proof from the same run:
+
+```bash
+apps/api/.venv/bin/python -u scripts/first_run_smoke.py --proof-out first-run-proof.md
+```
+
 To also boot the Next.js dev server and request `/dashboard`, run:
 
 ```bash
