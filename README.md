@@ -152,6 +152,13 @@ To save a reviewer-friendly Markdown proof from the same run:
 apps/api/.venv/bin/python -u scripts/first_run_smoke.py --proof-out first-run-proof.md
 ```
 
+To save a complete reviewer bundle with the Markdown proof, machine-readable
+summary, and top opportunity task pack:
+
+```bash
+apps/api/.venv/bin/python -u scripts/first_run_smoke.py --proof-dir first-run-proof-bundle
+```
+
 To also boot the Next.js dev server and request `/dashboard`, run:
 
 ```bash

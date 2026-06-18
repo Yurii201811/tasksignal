@@ -26,6 +26,17 @@ export evidence, dashboard route check, and runtime boundaries without including
 secret values, raw connector payloads, private scan data, or local database
 paths.
 
+For a complete reviewer bundle from the same credential-free run:
+
+```bash
+apps/api/.venv/bin/python -u scripts/first_run_smoke.py \
+  --proof-dir first-run-proof-bundle
+```
+
+The bundle includes `first-run-proof.md`, `first-run-summary.json`, and the
+top opportunity's exported task pack so reviewers can inspect both human and
+machine-readable evidence from one run.
+
 To also boot the Next.js dev server and request `/dashboard`, run:
 
 ```bash

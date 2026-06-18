@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shutil
 import signal
@@ -159,6 +160,37 @@ def report_value(value: object) -> str:
     return str(value).replace("|", "\\|").replace("\r", " ").replace("\n", " ").strip()
 
 
+def git_output(args: list[str], *, cwd: Path) -> str | None:
+    try:
+        completed = subprocess.run(
+            ["git", *args],
+            cwd=cwd,
+            capture_output=True,
+            check=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return completed.stdout.strip()
+
+
+def repository_revision(root: Path = ROOT) -> str:
+    commit = git_output(["rev-parse", "--short=12", "HEAD"], cwd=root)
+    if not commit:
+        return "unavailable"
+
+    branch = git_output(["branch", "--show-current"], cwd=root) or "detached HEAD"
+    status = git_output(["status", "--porcelain"], cwd=root)
+    if status is None:
+        tree_state = "working tree state unknown"
+    elif status:
+        tree_state = "local changes present"
+    else:
+        tree_state = "clean"
+    return f"{branch} @ {commit} ({tree_state})"
+
+
 def source_breakdown_rows(source_breakdown: object) -> list[str]:
     if not isinstance(source_breakdown, list) or not source_breakdown:
         return ["| No source breakdown returned | 0 |"]
@@ -177,11 +209,110 @@ def source_breakdown_rows(source_breakdown: object) -> list[str]:
     return rows or ["| No source breakdown returned | 0 |"]
 
 
+def source_breakdown_summary(source_breakdown: object) -> list[dict[str, object]]:
+    if not isinstance(source_breakdown, list):
+        return []
+
+    rows: list[dict[str, object]] = []
+    for entry in sorted(
+        source_breakdown,
+        key=lambda item: str(item.get("source", "")) if isinstance(item, dict) else "",
+    ):
+        if not isinstance(entry, dict):
+            continue
+        rows.append(
+            {
+                "source": report_value(entry.get("source", "unknown")),
+                "count": entry.get("count", 0),
+            }
+        )
+    return rows
+
+
+def proof_summary(
+    result: dict[str, object],
+    *,
+    dashboard_source_checked: bool | None,
+    live_dashboard_checked: bool | None,
+    revision: str | None = None,
+    generated_at: datetime | None = None,
+) -> dict[str, object]:
+    timestamp = (generated_at or datetime.now(UTC)).replace(microsecond=0).isoformat()
+    return {
+        "generated_at": timestamp,
+        "repository_revision": revision or "unavailable",
+        "scope": "credential-free fixture smoke run against a temporary SQLite database",
+        "checks": {
+            "api_health": {
+                "result": "passed",
+                "evidence": {"status": result["health_status"]},
+            },
+            "readiness_endpoint": {
+                "result": "passed",
+                "evidence": {"status": result["readiness_status"]},
+            },
+            "fixture_demo_processing": {
+                "result": "passed",
+                "evidence": {
+                    "raw_items_loaded": result["raw_items_loaded"],
+                    "normalized_items_created": result["normalized_items_created"],
+                    "signals_detected": result["signals_detected"],
+                    "clusters_created": result["clusters_created"],
+                    "opportunities_created": result["opportunities_created"],
+                },
+            },
+            "stats_endpoint": {
+                "result": "passed",
+                "evidence": {
+                    "total_items": result["total_items"],
+                    "opportunities": result["stats_opportunities"],
+                },
+            },
+            "task_pack_export": {
+                "result": "passed",
+                "evidence": {
+                    "top_opportunity_id": result["top_opportunity_id"],
+                    "top_opportunity": result["top_opportunity"],
+                    "evidence_urls": result["task_pack_evidence_urls"],
+                },
+            },
+            "dashboard_route_source": {
+                "result": check_result(dashboard_source_checked),
+                "evidence": check_evidence(
+                    dashboard_source_checked,
+                    "route imports the dashboard feature",
+                ),
+            },
+            "live_dashboard_request": {
+                "result": check_result(live_dashboard_checked),
+                "evidence": check_evidence(live_dashboard_checked, "/dashboard returned HTML"),
+            },
+        },
+        "source_breakdown": source_breakdown_summary(result.get("source_breakdown")),
+        "top_opportunity": {
+            "id": result["top_opportunity_id"],
+            "title": result["top_opportunity"],
+        },
+        "runtime_boundaries": {
+            "llm_provider": result["llm_provider"],
+            "public_scan_sources": result["public_scan_sources"],
+            "database": "temporary SQLite file created for this smoke run",
+            "omitted": [
+                "secret values",
+                "raw connector payloads",
+                "local database paths",
+                "private scan data",
+            ],
+        },
+    }
+
+
 def proof_report_markdown(
     result: dict[str, object],
     *,
     dashboard_source_checked: bool | None,
     live_dashboard_checked: bool | None,
+    revision: str | None = None,
     generated_at: datetime | None = None,
 ) -> str:
     timestamp = (generated_at or datetime.now(UTC)).replace(microsecond=0).isoformat()
@@ -189,6 +320,7 @@ def proof_report_markdown(
         "# TaskSignal First-Run Proof",
         "",
         f"Generated: {timestamp}",
+        f"Repository revision: {report_value(revision or 'unavailable')}",
         "",
         "Scope: credential-free fixture smoke run against a temporary SQLite database.",
         "",
@@ -255,6 +387,48 @@ def proof_report_markdown(
 def write_proof_report(path: Path, report: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(report, encoding="utf-8")
+
+
+def proof_bundle_readme(summary: dict[str, object]) -> str:
+    return "\n".join(
+        [
+            "# TaskSignal First-Run Proof Bundle",
+            "",
+            f"Generated: {report_value(summary['generated_at'])}",
+            f"Repository revision: {report_value(summary['repository_revision'])}",
+            "",
+            "Files:",
+            "",
+            "- `first-run-proof.md`: human-readable smoke report.",
+            "- `first-run-summary.json`: machine-readable counts, checks, and runtime boundaries.",
+            "- `top-opportunity-task-pack.md`: exact task pack exported for the top fixture opportunity.",
+            "",
+            (
+                "This bundle is generated from fixture data only. It omits secret values, "
+                "raw connector payloads, local database paths, and private scan data."
+            ),
+            "",
+        ]
+    )
+
+
+def write_proof_bundle(
+    path: Path,
+    report: str,
+    summary: dict[str, object],
+    result: dict[str, object],
+) -> None:
+    path.mkdir(parents=True, exist_ok=True)
+    write_proof_report(path / "README.md", proof_bundle_readme(summary))
+    write_proof_report(path / "first-run-proof.md", report)
+    (path / "first-run-summary.json").write_text(
+        json.dumps(summary, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    write_proof_report(
+        path / "top-opportunity-task-pack.md",
+        f"{str(result['task_pack_markdown']).rstrip()}\n",
+    )
 
 
 def run_api_checks(database_path: Path) -> dict[str, object]:
@@ -333,8 +507,10 @@ def run_api_checks(database_path: Path) -> dict[str, object]:
             "total_items": stats["total_items"],
             "stats_opportunities": stats["opportunities"],
             "source_breakdown": stats["source_breakdown"],
+            "top_opportunity_id": first_opportunity["id"],
             "top_opportunity": first_opportunity["title"],
             "task_pack_evidence_urls": len(task_pack["evidence_urls"]),
+            "task_pack_markdown": task_pack["markdown"],
             "llm_provider": os.environ["LLM_PROVIDER"],
             "public_scan_sources": os.environ["PUBLIC_SCAN_SOURCES"],
         }
@@ -389,6 +565,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help="Write a Markdown proof report after all requested smoke checks pass.",
+    )
+    parser.add_argument(
+        "--proof-dir",
+        type=Path,
+        default=None,
+        help="Write a reviewer proof bundle directory after all requested smoke checks pass.",
     )
     return parser
 
@@ -460,14 +642,29 @@ def main() -> int:
             live_dashboard_checked = True
             print(f"[OK] Dashboard route loaded at {web_base}/dashboard", flush=True)
 
-        if args.proof_out:
+        if args.proof_out or args.proof_dir:
+            generated_at = datetime.now(UTC)
+            revision = repository_revision()
             report = proof_report_markdown(
                 result,
                 dashboard_source_checked=dashboard_source_checked,
                 live_dashboard_checked=live_dashboard_checked,
+                revision=revision,
+                generated_at=generated_at,
             )
-            write_proof_report(args.proof_out, report)
-            print(f"[OK] Proof report written to {args.proof_out}", flush=True)
+            summary = proof_summary(
+                result,
+                dashboard_source_checked=dashboard_source_checked,
+                live_dashboard_checked=live_dashboard_checked,
+                revision=revision,
+                generated_at=generated_at,
+            )
+            if args.proof_out:
+                write_proof_report(args.proof_out, report)
+                print(f"[OK] Proof report written to {args.proof_out}", flush=True)
+            if args.proof_dir:
+                write_proof_bundle(args.proof_dir, report, summary, result)
+                print(f"[OK] Proof bundle written to {args.proof_dir}", flush=True)
         passed = True
 
     except SmokeError as exc:

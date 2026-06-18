@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -14,6 +15,30 @@ assert SPEC and SPEC.loader
 first_run_smoke = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = first_run_smoke
 SPEC.loader.exec_module(first_run_smoke)
+
+
+def smoke_result() -> dict[str, object]:
+    return {
+        "health_status": "ok",
+        "readiness_status": "ready",
+        "raw_items_loaded": 18,
+        "normalized_items_created": 18,
+        "signals_detected": 17,
+        "clusters_created": 5,
+        "opportunities_created": 5,
+        "total_items": 18,
+        "stats_opportunities": 5,
+        "source_breakdown": [
+            {"source": "reddit", "count": 5},
+            {"source": "github", "count": 4},
+        ],
+        "top_opportunity_id": 46,
+        "top_opportunity": "Operators need spreadsheet-to-client-report automation",
+        "task_pack_evidence_urls": 4,
+        "task_pack_markdown": "# TaskSignal Codex Task Pack: Operators need automation\n",
+        "llm_provider": "none",
+        "public_scan_sources": "fixture,hackernews",
+    }
 
 
 def test_api_env_forces_clean_sqlite_runtime(tmp_path, monkeypatch) -> None:
@@ -32,32 +57,19 @@ def test_api_env_forces_clean_sqlite_runtime(tmp_path, monkeypatch) -> None:
 
 def test_proof_report_markdown_records_fixture_result_without_local_paths() -> None:
     report = first_run_smoke.proof_report_markdown(
-        {
-            "health_status": "ok",
-            "readiness_status": "ready",
-            "raw_items_loaded": 18,
-            "normalized_items_created": 18,
-            "signals_detected": 17,
-            "clusters_created": 5,
-            "opportunities_created": 5,
-            "total_items": 18,
-            "stats_opportunities": 5,
-            "source_breakdown": [
-                {"source": "reddit", "count": 5},
-                {"source": "github", "count": 4},
-            ],
-            "top_opportunity": "Operators need spreadsheet-to-client-report automation",
-            "task_pack_evidence_urls": 4,
-            "llm_provider": "none",
-            "public_scan_sources": "fixture,hackernews",
-        },
+        smoke_result(),
         dashboard_source_checked=True,
         live_dashboard_checked=None,
+        revision="codex/first-run-proof-report @ c2567ce12345 (local changes present)",
         generated_at=datetime(2026, 6, 17, 12, 0, tzinfo=UTC),
     )
 
     assert report.startswith("# TaskSignal First-Run Proof")
     assert "Generated: 2026-06-17T12:00:00+00:00" in report
+    assert (
+        "Repository revision: codex/first-run-proof-report @ c2567ce12345 "
+        "(local changes present)"
+    ) in report
     assert "| API health | passed | status=ok |" in report
     assert (
         "| Fixture demo processing | passed | 18 raw records, 18 normalized records, "
@@ -76,12 +88,93 @@ def test_proof_report_markdown_records_fixture_result_without_local_paths() -> N
     assert "smoke.db" not in report
 
 
+def test_proof_summary_records_checks_and_runtime_boundaries() -> None:
+    summary = first_run_smoke.proof_summary(
+        smoke_result(),
+        dashboard_source_checked=True,
+        live_dashboard_checked=False,
+        revision="codex/first-run-proof-report @ c2567ce12345 (local changes present)",
+        generated_at=datetime(2026, 6, 17, 12, 0, tzinfo=UTC),
+    )
+
+    assert summary["generated_at"] == "2026-06-17T12:00:00+00:00"
+    assert summary["repository_revision"] == (
+        "codex/first-run-proof-report @ c2567ce12345 (local changes present)"
+    )
+    assert summary["checks"]["api_health"]["result"] == "passed"
+    assert summary["checks"]["live_dashboard_request"]["result"] == "failed"
+    assert summary["checks"]["task_pack_export"]["evidence"]["top_opportunity_id"] == 46
+    assert summary["source_breakdown"] == [
+        {"source": "github", "count": 4},
+        {"source": "reddit", "count": 5},
+    ]
+    assert summary["runtime_boundaries"]["llm_provider"] == "none"
+    assert "local database paths" in summary["runtime_boundaries"]["omitted"]
+
+
+def test_repository_revision_reports_unavailable_when_git_is_missing(monkeypatch) -> None:
+    def fake_git_output(_args: list[str], *, cwd: Path) -> str | None:
+        return None
+
+    monkeypatch.setattr(first_run_smoke, "git_output", fake_git_output)
+
+    assert first_run_smoke.repository_revision() == "unavailable"
+
+
+def test_repository_revision_marks_dirty_tree(monkeypatch) -> None:
+    def fake_git_output(args: list[str], *, cwd: Path) -> str | None:
+        if args[:2] == ["rev-parse", "--short=12"]:
+            return "c2567ce12345"
+        if args == ["branch", "--show-current"]:
+            return "codex/first-run-proof-report"
+        if args == ["status", "--porcelain"]:
+            return " M scripts/first_run_smoke.py"
+        raise AssertionError(f"Unexpected git args: {args}")
+
+    monkeypatch.setattr(first_run_smoke, "git_output", fake_git_output)
+
+    assert (
+        first_run_smoke.repository_revision()
+        == "codex/first-run-proof-report @ c2567ce12345 (local changes present)"
+    )
+
+
 def test_write_proof_report_creates_parent_directory(tmp_path) -> None:
     output_path = tmp_path / "nested" / "first-run-proof.md"
 
     first_run_smoke.write_proof_report(output_path, "# proof\n")
 
     assert output_path.read_text(encoding="utf-8") == "# proof\n"
+
+
+def test_write_proof_bundle_creates_review_package(tmp_path) -> None:
+    summary = first_run_smoke.proof_summary(
+        smoke_result(),
+        dashboard_source_checked=True,
+        live_dashboard_checked=None,
+        revision="codex/first-run-proof-report @ c2567ce12345 (local changes present)",
+        generated_at=datetime(2026, 6, 17, 12, 0, tzinfo=UTC),
+    )
+
+    first_run_smoke.write_proof_bundle(
+        tmp_path / "proof-bundle",
+        "# proof\n",
+        summary,
+        smoke_result(),
+    )
+
+    bundle_dir = tmp_path / "proof-bundle"
+    assert (bundle_dir / "README.md").read_text(encoding="utf-8").startswith(
+        "# TaskSignal First-Run Proof Bundle"
+    )
+    assert (bundle_dir / "first-run-proof.md").read_text(encoding="utf-8") == "# proof\n"
+    summary_json = json.loads((bundle_dir / "first-run-summary.json").read_text())
+    assert summary_json["checks"]["task_pack_export"]["evidence"]["evidence_urls"] == 4
+    assert (
+        (bundle_dir / "top-opportunity-task-pack.md").read_text(encoding="utf-8")
+        == "# TaskSignal Codex Task Pack: Operators need automation\n"
+    )
+    assert "smoke.db" not in (bundle_dir / "README.md").read_text(encoding="utf-8")
 
 
 def test_skip_web_proof_run_does_not_allocate_web_port(tmp_path, monkeypatch) -> None:
@@ -91,25 +184,17 @@ def test_skip_web_proof_run_does_not_allocate_web_port(tmp_path, monkeypatch) ->
         raise AssertionError("skip-web proof run should not allocate a web port")
 
     def fake_run_api_checks(_database_path: Path) -> dict[str, object]:
-        return {
-            "health_status": "ok",
-            "readiness_status": "ready",
-            "raw_items_loaded": 18,
-            "normalized_items_created": 18,
-            "signals_detected": 17,
-            "clusters_created": 5,
-            "opportunities_created": 5,
-            "total_items": 18,
-            "stats_opportunities": 5,
-            "source_breakdown": [{"source": "fixture", "count": 18}],
-            "top_opportunity": "Operators need spreadsheet-to-client-report automation",
-            "task_pack_evidence_urls": 4,
-            "llm_provider": "none",
-            "public_scan_sources": "fixture,hackernews",
-        }
+        result = smoke_result()
+        result["source_breakdown"] = [{"source": "fixture", "count": 18}]
+        return result
 
     monkeypatch.setattr(first_run_smoke, "free_port", fail_if_called)
     monkeypatch.setattr(first_run_smoke, "run_api_checks", fake_run_api_checks)
+    monkeypatch.setattr(
+        first_run_smoke,
+        "repository_revision",
+        lambda: "codex/first-run-proof-report @ c2567ce12345 (local changes present)",
+    )
     monkeypatch.setattr(
         sys,
         "argv",
@@ -120,6 +205,30 @@ def test_skip_web_proof_run_does_not_allocate_web_port(tmp_path, monkeypatch) ->
     report = output_path.read_text(encoding="utf-8")
     assert "TaskSignal First-Run Proof" in report
     assert "| Dashboard route source | skipped | not requested |" in report
+
+
+def test_skip_web_proof_bundle_writes_expected_files(tmp_path, monkeypatch) -> None:
+    output_dir = tmp_path / "bundle"
+
+    def fail_if_called() -> int:
+        raise AssertionError("skip-web proof bundle should not allocate a web port")
+
+    monkeypatch.setattr(first_run_smoke, "free_port", fail_if_called)
+    monkeypatch.setattr(first_run_smoke, "run_api_checks", lambda _database_path: smoke_result())
+    monkeypatch.setattr(first_run_smoke, "repository_revision", lambda: "main @ c2567ce12345 (clean)")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["first_run_smoke.py", "--skip-web", "--proof-dir", str(output_dir)],
+    )
+
+    assert first_run_smoke.main() == 0
+    assert (output_dir / "README.md").exists()
+    assert (output_dir / "first-run-proof.md").exists()
+    assert (output_dir / "first-run-summary.json").exists()
+    assert (output_dir / "top-opportunity-task-pack.md").exists()
+    summary = json.loads((output_dir / "first-run-summary.json").read_text())
+    assert summary["repository_revision"] == "main @ c2567ce12345 (clean)"
 
 
 def test_dashboard_source_check_requires_route_and_feature(tmp_path, monkeypatch) -> None:
