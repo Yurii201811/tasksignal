@@ -45,9 +45,12 @@ export const api = {
     request<Opportunity>(`/api/opportunities/${id}/regenerate`, {
       method: "POST",
     }),
-  enhanceOpportunity: (id: string, apply = false) =>
+  enhanceOpportunity: (id: string, apply = false, operatorToken?: string) =>
     request<Enhancement>(`/api/opportunities/${id}/enhance?apply=${apply}`, {
       method: "POST",
+      headers: operatorToken
+        ? { "X-Operator-Scan-Token": operatorToken }
+        : undefined,
     }),
   processDemo: () =>
     request<ProcessSummary>("/api/process/demo", { method: "POST" }),

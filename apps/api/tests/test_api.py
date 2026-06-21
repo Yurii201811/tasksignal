@@ -90,6 +90,31 @@ def test_readiness_warns_when_public_scan_sources_exclude_browser_safe_sources(
     assert "github" not in json.dumps(payload["checks"]["public_scan_sources"])
 
 
+def test_readiness_warns_when_author_hash_salt_uses_default(client, monkeypatch) -> None:
+    monkeypatch.setattr(routes.settings, "author_hash_salt", "change-me")
+
+    response = client.get("/api/readiness")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["checks"]["author_hash_salt_custom"] is False
+    assert any("AUTHOR_HASH_SALT" in warning for warning in payload["warnings"])
+    assert "change-me" not in json.dumps(payload)
+
+
+def test_readiness_reports_custom_author_hash_salt_without_secret_value(
+    client, monkeypatch
+) -> None:
+    monkeypatch.setattr(routes.settings, "author_hash_salt", "do-not-leak")
+
+    response = client.get("/api/readiness")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["checks"]["author_hash_salt_custom"] is True
+    assert "do-not-leak" not in json.dumps(payload)
+
+
 def test_sources_redact_stored_config_values(client) -> None:
     with Session(engine) as session:
         session.add(

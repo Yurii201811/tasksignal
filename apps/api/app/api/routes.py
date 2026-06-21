@@ -193,6 +193,10 @@ def public_scan_config_warning() -> str | None:
     )
 
 
+def author_hash_salt_uses_default() -> bool:
+    return settings.author_hash_salt.strip() in {"", "change-me", "change-me-local"}
+
+
 def operator_scan_authorized(token: str | None) -> bool:
     return bool(
         settings.operator_scan_token
@@ -475,6 +479,10 @@ def readiness_payload(db: Session) -> ReadinessOut:
         warnings.append("Set the local workspace owner or goal for this machine.")
     if warning := public_scan_config_warning():
         warnings.append(warning)
+    if author_hash_salt_uses_default():
+        warnings.append(
+            "Set AUTHOR_HASH_SALT to a machine-specific value before storing live author hashes."
+        )
 
     ready_sources = [
         integration.id
@@ -495,6 +503,7 @@ def readiness_payload(db: Session) -> ReadinessOut:
             for integration in integrations
         ),
         "operator_scan_token_configured": bool(settings.operator_scan_token),
+        "author_hash_salt_custom": not author_hash_salt_uses_default(),
         "public_scan_sources": sorted(configured_public_scan_sources()),
         "public_scan_sources_configured": bool(configured_public_scan_sources()),
     }

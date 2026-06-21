@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -68,6 +69,7 @@ function errorMessage(error: unknown) {
 
 export function OpportunityDetail({ id }: { id: string }) {
   const queryClient = useQueryClient();
+  const [operatorToken, setOperatorToken] = useState("");
   const { data, error, isError, isLoading } = useQuery({
     queryKey: ["opportunity", id],
     queryFn: () => api.opportunity(id),
@@ -78,10 +80,17 @@ export function OpportunityDetail({ id }: { id: string }) {
       queryClient.invalidateQueries({ queryKey: ["opportunity", id] }),
   });
   const enhance = useMutation({
-    mutationFn: () => api.enhanceOpportunity(id, true),
+    mutationFn: () =>
+      api.enhanceOpportunity(id, true, operatorToken.trim() || undefined),
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: ["opportunity", id] }),
   });
+
+  useEffect(() => {
+    setOperatorToken(
+      window.localStorage.getItem("tasksignal.operatorToken") ?? "",
+    );
+  }, []);
 
   if (isLoading) {
     return (
@@ -128,6 +137,7 @@ export function OpportunityDetail({ id }: { id: string }) {
     Boolean(item.url),
   ).length;
   const formula = String(breakdown.score_formula ?? "");
+  const hasOperatorToken = operatorToken.trim().length > 0;
 
   return (
     <div className="space-y-6">
@@ -179,7 +189,14 @@ export function OpportunityDetail({ id }: { id: string }) {
                 variant="secondary"
                 onClick={() => enhance.mutate()}
                 loading={enhance.isPending}
-                disabled={regenerate.isPending || enhance.isPending}
+                disabled={
+                  regenerate.isPending || enhance.isPending || !hasOperatorToken
+                }
+                title={
+                  hasOperatorToken
+                    ? "Enhance Prompt"
+                    : "Add the local operator token in Settings first."
+                }
               >
                 <Sparkles
                   size={16}
@@ -223,6 +240,23 @@ export function OpportunityDetail({ id }: { id: string }) {
         <StateMessage tone="success" title="Prompt enhanced">
           {enhance.data.provider} updated the build prompt with{" "}
           {enhance.data.model}.
+        </StateMessage>
+      ) : null}
+      {!hasOperatorToken ? (
+        <StateMessage
+          tone="warning"
+          title="Local operator token required"
+          action={
+            <Link
+              href="/settings"
+              className="inline-flex min-h-9 items-center justify-center gap-1 rounded-product border border-border bg-surface px-3 py-1.5 text-xs font-semibold text-ink hover:bg-surface-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]"
+            >
+              Settings <ArrowRight size={14} />
+            </Link>
+          }
+        >
+          Prompt enhancement is gated before it can use configured model
+          credentials or local runtime capacity.
         </StateMessage>
       ) : null}
 

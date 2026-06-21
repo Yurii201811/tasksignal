@@ -37,6 +37,8 @@ TaskSignal is a local-first research app for public discussion data. This threat
 
 - `.env`, local databases, caches, exports, and build output are ignored.
 - Normalization stores `author_hash` values by default instead of raw usernames.
+- Readiness warns when `AUTHOR_HASH_SALT` is still a placeholder value, without
+  returning the configured salt.
 - Fixture mode works without external credentials or paid LLM APIs.
 - Live connectors use official APIs and explicit credential configuration where required.
 - Public scan exposure is limited to non-credentialed sources (`fixture` and
