@@ -36,6 +36,7 @@ def smoke_result() -> dict[str, object]:
         "top_opportunity": "Operators need spreadsheet-to-client-report automation",
         "task_pack_evidence_urls": 4,
         "task_pack_markdown": "# TaskSignal Codex Task Pack: Operators need automation\n",
+        "task_pack_required_sections": 7,
         "llm_provider": "none",
         "public_scan_sources": "fixture,hackernews",
     }
@@ -53,6 +54,38 @@ def test_api_env_forces_clean_sqlite_runtime(tmp_path, monkeypatch) -> None:
     assert env["LLM_PROVIDER"] == "none"
     assert env["PUBLIC_SCAN_SOURCES"] == "fixture,hackernews"
     assert env["AUTHOR_HASH_SALT"] == "first-run-smoke-local-only"
+
+
+def test_task_pack_contract_check_uses_repo_local_skill_contract() -> None:
+    complete_pack = "\n".join(
+        [
+            "# TaskSignal Codex Task Pack: Useful tool",
+            "## Objective",
+            "## Suggested MVP",
+            "## Evidence Score",
+            "## Evidence",
+            "## Acceptance Criteria",
+            "## Privacy And Safety Constraints",
+            "## Recommended Codex Flow",
+            "",
+        ]
+    )
+
+    assert first_run_smoke.check_task_pack_contract(complete_pack) == 7
+
+
+def test_task_pack_contract_check_reports_missing_sections() -> None:
+    incomplete_pack = "# TaskSignal Codex Task Pack: Useful tool\n## Objective\n"
+
+    try:
+        first_run_smoke.check_task_pack_contract(incomplete_pack)
+    except first_run_smoke.SmokeError as exc:
+        message = str(exc)
+        assert "missing required section" in message
+        assert "## Suggested MVP" in message
+        assert "## Recommended Codex Flow" in message
+    else:  # pragma: no cover - keeps the assertion message useful.
+        raise AssertionError("Expected incomplete task pack to fail contract validation")
 
 
 def test_proof_report_markdown_records_fixture_result_without_local_paths() -> None:
@@ -76,6 +109,7 @@ def test_proof_report_markdown_records_fixture_result_without_local_paths() -> N
         "17 signals, 5 clusters, 5 opportunities |"
     ) in report
     assert "| Task-pack export | passed | 4 evidence URL(s) on the top opportunity |" in report
+    assert "| Task-pack structure | passed | 7 required sections present" in report
     assert "| Dashboard route source | passed | route imports the dashboard feature |" in report
     assert "| Live dashboard request | skipped | not requested |" in report
     assert "## Source Mix" in report
@@ -104,6 +138,7 @@ def test_proof_summary_records_checks_and_runtime_boundaries() -> None:
     assert summary["checks"]["api_health"]["result"] == "passed"
     assert summary["checks"]["live_dashboard_request"]["result"] == "failed"
     assert summary["checks"]["task_pack_export"]["evidence"]["top_opportunity_id"] == 46
+    assert summary["checks"]["task_pack_structure"]["evidence"]["required_sections"] == 7
     assert summary["source_breakdown"] == [
         {"source": "github", "count": 4},
         {"source": "reddit", "count": 5},
@@ -174,7 +209,9 @@ def test_write_proof_bundle_creates_review_package(tmp_path) -> None:
         (bundle_dir / "top-opportunity-task-pack.md").read_text(encoding="utf-8")
         == "# TaskSignal Codex Task Pack: Operators need automation\n"
     )
-    assert "smoke.db" not in (bundle_dir / "README.md").read_text(encoding="utf-8")
+    readme = (bundle_dir / "README.md").read_text(encoding="utf-8")
+    assert "validated against the repo-local Codex skill contract" in readme
+    assert "smoke.db" not in readme
 
 
 def test_skip_web_proof_run_does_not_allocate_web_port(tmp_path, monkeypatch) -> None:

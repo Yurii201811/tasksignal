@@ -15,6 +15,10 @@ REQUIRED_SECTIONS = [
 ]
 
 
+def missing_required_sections(text: str) -> list[str]:
+    return [section for section in REQUIRED_SECTIONS if section not in text]
+
+
 def main() -> int:
     if len(sys.argv) != 2:
         print("usage: check_task_pack.py path/to/task-pack.md", file=sys.stderr)
@@ -26,7 +30,7 @@ def main() -> int:
         return 2
 
     text = path.read_text(encoding="utf-8")
-    missing = [section for section in REQUIRED_SECTIONS if section not in text]
+    missing = missing_required_sections(text)
     if missing:
         print("missing required sections:")
         for section in missing:

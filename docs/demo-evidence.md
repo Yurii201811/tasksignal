@@ -11,7 +11,8 @@ make smoke
 ```
 
 This uses a temporary SQLite database, processes fixture data, checks stats and
-opportunities, confirms the dashboard route is wired, exports a task pack, and
+opportunities, confirms the dashboard route is wired, exports a task pack,
+validates that task pack against the repo-local Codex skill contract, and
 removes the temporary database when it exits.
 
 To keep a shareable Markdown proof from the same credential-free run:
@@ -22,9 +23,9 @@ apps/api/.venv/bin/python -u scripts/first_run_smoke.py \
 ```
 
 The report records the API health/readiness checks, fixture counts, task-pack
-export evidence, dashboard route check, and runtime boundaries without including
-secret values, raw connector payloads, private scan data, or local database
-paths.
+export evidence, task-pack contract validation, dashboard route check, and
+runtime boundaries without including secret values, raw connector payloads,
+private scan data, or local database paths.
 
 For a complete reviewer bundle from the same credential-free run:
 
@@ -35,7 +36,9 @@ apps/api/.venv/bin/python -u scripts/first_run_smoke.py \
 
 The bundle includes `first-run-proof.md`, `first-run-summary.json`, and the
 top opportunity's exported task pack so reviewers can inspect both human and
-machine-readable evidence from one run.
+machine-readable evidence from one run. The smoke run validates the task pack
+against `skills/tasksignal-opportunity-builder/scripts/check_task_pack.py`
+before writing the bundle.
 
 To also boot the Next.js dev server and request `/dashboard`, run:
 

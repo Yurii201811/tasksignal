@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import shutil
@@ -26,6 +27,9 @@ ROOT = Path(__file__).resolve().parents[1]
 API_DIR = ROOT / "apps" / "api"
 WEB_DIR = ROOT / "apps" / "web"
 HOMEBREW_NODE20_BIN = Path("/opt/homebrew/opt/node@20/bin")
+TASK_PACK_CHECKER_PATH = (
+    ROOT / "skills" / "tasksignal-opportunity-builder" / "scripts" / "check_task_pack.py"
+)
 
 
 class SmokeError(RuntimeError):
@@ -229,6 +233,33 @@ def source_breakdown_summary(source_breakdown: object) -> list[dict[str, object]
     return rows
 
 
+def check_task_pack_contract(markdown: str) -> int:
+    if not TASK_PACK_CHECKER_PATH.exists():
+        raise SmokeError(f"Task-pack checker is missing: {TASK_PACK_CHECKER_PATH}")
+
+    spec = importlib.util.spec_from_file_location(
+        "tasksignal_task_pack_checker",
+        TASK_PACK_CHECKER_PATH,
+    )
+    if not spec or not spec.loader:
+        raise SmokeError(f"Task-pack checker could not be loaded: {TASK_PACK_CHECKER_PATH}")
+
+    checker = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(checker)
+
+    required_sections = getattr(checker, "REQUIRED_SECTIONS", None)
+    missing_required_sections = getattr(checker, "missing_required_sections", None)
+    if not isinstance(required_sections, list) or not callable(missing_required_sections):
+        raise SmokeError("Task-pack checker does not expose the expected validation contract.")
+
+    missing = [str(section) for section in missing_required_sections(markdown)]
+    if missing:
+        raise SmokeError(
+            "Task-pack markdown is missing required section(s): " + ", ".join(missing)
+        )
+    return len(required_sections)
+
+
 def proof_summary(
     result: dict[str, object],
     *,
@@ -274,6 +305,13 @@ def proof_summary(
                     "top_opportunity_id": result["top_opportunity_id"],
                     "top_opportunity": result["top_opportunity"],
                     "evidence_urls": result["task_pack_evidence_urls"],
+                },
+            },
+            "task_pack_structure": {
+                "result": "passed",
+                "evidence": {
+                    "required_sections": result["task_pack_required_sections"],
+                    "validator": "skills/tasksignal-opportunity-builder/scripts/check_task_pack.py",
                 },
             },
             "dashboard_route_source": {
@@ -348,6 +386,11 @@ def proof_report_markdown(
             f"{result['task_pack_evidence_urls']} evidence URL(s) on the top opportunity |"
         ),
         (
+            "| Task-pack structure | passed | "
+            f"{result['task_pack_required_sections']} required sections present, "
+            "validated by `skills/tasksignal-opportunity-builder/scripts/check_task_pack.py` |"
+        ),
+        (
             "| Dashboard route source | "
             f"{check_result(dashboard_source_checked)} | "
             f"{check_evidence(dashboard_source_checked, 'route imports the dashboard feature')} |"
@@ -401,7 +444,10 @@ def proof_bundle_readme(summary: dict[str, object]) -> str:
             "",
             "- `first-run-proof.md`: human-readable smoke report.",
             "- `first-run-summary.json`: machine-readable counts, checks, and runtime boundaries.",
-            "- `top-opportunity-task-pack.md`: exact task pack exported for the top fixture opportunity.",
+            (
+                "- `top-opportunity-task-pack.md`: exact task pack exported for the top fixture "
+                "opportunity and validated against the repo-local Codex skill contract."
+            ),
             "",
             (
                 "This bundle is generated from fixture data only. It omits secret values, "
@@ -495,6 +541,7 @@ def run_api_checks(database_path: Path) -> dict[str, object]:
             "Task-pack markdown was not generated.",
         )
         assert_condition(task_pack.get("evidence_urls"), "Task-pack has no evidence URLs.")
+        task_pack_required_sections = check_task_pack_contract(str(task_pack["markdown"]))
 
         return {
             "health_status": health["status"],
@@ -511,6 +558,7 @@ def run_api_checks(database_path: Path) -> dict[str, object]:
             "top_opportunity": first_opportunity["title"],
             "task_pack_evidence_urls": len(task_pack["evidence_urls"]),
             "task_pack_markdown": task_pack["markdown"],
+            "task_pack_required_sections": task_pack_required_sections,
             "llm_provider": os.environ["LLM_PROVIDER"],
             "public_scan_sources": os.environ["PUBLIC_SCAN_SOURCES"],
         }

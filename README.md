@@ -140,7 +140,8 @@ make release-check
 ```
 
 Run the first-run smoke check to verify the credential-free fixture path against
-a temporary database, including dashboard route wiring and task-pack export:
+a temporary database, including dashboard route wiring, task-pack export, and
+task-pack contract validation:
 
 ```bash
 make smoke
