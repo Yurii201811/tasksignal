@@ -248,15 +248,13 @@ def check_task_pack_contract(markdown: str) -> int:
     spec.loader.exec_module(checker)
 
     required_sections = getattr(checker, "REQUIRED_SECTIONS", None)
-    missing_required_sections = getattr(checker, "missing_required_sections", None)
-    if not isinstance(required_sections, list) or not callable(missing_required_sections):
+    structure_errors = getattr(checker, "task_pack_structure_errors", None)
+    if not isinstance(required_sections, list) or not callable(structure_errors):
         raise SmokeError("Task-pack checker does not expose the expected validation contract.")
 
-    missing = [str(section) for section in missing_required_sections(markdown)]
-    if missing:
-        raise SmokeError(
-            "Task-pack markdown is missing required section(s): " + ", ".join(missing)
-        )
+    errors = [str(error) for error in structure_errors(markdown)]
+    if errors:
+        raise SmokeError("Task-pack markdown failed structure check: " + "; ".join(errors))
     return len(required_sections)
 
 

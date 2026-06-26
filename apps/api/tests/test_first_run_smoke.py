@@ -61,12 +61,20 @@ def test_task_pack_contract_check_uses_repo_local_skill_contract() -> None:
         [
             "# TaskSignal Codex Task Pack: Useful tool",
             "## Objective",
+            "Build the narrow workflow described by the evidence.",
             "## Suggested MVP",
+            "A local-first prototype with one useful happy path.",
             "## Evidence Score",
+            "- Opportunity score: 56/100",
             "## Evidence",
+            "### Evidence 1: Example",
+            "- Source: fixture",
             "## Acceptance Criteria",
+            "- The workflow can be verified locally.",
             "## Privacy And Safety Constraints",
+            "- Do not include raw usernames or credential values.",
             "## Recommended Codex Flow",
+            "1. Inspect the cited sources before implementation.",
             "",
         ]
     )
@@ -86,6 +94,69 @@ def test_task_pack_contract_check_reports_missing_sections() -> None:
         assert "## Recommended Codex Flow" in message
     else:  # pragma: no cover - keeps the assertion message useful.
         raise AssertionError("Expected incomplete task pack to fail contract validation")
+
+
+def test_task_pack_contract_check_reports_empty_sections() -> None:
+    empty_pack = "\n".join(
+        [
+            "# TaskSignal Codex Task Pack: Useful tool",
+            "## Objective",
+            "## Suggested MVP",
+            "A local-first prototype with one useful happy path.",
+            "## Evidence Score",
+            "- Opportunity score: 56/100",
+            "## Evidence",
+            "### Evidence 1: Example",
+            "## Acceptance Criteria",
+            "- The workflow can be verified locally.",
+            "## Privacy And Safety Constraints",
+            "- Do not include raw usernames or credential values.",
+            "## Recommended Codex Flow",
+            "1. Inspect the cited sources before implementation.",
+            "",
+        ]
+    )
+
+    try:
+        first_run_smoke.check_task_pack_contract(empty_pack)
+    except first_run_smoke.SmokeError as exc:
+        message = str(exc)
+        assert "empty required section" in message
+        assert "## Objective" in message
+    else:  # pragma: no cover - keeps the assertion message useful.
+        raise AssertionError("Expected empty task-pack section to fail validation")
+
+
+def test_task_pack_contract_check_reports_misordered_sections() -> None:
+    misordered_pack = "\n".join(
+        [
+            "# TaskSignal Codex Task Pack: Useful tool",
+            "## Suggested MVP",
+            "A local-first prototype with one useful happy path.",
+            "## Objective",
+            "Build the narrow workflow described by the evidence.",
+            "## Evidence Score",
+            "- Opportunity score: 56/100",
+            "## Evidence",
+            "### Evidence 1: Example",
+            "## Acceptance Criteria",
+            "- The workflow can be verified locally.",
+            "## Privacy And Safety Constraints",
+            "- Do not include raw usernames or credential values.",
+            "## Recommended Codex Flow",
+            "1. Inspect the cited sources before implementation.",
+            "",
+        ]
+    )
+
+    try:
+        first_run_smoke.check_task_pack_contract(misordered_pack)
+    except first_run_smoke.SmokeError as exc:
+        message = str(exc)
+        assert "misordered required section" in message
+        assert "## Suggested MVP" in message
+    else:  # pragma: no cover - keeps the assertion message useful.
+        raise AssertionError("Expected misordered task-pack section to fail validation")
 
 
 def test_proof_report_markdown_records_fixture_result_without_local_paths() -> None:
