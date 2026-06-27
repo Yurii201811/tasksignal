@@ -154,7 +154,7 @@ apps/api/.venv/bin/python -u scripts/first_run_smoke.py --proof-out first-run-pr
 ```
 
 To save a complete reviewer bundle with the Markdown proof, machine-readable
-summary, and top opportunity task pack:
+summary, top opportunity task pack, and artifact manifest:
 
 ```bash
 apps/api/.venv/bin/python -u scripts/first_run_smoke.py --proof-dir first-run-proof-bundle

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 import sys
@@ -280,8 +281,20 @@ def test_write_proof_bundle_creates_review_package(tmp_path) -> None:
         (bundle_dir / "top-opportunity-task-pack.md").read_text(encoding="utf-8")
         == "# TaskSignal Codex Task Pack: Operators need automation\n"
     )
+    manifest = json.loads((bundle_dir / "MANIFEST.json").read_text())
+    manifest_files = {entry["path"]: entry for entry in manifest["files"]}
+    assert set(manifest_files) == {
+        "README.md",
+        "first-run-proof.md",
+        "first-run-summary.json",
+        "top-opportunity-task-pack.md",
+    }
+    proof_entry = manifest_files["first-run-proof.md"]
+    assert proof_entry["bytes"] == len(b"# proof\n")
+    assert proof_entry["sha256"] == hashlib.sha256(b"# proof\n").hexdigest()
     readme = (bundle_dir / "README.md").read_text(encoding="utf-8")
     assert "validated against the repo-local Codex skill contract" in readme
+    assert "MANIFEST.json" in readme
     assert "smoke.db" not in readme
 
 
@@ -335,6 +348,7 @@ def test_skip_web_proof_bundle_writes_expected_files(tmp_path, monkeypatch) -> N
     assert (output_dir / "first-run-proof.md").exists()
     assert (output_dir / "first-run-summary.json").exists()
     assert (output_dir / "top-opportunity-task-pack.md").exists()
+    assert (output_dir / "MANIFEST.json").exists()
     summary = json.loads((output_dir / "first-run-summary.json").read_text())
     assert summary["repository_revision"] == "main @ c2567ce12345 (clean)"
 

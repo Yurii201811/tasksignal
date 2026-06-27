@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
 import json
 import os
@@ -430,6 +431,33 @@ def write_proof_report(path: Path, report: str) -> None:
     path.write_text(report, encoding="utf-8")
 
 
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def proof_bundle_manifest(
+    path: Path,
+    summary: dict[str, object],
+    artifact_names: list[str],
+) -> dict[str, object]:
+    return {
+        "generated_at": summary["generated_at"],
+        "repository_revision": summary["repository_revision"],
+        "files": [
+            {
+                "path": name,
+                "bytes": (path / name).stat().st_size,
+                "sha256": file_sha256(path / name),
+            }
+            for name in artifact_names
+        ],
+    }
+
+
 def proof_bundle_readme(summary: dict[str, object]) -> str:
     return "\n".join(
         [
@@ -446,6 +474,7 @@ def proof_bundle_readme(summary: dict[str, object]) -> str:
                 "- `top-opportunity-task-pack.md`: exact task pack exported for the top fixture "
                 "opportunity and validated against the repo-local Codex skill contract."
             ),
+            "- `MANIFEST.json`: file sizes and SHA-256 hashes for the generated artifacts.",
             "",
             (
                 "This bundle is generated from fixture data only. It omits secret values, "
@@ -463,6 +492,12 @@ def write_proof_bundle(
     result: dict[str, object],
 ) -> None:
     path.mkdir(parents=True, exist_ok=True)
+    artifact_names = [
+        "README.md",
+        "first-run-proof.md",
+        "first-run-summary.json",
+        "top-opportunity-task-pack.md",
+    ]
     write_proof_report(path / "README.md", proof_bundle_readme(summary))
     write_proof_report(path / "first-run-proof.md", report)
     (path / "first-run-summary.json").write_text(
@@ -472,6 +507,11 @@ def write_proof_bundle(
     write_proof_report(
         path / "top-opportunity-task-pack.md",
         f"{str(result['task_pack_markdown']).rstrip()}\n",
+    )
+    (path / "MANIFEST.json").write_text(
+        json.dumps(proof_bundle_manifest(path, summary, artifact_names), indent=2, sort_keys=True)
+        + "\n",
+        encoding="utf-8",
     )
 
 
