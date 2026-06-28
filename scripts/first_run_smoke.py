@@ -31,6 +31,14 @@ HOMEBREW_NODE20_BIN = Path("/opt/homebrew/opt/node@20/bin")
 TASK_PACK_CHECKER_PATH = (
     ROOT / "skills" / "tasksignal-opportunity-builder" / "scripts" / "check_task_pack.py"
 )
+PROOF_BUNDLE_ARTIFACTS = [
+    "README.md",
+    "first-run-proof.md",
+    "first-run-summary.json",
+    "top-opportunity-task-pack.md",
+]
+PROOF_BUNDLE_MANIFEST = "MANIFEST.json"
+PROOF_BUNDLE_FILES = [*PROOF_BUNDLE_ARTIFACTS, PROOF_BUNDLE_MANIFEST]
 
 
 class SmokeError(RuntimeError):
@@ -485,19 +493,40 @@ def proof_bundle_readme(summary: dict[str, object]) -> str:
     )
 
 
+def unexpected_proof_bundle_entries(path: Path) -> list[str]:
+    if not path.exists():
+        return []
+    if not path.is_dir():
+        raise SmokeError(f"Proof bundle path exists but is not a directory: {path}")
+
+    expected = set(PROOF_BUNDLE_FILES)
+    unexpected: list[str] = []
+    for entry in path.iterdir():
+        if entry.name not in expected:
+            suffix = "/" if entry.is_dir() else ""
+            unexpected.append(f"{entry.name}{suffix}")
+    return sorted(unexpected)
+
+
+def prepare_proof_bundle_dir(path: Path) -> None:
+    unexpected = unexpected_proof_bundle_entries(path)
+    if unexpected:
+        raise SmokeError(
+            "Proof bundle directory contains unexpected file(s): "
+            + ", ".join(unexpected)
+            + ". Use an empty directory or remove unrelated files before rerunning."
+        )
+    path.mkdir(parents=True, exist_ok=True)
+
+
 def write_proof_bundle(
     path: Path,
     report: str,
     summary: dict[str, object],
     result: dict[str, object],
 ) -> None:
-    path.mkdir(parents=True, exist_ok=True)
-    artifact_names = [
-        "README.md",
-        "first-run-proof.md",
-        "first-run-summary.json",
-        "top-opportunity-task-pack.md",
-    ]
+    prepare_proof_bundle_dir(path)
+    artifact_names = PROOF_BUNDLE_ARTIFACTS
     write_proof_report(path / "README.md", proof_bundle_readme(summary))
     write_proof_report(path / "first-run-proof.md", report)
     (path / "first-run-summary.json").write_text(

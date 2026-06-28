@@ -43,6 +43,16 @@ def smoke_result() -> dict[str, object]:
     }
 
 
+def smoke_summary() -> dict[str, object]:
+    return first_run_smoke.proof_summary(
+        smoke_result(),
+        dashboard_source_checked=True,
+        live_dashboard_checked=None,
+        revision="codex/first-run-proof-report @ c2567ce12345 (local changes present)",
+        generated_at=datetime(2026, 6, 17, 12, 0, tzinfo=UTC),
+    )
+
+
 def test_api_env_forces_clean_sqlite_runtime(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://example")
     monkeypatch.setenv("LLM_PROVIDER", "openai")
@@ -81,6 +91,104 @@ def test_task_pack_contract_check_uses_repo_local_skill_contract() -> None:
     )
 
     assert first_run_smoke.check_task_pack_contract(complete_pack) == 7
+
+
+def test_task_pack_contract_check_reports_missing_title_prefix() -> None:
+    untitled_pack = "\n".join(
+        [
+            "# Useful tool",
+            "## Objective",
+            "Build the narrow workflow described by the evidence.",
+            "## Suggested MVP",
+            "A local-first prototype with one useful happy path.",
+            "## Evidence Score",
+            "- Opportunity score: 56/100",
+            "## Evidence",
+            "### Evidence 1: Example",
+            "- Source: fixture",
+            "## Acceptance Criteria",
+            "- The workflow can be verified locally.",
+            "## Privacy And Safety Constraints",
+            "- Do not include raw usernames or credential values.",
+            "## Recommended Codex Flow",
+            "1. Inspect the cited sources before implementation.",
+            "",
+        ]
+    )
+
+    try:
+        first_run_smoke.check_task_pack_contract(untitled_pack)
+    except first_run_smoke.SmokeError as exc:
+        message = str(exc)
+        assert "missing task pack title prefix" in message
+        assert "# TaskSignal Codex Task Pack:" in message
+    else:  # pragma: no cover - keeps the assertion message useful.
+        raise AssertionError("Expected task pack without the TaskSignal title to fail validation")
+
+
+def test_task_pack_contract_check_reports_duplicate_sections() -> None:
+    duplicate_pack = "\n".join(
+        [
+            "# TaskSignal Codex Task Pack: Useful tool",
+            "## Objective",
+            "Build the narrow workflow described by the evidence.",
+            "## Suggested MVP",
+            "A local-first prototype with one useful happy path.",
+            "## Evidence Score",
+            "- Opportunity score: 56/100",
+            "## Evidence",
+            "### Evidence 1: Example",
+            "- Source: fixture",
+            "## Acceptance Criteria",
+            "- The workflow can be verified locally.",
+            "## Acceptance Criteria",
+            "- This duplicate should be rejected.",
+            "## Privacy And Safety Constraints",
+            "- Do not include raw usernames or credential values.",
+            "## Recommended Codex Flow",
+            "1. Inspect the cited sources before implementation.",
+            "",
+        ]
+    )
+
+    try:
+        first_run_smoke.check_task_pack_contract(duplicate_pack)
+    except first_run_smoke.SmokeError as exc:
+        message = str(exc)
+        assert "duplicate required section" in message
+        assert "## Acceptance Criteria" in message
+    else:  # pragma: no cover - keeps the assertion message useful.
+        raise AssertionError("Expected duplicate task-pack section to fail validation")
+
+
+def test_task_pack_contract_allows_generated_prompt_appendix_headings() -> None:
+    pack_with_prompt_appendix = "\n".join(
+        [
+            "# TaskSignal Codex Task Pack: Useful tool",
+            "## Objective",
+            "Build the narrow workflow described by the evidence.",
+            "## Suggested MVP",
+            "A local-first prototype with one useful happy path.",
+            "## Evidence Score",
+            "- Opportunity score: 56/100",
+            "## Evidence",
+            "### Evidence 1: Example",
+            "- Source: fixture",
+            "## Acceptance Criteria",
+            "- The workflow can be verified locally.",
+            "## Privacy And Safety Constraints",
+            "- Do not include raw usernames or credential values.",
+            "## Recommended Codex Flow",
+            "1. Inspect the cited sources before implementation.",
+            "## Generated Build Prompt",
+            "The generated prompt can contain its own markdown contract.",
+            "## Evidence",
+            "- This appendix heading should not count as a duplicate task-pack section.",
+            "",
+        ]
+    )
+
+    assert first_run_smoke.check_task_pack_contract(pack_with_prompt_appendix) == 7
 
 
 def test_task_pack_contract_check_reports_missing_sections() -> None:
@@ -255,22 +363,15 @@ def test_write_proof_report_creates_parent_directory(tmp_path) -> None:
 
 
 def test_write_proof_bundle_creates_review_package(tmp_path) -> None:
-    summary = first_run_smoke.proof_summary(
-        smoke_result(),
-        dashboard_source_checked=True,
-        live_dashboard_checked=None,
-        revision="codex/first-run-proof-report @ c2567ce12345 (local changes present)",
-        generated_at=datetime(2026, 6, 17, 12, 0, tzinfo=UTC),
-    )
-
     first_run_smoke.write_proof_bundle(
         tmp_path / "proof-bundle",
         "# proof\n",
-        summary,
+        smoke_summary(),
         smoke_result(),
     )
 
     bundle_dir = tmp_path / "proof-bundle"
+    assert {entry.name for entry in bundle_dir.iterdir()} == set(first_run_smoke.PROOF_BUNDLE_FILES)
     assert (bundle_dir / "README.md").read_text(encoding="utf-8").startswith(
         "# TaskSignal First-Run Proof Bundle"
     )
@@ -296,6 +397,71 @@ def test_write_proof_bundle_creates_review_package(tmp_path) -> None:
     assert "validated against the repo-local Codex skill contract" in readme
     assert "MANIFEST.json" in readme
     assert "smoke.db" not in readme
+
+
+def test_write_proof_bundle_rejects_unexpected_stale_file(tmp_path) -> None:
+    bundle_dir = tmp_path / "proof-bundle"
+    bundle_dir.mkdir()
+    stale_file = bundle_dir / "old-proof.md"
+    stale_file.write_text("# old proof\n", encoding="utf-8")
+
+    try:
+        first_run_smoke.write_proof_bundle(
+            bundle_dir,
+            "# proof\n",
+            smoke_summary(),
+            smoke_result(),
+        )
+    except first_run_smoke.SmokeError as exc:
+        message = str(exc)
+        assert "unexpected file" in message
+        assert "old-proof.md" in message
+    else:  # pragma: no cover - keeps the assertion message useful.
+        raise AssertionError("Expected stale proof-bundle file to fail validation")
+
+    assert stale_file.read_text(encoding="utf-8") == "# old proof\n"
+
+
+def test_write_proof_bundle_rejects_unexpected_stale_directory(tmp_path) -> None:
+    bundle_dir = tmp_path / "proof-bundle"
+    stale_dir = bundle_dir / "screenshots"
+    stale_dir.mkdir(parents=True)
+
+    try:
+        first_run_smoke.write_proof_bundle(
+            bundle_dir,
+            "# proof\n",
+            smoke_summary(),
+            smoke_result(),
+        )
+    except first_run_smoke.SmokeError as exc:
+        message = str(exc)
+        assert "unexpected file" in message
+        assert "screenshots/" in message
+    else:  # pragma: no cover - keeps the assertion message useful.
+        raise AssertionError("Expected stale proof-bundle directory to fail validation")
+
+    assert stale_dir.is_dir()
+
+
+def test_write_proof_bundle_allows_rerun_with_known_generated_files(tmp_path) -> None:
+    bundle_dir = tmp_path / "proof-bundle"
+
+    first_run_smoke.write_proof_bundle(
+        bundle_dir,
+        "# proof\n",
+        smoke_summary(),
+        smoke_result(),
+    )
+    first_run_smoke.write_proof_bundle(
+        bundle_dir,
+        "# updated proof\n",
+        smoke_summary(),
+        smoke_result(),
+    )
+
+    assert {entry.name for entry in bundle_dir.iterdir()} == set(first_run_smoke.PROOF_BUNDLE_FILES)
+    assert (bundle_dir / "first-run-proof.md").read_text(encoding="utf-8") == "# updated proof\n"
 
 
 def test_skip_web_proof_run_does_not_allocate_web_port(tmp_path, monkeypatch) -> None:

@@ -23,9 +23,9 @@ apps/api/.venv/bin/python -u scripts/first_run_smoke.py \
 ```
 
 The report records the API health/readiness checks, fixture counts, task-pack
-export evidence, task-pack contract validation, dashboard route check, and
-runtime boundaries without including secret values, raw connector payloads,
-private scan data, or local database paths.
+export evidence, task-pack title and section contract validation, dashboard
+route check, and runtime boundaries without including secret values, raw
+connector payloads, private scan data, or local database paths.
 
 For a complete reviewer bundle from the same credential-free run:
 
@@ -37,9 +37,13 @@ apps/api/.venv/bin/python -u scripts/first_run_smoke.py \
 The bundle includes `first-run-proof.md`, `first-run-summary.json`, the top
 opportunity's exported task pack, and `MANIFEST.json` with file sizes and
 SHA-256 hashes so reviewers can inspect both human and machine-readable
-evidence from one run. The smoke run validates the task pack against
+evidence from one run. The smoke run validates the task pack title, required
+section order, non-empty required sections, and duplicate required sections in
+the handoff contract before the generated prompt appendix, using
 `skills/tasksignal-opportunity-builder/scripts/check_task_pack.py` before
-writing the bundle.
+writing the bundle. If the output directory already exists, it must be empty or
+contain only generated proof-bundle files so stale artifacts cannot sit outside
+the manifest.
 
 To also boot the Next.js dev server and request `/dashboard`, run:
 

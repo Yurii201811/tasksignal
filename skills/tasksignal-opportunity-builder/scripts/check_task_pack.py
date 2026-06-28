@@ -13,10 +13,35 @@ REQUIRED_SECTIONS = [
     "## Privacy And Safety Constraints",
     "## Recommended Codex Flow",
 ]
+REQUIRED_TITLE_PREFIX = "# TaskSignal Codex Task Pack:"
+CONTRACT_STOP_HEADINGS = {"## Generated Build Prompt"}
+
+
+def contract_lines(text: str) -> list[str]:
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        if line.strip() in CONTRACT_STOP_HEADINGS:
+            return lines[:index]
+    return lines
+
+
+def contract_text(text: str) -> str:
+    return "\n".join(contract_lines(text))
+
+
+def title_errors(text: str) -> list[str]:
+    first_content_line = next((line.strip() for line in text.splitlines() if line.strip()), "")
+    if not first_content_line:
+        return [f"missing task pack title: {REQUIRED_TITLE_PREFIX} <title>"]
+    if not first_content_line.startswith(REQUIRED_TITLE_PREFIX):
+        return [f"missing task pack title prefix: {REQUIRED_TITLE_PREFIX}"]
+    if not first_content_line.removeprefix(REQUIRED_TITLE_PREFIX).strip():
+        return ["empty task pack title"]
+    return []
 
 
 def required_section_spans(text: str) -> dict[str, tuple[int, int]]:
-    lines = text.splitlines()
+    lines = contract_lines(text)
     headings: list[tuple[str, int]] = [
         (line.strip(), index)
         for index, line in enumerate(lines)
@@ -37,6 +62,15 @@ def missing_required_sections(text: str) -> list[str]:
     return [section for section in REQUIRED_SECTIONS if section not in spans]
 
 
+def duplicate_required_sections(text: str) -> list[str]:
+    counts = {section: 0 for section in REQUIRED_SECTIONS}
+    for line in contract_lines(text):
+        heading = line.strip()
+        if heading in counts:
+            counts[heading] += 1
+    return [section for section in REQUIRED_SECTIONS if counts[section] > 1]
+
+
 def misordered_required_sections(text: str) -> list[str]:
     spans = required_section_spans(text)
     previous_line = -1
@@ -52,6 +86,7 @@ def misordered_required_sections(text: str) -> list[str]:
 
 
 def empty_required_sections(text: str) -> list[str]:
+    text = contract_text(text)
     lines = text.splitlines()
     spans = required_section_spans(text)
     empty: list[str] = []
@@ -67,9 +102,15 @@ def empty_required_sections(text: str) -> list[str]:
 
 def task_pack_structure_errors(text: str) -> list[str]:
     errors: list[str] = []
+    errors.extend(title_errors(text))
+
     missing = missing_required_sections(text)
     if missing:
         errors.append("missing required section(s): " + ", ".join(missing))
+
+    duplicates = duplicate_required_sections(text)
+    if duplicates:
+        errors.append("duplicate required section(s): " + ", ".join(duplicates))
 
     misordered = misordered_required_sections(text)
     if misordered:
