@@ -466,6 +466,96 @@ def proof_bundle_manifest(
     }
 
 
+def proof_bundle_manifest_errors(path: Path) -> list[str]:
+    if not path.exists():
+        return [f"Proof bundle directory is missing: {path}"]
+    if not path.is_dir():
+        return [f"Proof bundle path is not a directory: {path}"]
+
+    manifest_path = path / PROOF_BUNDLE_MANIFEST
+    if not manifest_path.exists():
+        return [f"Proof bundle manifest is missing: {manifest_path}"]
+    if not manifest_path.is_file():
+        return [f"Proof bundle manifest is not a file: {manifest_path}"]
+
+    errors: list[str] = []
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        return [f"Proof bundle manifest is invalid JSON: {exc}"]
+
+    if not isinstance(manifest, dict):
+        return ["Proof bundle manifest must be a JSON object."]
+
+    files = manifest.get("files")
+    if not isinstance(files, list):
+        return ["Proof bundle manifest must include a files list."]
+
+    expected_artifacts = set(PROOF_BUNDLE_ARTIFACTS)
+    seen_artifacts: set[str] = set()
+    for index, entry in enumerate(files, start=1):
+        if not isinstance(entry, dict):
+            errors.append(f"manifest file entry {index} must be an object")
+            continue
+
+        artifact_name = entry.get("path")
+        if not isinstance(artifact_name, str) or not artifact_name:
+            errors.append(f"manifest file entry {index} has an invalid path")
+            continue
+        if Path(artifact_name).name != artifact_name:
+            errors.append(f"manifest file entry {index} must use a top-level file path")
+            continue
+        if artifact_name == PROOF_BUNDLE_MANIFEST:
+            errors.append("manifest must not list MANIFEST.json as an artifact")
+            continue
+        if artifact_name in seen_artifacts:
+            errors.append(f"duplicate manifest file entry: {artifact_name}")
+            continue
+
+        seen_artifacts.add(artifact_name)
+        artifact_path = path / artifact_name
+        if not artifact_path.exists():
+            errors.append(f"manifested file is missing: {artifact_name}")
+            continue
+        if not artifact_path.is_file():
+            errors.append(f"manifested path is not a file: {artifact_name}")
+            continue
+
+        expected_bytes = entry.get("bytes")
+        if not isinstance(expected_bytes, int) or expected_bytes < 0:
+            errors.append(f"manifested bytes must be a non-negative integer: {artifact_name}")
+        elif artifact_path.stat().st_size != expected_bytes:
+            errors.append(f"byte count mismatch for {artifact_name}")
+
+        expected_sha256 = entry.get("sha256")
+        if not isinstance(expected_sha256, str) or not expected_sha256:
+            errors.append(f"manifested sha256 must be a non-empty string: {artifact_name}")
+        elif file_sha256(artifact_path) != expected_sha256:
+            errors.append(f"sha256 mismatch for {artifact_name}")
+
+    missing_entries = sorted(expected_artifacts - seen_artifacts)
+    if missing_entries:
+        errors.append("manifest is missing generated artifact(s): " + ", ".join(missing_entries))
+
+    unexpected_manifest_entries = sorted(seen_artifacts - expected_artifacts)
+    if unexpected_manifest_entries:
+        errors.append(
+            "manifest lists unexpected artifact(s): " + ", ".join(unexpected_manifest_entries)
+        )
+
+    unexpected_files = unexpected_proof_bundle_entries(path)
+    if unexpected_files:
+        errors.append("proof bundle contains unexpected file(s): " + ", ".join(unexpected_files))
+
+    return errors
+
+
+def verify_proof_bundle_manifest(path: Path) -> None:
+    errors = proof_bundle_manifest_errors(path)
+    if errors:
+        raise SmokeError("Proof bundle manifest verification failed: " + "; ".join(errors))
+
+
 def proof_bundle_readme(summary: dict[str, object]) -> str:
     return "\n".join(
         [
@@ -687,11 +777,26 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Write a reviewer proof bundle directory after all requested smoke checks pass.",
     )
+    parser.add_argument(
+        "--verify-proof-dir",
+        type=Path,
+        default=None,
+        help="Verify an existing proof bundle manifest and exit without rerunning smoke checks.",
+    )
     return parser
 
 
 def main() -> int:
     args = build_parser().parse_args()
+    if args.verify_proof_dir:
+        try:
+            verify_proof_bundle_manifest(args.verify_proof_dir)
+        except SmokeError as exc:
+            print(f"[FAIL] {exc}", file=sys.stderr)
+            return 1
+        print(f"[OK] Proof bundle manifest verified: {args.verify_proof_dir}", flush=True)
+        return 0
+
     processes: list[ManagedProcess] = []
     temp_dir = Path(tempfile.mkdtemp(prefix="tasksignal-smoke-"))
     passed = False

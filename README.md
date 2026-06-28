@@ -160,6 +160,13 @@ summary, top opportunity task pack, and artifact manifest:
 apps/api/.venv/bin/python -u scripts/first_run_smoke.py --proof-dir first-run-proof-bundle
 ```
 
+To verify a saved proof bundle's manifest, file sizes, hashes, and top-level
+contents without rerunning smoke:
+
+```bash
+apps/api/.venv/bin/python -u scripts/first_run_smoke.py --verify-proof-dir first-run-proof-bundle
+```
+
 To also boot the Next.js dev server and request `/dashboard`, run:
 
 ```bash

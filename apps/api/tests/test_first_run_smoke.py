@@ -464,6 +464,82 @@ def test_write_proof_bundle_allows_rerun_with_known_generated_files(tmp_path) ->
     assert (bundle_dir / "first-run-proof.md").read_text(encoding="utf-8") == "# updated proof\n"
 
 
+def test_verify_proof_bundle_manifest_accepts_generated_bundle(tmp_path) -> None:
+    bundle_dir = tmp_path / "proof-bundle"
+    first_run_smoke.write_proof_bundle(
+        bundle_dir,
+        "# proof\n",
+        smoke_summary(),
+        smoke_result(),
+    )
+
+    first_run_smoke.verify_proof_bundle_manifest(bundle_dir)
+
+
+def test_verify_proof_bundle_manifest_rejects_tampered_artifact(tmp_path) -> None:
+    bundle_dir = tmp_path / "proof-bundle"
+    first_run_smoke.write_proof_bundle(
+        bundle_dir,
+        "# proof\n",
+        smoke_summary(),
+        smoke_result(),
+    )
+    (bundle_dir / "first-run-proof.md").write_text("# tampered proof\n", encoding="utf-8")
+
+    try:
+        first_run_smoke.verify_proof_bundle_manifest(bundle_dir)
+    except first_run_smoke.SmokeError as exc:
+        message = str(exc)
+        assert "Proof bundle manifest verification failed" in message
+        assert "byte count mismatch for first-run-proof.md" in message
+        assert "sha256 mismatch for first-run-proof.md" in message
+    else:  # pragma: no cover - keeps the assertion message useful.
+        raise AssertionError("Expected tampered proof bundle artifact to fail verification")
+
+
+def test_verify_proof_bundle_manifest_rejects_unmanifested_file(tmp_path) -> None:
+    bundle_dir = tmp_path / "proof-bundle"
+    first_run_smoke.write_proof_bundle(
+        bundle_dir,
+        "# proof\n",
+        smoke_summary(),
+        smoke_result(),
+    )
+    (bundle_dir / "notes.md").write_text("review notes\n", encoding="utf-8")
+
+    try:
+        first_run_smoke.verify_proof_bundle_manifest(bundle_dir)
+    except first_run_smoke.SmokeError as exc:
+        message = str(exc)
+        assert "unexpected file" in message
+        assert "notes.md" in message
+    else:  # pragma: no cover - keeps the assertion message useful.
+        raise AssertionError("Expected unmanifested proof bundle file to fail verification")
+
+
+def test_verify_proof_dir_cli_exits_without_running_smoke(tmp_path, monkeypatch, capsys) -> None:
+    bundle_dir = tmp_path / "proof-bundle"
+    first_run_smoke.write_proof_bundle(
+        bundle_dir,
+        "# proof\n",
+        smoke_summary(),
+        smoke_result(),
+    )
+
+    def fail_if_called(_database_path: Path) -> dict[str, object]:
+        raise AssertionError("proof bundle verification should not run smoke checks")
+
+    monkeypatch.setattr(first_run_smoke, "run_api_checks", fail_if_called)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["first_run_smoke.py", "--verify-proof-dir", str(bundle_dir)],
+    )
+
+    assert first_run_smoke.main() == 0
+    assert "Proof bundle manifest verified" in capsys.readouterr().out
+
+
 def test_skip_web_proof_run_does_not_allocate_web_port(tmp_path, monkeypatch) -> None:
     output_path = tmp_path / "first-run-proof.md"
 

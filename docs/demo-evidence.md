@@ -45,6 +45,16 @@ writing the bundle. If the output directory already exists, it must be empty or
 contain only generated proof-bundle files so stale artifacts cannot sit outside
 the manifest.
 
+To verify a saved proof bundle later without rerunning the smoke pipeline:
+
+```bash
+apps/api/.venv/bin/python -u scripts/first_run_smoke.py \
+  --verify-proof-dir first-run-proof-bundle
+```
+
+The verifier checks `MANIFEST.json`, required artifact presence, byte counts,
+SHA-256 hashes, and unexpected top-level files.
+
 To also boot the Next.js dev server and request `/dashboard`, run:
 
 ```bash
