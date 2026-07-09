@@ -3,7 +3,11 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.services.evidence_review.types import ReviewState
+from app.services.evidence_review.types import (
+    EvidenceReadinessLevel,
+    EvidenceReviewLabel,
+    ReviewState,
+)
 
 
 class SourceCreate(BaseModel):
@@ -155,6 +159,82 @@ class ItemOut(BaseModel):
     task_concreteness_score: float | None = None
     buying_intent_score: float | None = None
     evidence_spans: list[str] = []
+    review_label: EvidenceReviewLabel | None = None
+    review_note: str | None = None
+    reviewed_at: datetime | None = None
+    review_history_count: int = 0
+
+
+class EvidenceReadinessChecksOut(BaseModel):
+    enough_evidence: bool
+    source_diversity: bool
+    source_url_coverage: bool
+    human_review_coverage: bool
+
+
+class EvidenceReadinessOut(BaseModel):
+    level: EvidenceReadinessLevel
+    evidence_count: int = Field(ge=0)
+    source_count: int = Field(ge=0)
+    safe_url_count: int = Field(ge=0)
+    reviewed_count: int = Field(ge=0)
+    source_url_coverage: float = Field(ge=0.0, le=1.0)
+    human_review_coverage: float = Field(ge=0.0, le=1.0)
+    checks: EvidenceReadinessChecksOut
+    passed_checks: list[str]
+    gaps: list[str]
+
+
+class EvidenceLabelCountsOut(BaseModel):
+    true_signal: int = Field(default=0, ge=0)
+    false_positive: int = Field(default=0, ge=0)
+    unclear: int = Field(default=0, ge=0)
+    duplicate: int = Field(default=0, ge=0)
+    not_actionable: int = Field(default=0, ge=0)
+    sensitive_risk: int = Field(default=0, ge=0)
+
+
+class EvaluationSliceOut(BaseModel):
+    total_items: int = Field(ge=0)
+    reviewed_items: int = Field(ge=0)
+    review_coverage: float = Field(ge=0.0, le=1.0)
+    label_counts: EvidenceLabelCountsOut
+    precision_on_reviewed_positives: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+    )
+
+
+class EvaluationOut(BaseModel):
+    total_reviewable_items: int = Field(ge=0)
+    reviewed_items: int = Field(ge=0)
+    review_coverage: float = Field(ge=0.0, le=1.0)
+    label_counts: EvidenceLabelCountsOut
+    unrecognized_latest_labels: int = Field(ge=0)
+    precision_on_reviewed_positives: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+    )
+    by_source: dict[str, EvaluationSliceOut]
+    by_signal_type: dict[str, EvaluationSliceOut]
+    selection_bias_warning: str
+
+
+class LabelCreate(BaseModel):
+    item_id: UUID
+    label: EvidenceReviewLabel
+    user_note: str | None = Field(default=None, max_length=500)
+
+
+class LabelOut(BaseModel):
+    id: UUID
+    item_id: UUID
+    label: str
+    user_note: str | None
+    created_at: datetime
+    model_config = ConfigDict(from_attributes=True)
 
 
 class OpportunityReviewUpdate(BaseModel):
@@ -198,12 +278,6 @@ class ProcessSummary(BaseModel):
 class SearchRequest(BaseModel):
     query: str
     limit: int = 10
-
-
-class LabelCreate(BaseModel):
-    item_id: UUID
-    label: str
-    user_note: str | None = None
 
 
 class TaskPackOut(BaseModel):
