@@ -64,7 +64,7 @@ export function Dashboard() {
   const stats = useQuery({ queryKey: ["stats"], queryFn: api.stats });
   const opportunities = useQuery({
     queryKey: ["opportunities"],
-    queryFn: api.opportunities,
+    queryFn: () => api.opportunities(),
   });
   const sources = useQuery({ queryKey: ["sources"], queryFn: api.sources });
   const scans = useQuery({ queryKey: ["scans"], queryFn: api.scans });

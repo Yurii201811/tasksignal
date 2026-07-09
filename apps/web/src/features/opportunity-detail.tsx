@@ -22,6 +22,7 @@ import {
   StateMessage,
   TableShell,
 } from "@/components/ui";
+import { apiErrorMessage } from "@/lib/api-error";
 import type { EvidenceItem, ScoreBreakdown } from "@/lib/types";
 import { safeExternalUrl } from "@/lib/url";
 
@@ -49,22 +50,6 @@ function evidenceSnippets(item: EvidenceItem) {
     return item.evidence_spans.slice(0, 3);
   }
   return [`${item.body.slice(0, 240)}${item.body.length > 240 ? "..." : ""}`];
-}
-
-function errorMessage(error: unknown) {
-  if (error instanceof Error) {
-    try {
-      const parsed = JSON.parse(error.message);
-      if (parsed?.detail) {
-        return typeof parsed.detail === "string"
-          ? parsed.detail
-          : JSON.stringify(parsed.detail);
-      }
-    } catch {
-      return error.message;
-    }
-  }
-  return "The request failed.";
 }
 
 export function OpportunityDetail({ id }: { id: string }) {
@@ -103,7 +88,7 @@ export function OpportunityDetail({ id }: { id: string }) {
   if (isError) {
     return (
       <StateMessage tone="danger" title="Could not load this opportunity">
-        {errorMessage(error)}
+        {apiErrorMessage(error)}
       </StateMessage>
     );
   }
@@ -222,7 +207,7 @@ export function OpportunityDetail({ id }: { id: string }) {
 
       {regenerate.error ? (
         <StateMessage tone="danger" title="Regeneration did not complete">
-          {errorMessage(regenerate.error)}
+          {apiErrorMessage(regenerate.error)}
         </StateMessage>
       ) : null}
       {regenerate.data ? (
@@ -233,7 +218,7 @@ export function OpportunityDetail({ id }: { id: string }) {
       ) : null}
       {enhance.error ? (
         <StateMessage tone="danger" title="Prompt enhancement did not complete">
-          {errorMessage(enhance.error)}
+          {apiErrorMessage(enhance.error)}
         </StateMessage>
       ) : null}
       {enhance.data ? (

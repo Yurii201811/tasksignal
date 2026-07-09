@@ -1,9 +1,13 @@
 import type {
   DueRun,
   Enhancement,
+  Evaluation,
+  EvidenceReviewCreate,
   Opportunity,
+  OpportunityReviewUpdate,
   Integration,
   IntegrationTest,
+  LabelOut,
   LocalWorkspace,
   LocalWorkspaceUpdate,
   ProcessSummary,
@@ -15,6 +19,7 @@ import type {
   Source,
   Stats,
   TaskPack,
+  ReviewState,
 } from "./types";
 
 const API_BASE =
@@ -37,8 +42,26 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   stats: () => request<Stats>("/api/stats"),
   readiness: () => request<Readiness>("/api/readiness"),
-  opportunities: () => request<Opportunity[]>("/api/opportunities"),
+  opportunities: (reviewState?: ReviewState) => {
+    const query = reviewState
+      ? `?${new URLSearchParams({ review_state: reviewState })}`
+      : "";
+    return request<Opportunity[]>(`/api/opportunities${query}`);
+  },
   opportunity: (id: string) => request<Opportunity>(`/api/opportunities/${id}`),
+  updateOpportunityReview: (id: string, payload: OpportunityReviewUpdate) =>
+    request<Opportunity>(`/api/opportunities/${id}/review`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+  createEvidenceReview: (payload: EvidenceReviewCreate) =>
+    request<LabelOut>("/api/labels", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  itemReviewHistory: (itemId: string) =>
+    request<LabelOut[]>(`/api/items/${itemId}/labels`),
+  evaluation: () => request<Evaluation>("/api/evaluation"),
   prompt: (id: string) =>
     request<{ prompt: string }>(`/api/opportunities/${id}/prompt`),
   regenerateOpportunity: (id: string) =>

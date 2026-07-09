@@ -44,10 +44,38 @@ const opportunity: Opportunity = {
       task_concreteness_score: 0.8,
       buying_intent_score: 0.4,
       evidence_spans: ["need production-readiness checks"],
+      review_label: null,
+      review_note: null,
+      reviewed_at: null,
+      review_history_count: 0,
     },
   ],
   signal_count: 1,
   top_source: "hackernews",
+  review_state: "new",
+  review_note: null,
+  decision_updated_at: null,
+  evidence_readiness: {
+    level: "weak",
+    evidence_count: 1,
+    source_count: 1,
+    safe_url_count: 1,
+    reviewed_count: 0,
+    source_url_coverage: 1,
+    human_review_coverage: 0,
+    checks: {
+      enough_evidence: false,
+      source_diversity: false,
+      source_url_coverage: true,
+      human_review_coverage: false,
+    },
+    passed_checks: ["source_url_coverage"],
+    gaps: [
+      "Collect 4 more evidence items.",
+      "Add evidence from 1 more source.",
+      "Review 1 more evidence item.",
+    ],
+  },
 };
 
 function renderWithClient(ui: React.ReactElement) {

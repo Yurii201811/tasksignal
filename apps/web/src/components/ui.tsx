@@ -6,6 +6,7 @@ import {
   InputHTMLAttributes,
   ReactNode,
   SelectHTMLAttributes,
+  TextareaHTMLAttributes,
   forwardRef,
 } from "react";
 
@@ -223,6 +224,31 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
     </select>
   );
 });
+
+export type TextareaProps = TextareaHTMLAttributes<HTMLTextAreaElement> & {
+  error?: boolean;
+  success?: boolean;
+};
+
+export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
+  function Textarea({ className, error, success, ...props }, ref) {
+    return (
+      <textarea
+        ref={ref}
+        aria-invalid={error || undefined}
+        data-state={error ? "error" : success ? "success" : undefined}
+        className={clsx(
+          fieldBase,
+          "min-h-24 resize-y px-3 py-2",
+          error && "border-danger-border focus-visible:outline-danger",
+          success && !error && "border-success-border focus-visible:outline-success",
+          className,
+        )}
+        {...props}
+      />
+    );
+  },
+);
 
 export function PageHeader({
   title,
