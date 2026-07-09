@@ -46,6 +46,9 @@ def test_process_demo_endpoint(client) -> None:
     assert opportunities[0]["scoring_breakdown_json"]["rank_drivers"]
     assert opportunities[0]["evidence_items"][0]["evidence_spans"]
     assert "Ranking rationale" in opportunities[0]["generated_prompt"]
+    assert opportunities[0]["review_state"] == "new"
+    assert opportunities[0]["review_note"] is None
+    assert opportunities[0]["decision_updated_at"] is None
 
 
 def test_integrations_report_status_without_secret_values(client, monkeypatch) -> None:

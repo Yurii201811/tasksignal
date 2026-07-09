@@ -215,6 +215,17 @@ class Opportunity(Base):
     competition_notes: Mapped[str] = mapped_column(Text)
     scoring_breakdown_json: Mapped[dict] = mapped_column(JSON, default=dict)
     generated_prompt: Mapped[str] = mapped_column(Text)
+    review_state: Mapped[str] = mapped_column(
+        Text,
+        default="new",
+        server_default="new",
+        index=True,
+    )
+    review_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    decision_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
 

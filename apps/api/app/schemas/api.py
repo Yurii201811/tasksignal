@@ -3,6 +3,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.services.evidence_review.types import ReviewState
+
 
 class SourceCreate(BaseModel):
     name: str
@@ -155,6 +157,11 @@ class ItemOut(BaseModel):
     evidence_spans: list[str] = []
 
 
+class OpportunityReviewUpdate(BaseModel):
+    review_state: ReviewState
+    review_note: str | None = Field(default=None, max_length=1000)
+
+
 class OpportunityOut(BaseModel):
     id: UUID
     cluster_id: UUID
@@ -169,6 +176,9 @@ class OpportunityOut(BaseModel):
     competition_notes: str
     scoring_breakdown_json: dict
     generated_prompt: str
+    review_state: ReviewState = "new"
+    review_note: str | None = None
+    decision_updated_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
     evidence_items: list[ItemOut] = []
