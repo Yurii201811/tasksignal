@@ -1,7 +1,7 @@
 # TaskSignal v0.2 Decision Workbench Design
 
 Date: 2026-07-09
-Status: Approved product direction; pending written-spec review before implementation
+Status: Approved for implementation
 
 ## Summary
 
