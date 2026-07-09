@@ -8,6 +8,7 @@ REQUIRED_SECTIONS = [
     "## Objective",
     "## Suggested MVP",
     "## Evidence Score",
+    "## Decision Context",
     "## Evidence",
     "## Acceptance Criteria",
     "## Privacy And Safety Constraints",

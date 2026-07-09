@@ -256,14 +256,15 @@ class OpportunityOut(BaseModel):
     competition_notes: str
     scoring_breakdown_json: dict
     generated_prompt: str
-    review_state: ReviewState = "new"
-    review_note: str | None = None
-    decision_updated_at: datetime | None = None
+    review_state: ReviewState
+    review_note: str | None
+    decision_updated_at: datetime | None
     created_at: datetime
     updated_at: datetime
     evidence_items: list[ItemOut] = []
     signal_count: int = 0
     top_source: str = "fixture"
+    evidence_readiness: EvidenceReadinessOut
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -290,3 +291,5 @@ class TaskPackOut(BaseModel):
     evidence_urls: list[str]
     acceptance_criteria: list[str]
     privacy_constraints: list[str]
+    review_state: ReviewState
+    evidence_readiness: EvidenceReadinessOut

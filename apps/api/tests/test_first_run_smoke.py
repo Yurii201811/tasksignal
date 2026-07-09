@@ -37,7 +37,7 @@ def smoke_result() -> dict[str, object]:
         "top_opportunity": "Operators need spreadsheet-to-client-report automation",
         "task_pack_evidence_urls": 4,
         "task_pack_markdown": "# TaskSignal Codex Task Pack: Operators need automation\n",
-        "task_pack_required_sections": 7,
+        "task_pack_required_sections": 8,
         "llm_provider": "none",
         "public_scan_sources": "fixture,hackernews",
     }
@@ -77,6 +77,8 @@ def test_task_pack_contract_check_uses_repo_local_skill_contract() -> None:
             "A local-first prototype with one useful happy path.",
             "## Evidence Score",
             "- Opportunity score: 56/100",
+            "## Decision Context",
+            "- Review state: new",
             "## Evidence",
             "### Evidence 1: Example",
             "- Source: fixture",
@@ -90,7 +92,7 @@ def test_task_pack_contract_check_uses_repo_local_skill_contract() -> None:
         ]
     )
 
-    assert first_run_smoke.check_task_pack_contract(complete_pack) == 7
+    assert first_run_smoke.check_task_pack_contract(complete_pack) == 8
 
 
 def test_task_pack_contract_check_reports_missing_title_prefix() -> None:
@@ -103,6 +105,8 @@ def test_task_pack_contract_check_reports_missing_title_prefix() -> None:
             "A local-first prototype with one useful happy path.",
             "## Evidence Score",
             "- Opportunity score: 56/100",
+            "## Decision Context",
+            "- Review state: new",
             "## Evidence",
             "### Evidence 1: Example",
             "- Source: fixture",
@@ -136,6 +140,8 @@ def test_task_pack_contract_check_reports_duplicate_sections() -> None:
             "A local-first prototype with one useful happy path.",
             "## Evidence Score",
             "- Opportunity score: 56/100",
+            "## Decision Context",
+            "- Review state: new",
             "## Evidence",
             "### Evidence 1: Example",
             "- Source: fixture",
@@ -171,6 +177,8 @@ def test_task_pack_contract_allows_generated_prompt_appendix_headings() -> None:
             "A local-first prototype with one useful happy path.",
             "## Evidence Score",
             "- Opportunity score: 56/100",
+            "## Decision Context",
+            "- Review state: new",
             "## Evidence",
             "### Evidence 1: Example",
             "- Source: fixture",
@@ -188,7 +196,7 @@ def test_task_pack_contract_allows_generated_prompt_appendix_headings() -> None:
         ]
     )
 
-    assert first_run_smoke.check_task_pack_contract(pack_with_prompt_appendix) == 7
+    assert first_run_smoke.check_task_pack_contract(pack_with_prompt_appendix) == 8
 
 
 def test_task_pack_contract_check_reports_missing_sections() -> None:
@@ -214,6 +222,8 @@ def test_task_pack_contract_check_reports_empty_sections() -> None:
             "A local-first prototype with one useful happy path.",
             "## Evidence Score",
             "- Opportunity score: 56/100",
+            "## Decision Context",
+            "- Review state: new",
             "## Evidence",
             "### Evidence 1: Example",
             "## Acceptance Criteria",
@@ -246,6 +256,8 @@ def test_task_pack_contract_check_reports_misordered_sections() -> None:
             "Build the narrow workflow described by the evidence.",
             "## Evidence Score",
             "- Opportunity score: 56/100",
+            "## Decision Context",
+            "- Review state: new",
             "## Evidence",
             "### Evidence 1: Example",
             "## Acceptance Criteria",
@@ -289,7 +301,7 @@ def test_proof_report_markdown_records_fixture_result_without_local_paths() -> N
         "17 signals, 5 clusters, 5 opportunities |"
     ) in report
     assert "| Task-pack export | passed | 4 evidence URL(s) on the top opportunity |" in report
-    assert "| Task-pack structure | passed | 7 required sections present" in report
+    assert "| Task-pack structure | passed | 8 required sections present" in report
     assert "| Dashboard route source | passed | route imports the dashboard feature |" in report
     assert "| Live dashboard request | skipped | not requested |" in report
     assert "## Source Mix" in report
@@ -318,7 +330,7 @@ def test_proof_summary_records_checks_and_runtime_boundaries() -> None:
     assert summary["checks"]["api_health"]["result"] == "passed"
     assert summary["checks"]["live_dashboard_request"]["result"] == "failed"
     assert summary["checks"]["task_pack_export"]["evidence"]["top_opportunity_id"] == 46
-    assert summary["checks"]["task_pack_structure"]["evidence"]["required_sections"] == 7
+    assert summary["checks"]["task_pack_structure"]["evidence"]["required_sections"] == 8
     assert summary["source_breakdown"] == [
         {"source": "github", "count": 4},
         {"source": "reddit", "count": 5},

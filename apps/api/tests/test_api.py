@@ -601,6 +601,9 @@ def test_evidence_bundle_export_drops_unsafe_source_urls() -> None:
         competition_notes="Focused export scope.",
         scoring_breakdown_json={"frequency": 1.0},
         generated_prompt="# Build test",
+        review_state="new",
+        review_note=None,
+        decision_updated_at=None,
         created_at=now,
         updated_at=now,
         evidence_items=[
@@ -624,6 +627,28 @@ def test_evidence_bundle_export_drops_unsafe_source_urls() -> None:
         ],
         signal_count=1,
         top_source="github",
+        evidence_readiness={
+            "level": "weak",
+            "evidence_count": 1,
+            "source_count": 1,
+            "safe_url_count": 0,
+            "reviewed_count": 0,
+            "source_url_coverage": 0.0,
+            "human_review_coverage": 0.0,
+            "checks": {
+                "enough_evidence": False,
+                "source_diversity": False,
+                "source_url_coverage": False,
+                "human_review_coverage": False,
+            },
+            "passed_checks": [],
+            "gaps": [
+                "Collect 4 more evidence items.",
+                "Add evidence from 1 more source.",
+                "Increase safe source URL coverage to at least 80%.",
+                "Review 1 more evidence item.",
+            ],
+        },
     )
 
     text = routes.evidence_bundle_markdown(opportunity)
