@@ -11,7 +11,8 @@ from pathlib import Path
 import re
 
 ROOT = Path(__file__).resolve().parents[1]
-VENV_BIN = ROOT / ".venv" / "bin"
+VENV_BIN = ROOT / "apps" / "api" / ".venv" / "bin"
+WEB_NEXT_BIN = ROOT / "apps" / "web" / "node_modules" / ".bin" / "next"
 HOMEBREW_NODE20_BIN = Path("/opt/homebrew/opt/node@20/bin")
 
 REQUIRED_PATHS = [
@@ -20,6 +21,7 @@ REQUIRED_PATHS = [
     "docker-compose.yml",
     "Makefile",
     "apps/api/pyproject.toml",
+    "apps/api/uv.lock",
     "apps/web/package.json",
     "apps/web/package-lock.json",
     "scripts/tasksignal_cli.py",
@@ -92,7 +94,7 @@ def check_env_file() -> Check:
 
 def check_runtime_commands() -> list[Check]:
     checks: list[Check] = []
-    for command in ["python3", "node", "npm"]:
+    for command in ["python3", "uv", "node", "npm"]:
         executable = command_path(command)
         if executable is None:
             checks.append(Check(command, "fail", "not found; install it before running TaskSignal"))
@@ -124,19 +126,34 @@ def check_runtime_commands() -> list[Check]:
 
 def check_python_tool(command: str, package_hint: str) -> Check:
     executable = VENV_BIN / command
+    relative_executable = executable.relative_to(ROOT)
     if executable.exists():
         version = run([executable, "--version"]) or "found"
-        return Check(command, "ok", f"{version} via {executable.relative_to(ROOT)}")
+        return Check(command, "ok", f"{version} via {relative_executable}")
 
     fallback = shutil.which(command)
     if fallback:
         version = run([fallback, "--version"]) or "found"
-        return Check(command, "warn", f"{version} on PATH; prefer .venv/bin/{command}")
+        return Check(command, "warn", f"{version} on PATH; prefer {relative_executable}")
 
     return Check(
         command,
         "fail",
-        f"missing; install API dev dependencies so .venv/bin/{command} exists ({package_hint})",
+        f"missing; run make setup so {relative_executable} exists ({package_hint})",
+    )
+
+
+def check_frontend_dependencies() -> Check:
+    if WEB_NEXT_BIN.exists():
+        return Check(
+            "frontend dependencies",
+            "ok",
+            "apps/web/node_modules/.bin/next is present",
+        )
+    return Check(
+        "frontend dependencies",
+        "fail",
+        "missing; run make setup so apps/web/node_modules is installed",
     )
 
 
@@ -179,6 +196,8 @@ def main() -> int:
         check_python_tool("pytest", "pytest"),
         check_python_tool("ruff", "ruff"),
         check_python_tool("uvicorn", "uvicorn[standard]"),
+        check_python_tool("alembic", "alembic"),
+        check_frontend_dependencies(),
         check_git_generated_files(),
         check_fixture_count(),
     ]
