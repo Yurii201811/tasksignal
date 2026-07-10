@@ -148,6 +148,32 @@ def assert_condition(condition: bool, message: str) -> None:
         raise SmokeError(message)
 
 
+def assert_evaluation_review_progress(
+    baseline_evaluation: object,
+    evaluation: object,
+) -> None:
+    assert_condition(
+        isinstance(baseline_evaluation, dict)
+        and isinstance(evaluation, dict)
+        and evaluation.get("reviewed_items", 0)
+        > baseline_evaluation.get("reviewed_items", 0)
+        and evaluation.get("review_coverage", 0.0)
+        > baseline_evaluation.get("review_coverage", 0.0),
+        "Evaluation did not increase after the evidence review.",
+    )
+    baseline_label_counts = baseline_evaluation.get("label_counts")
+    evaluation_label_counts = evaluation.get("label_counts")
+    assert_condition(
+        isinstance(baseline_label_counts, dict)
+        and isinstance(evaluation_label_counts, dict)
+        and isinstance(baseline_label_counts.get("true_signal"), int)
+        and isinstance(evaluation_label_counts.get("true_signal"), int)
+        and evaluation_label_counts["true_signal"]
+        > baseline_label_counts["true_signal"],
+        "Evaluation did not record the true-signal evidence review.",
+    )
+
+
 def client_json(client, method: str, path: str, payload: dict | None = None) -> dict | list:
     response = client.request(method, path, json=payload)
     if response.status_code >= 400:
@@ -754,15 +780,7 @@ def run_api_checks(database_path: Path) -> dict[str, object]:
             and evidence_review.get("label") == "true_signal",
             "Evidence review did not persist.",
         )
-        assert_condition(
-            isinstance(baseline_evaluation, dict)
-            and isinstance(evaluation, dict)
-            and evaluation.get("reviewed_items", 0)
-            > baseline_evaluation.get("reviewed_items", 0)
-            and evaluation.get("review_coverage", 0.0)
-            > baseline_evaluation.get("review_coverage", 0.0),
-            "Evaluation did not increase after the evidence review.",
-        )
+        assert_evaluation_review_progress(baseline_evaluation, evaluation)
         task_pack = client_json(
             client,
             "GET",

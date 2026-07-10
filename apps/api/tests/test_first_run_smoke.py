@@ -74,6 +74,45 @@ def test_api_env_forces_clean_sqlite_runtime(tmp_path, monkeypatch) -> None:
     assert env["AUTHOR_HASH_SALT"] == "first-run-smoke-local-only"
 
 
+def test_api_smoke_rejects_generic_evaluation_increase_without_true_signal() -> None:
+    baseline_evaluation = {
+        "total_reviewable_items": 5,
+        "reviewed_items": 0,
+        "review_coverage": 0.0,
+        "label_counts": {
+            "true_signal": 0,
+            "false_positive": 0,
+            "unclear": 0,
+            "duplicate": 0,
+            "not_actionable": 0,
+            "sensitive_risk": 0,
+        },
+        "unrecognized_latest_labels": 0,
+        "precision_on_reviewed_positives": None,
+        "by_source": {},
+        "by_signal_type": {},
+        "selection_bias_warning": "Reviewed positives are a selected subset.",
+    }
+    evaluation = {
+        **baseline_evaluation,
+        "reviewed_items": 1,
+        "review_coverage": 0.2,
+        "label_counts": dict(baseline_evaluation["label_counts"]),
+    }
+
+    try:
+        first_run_smoke.assert_evaluation_review_progress(
+            baseline_evaluation,
+            evaluation,
+        )
+    except first_run_smoke.SmokeError as exc:
+        assert "true-signal evidence review" in str(exc)
+    else:  # pragma: no cover - keeps the regression failure actionable.
+        raise AssertionError(
+            "Expected smoke to reject an evaluation whose true_signal count did not increase"
+        )
+
+
 def test_task_pack_contract_check_uses_repo_local_skill_contract() -> None:
     complete_pack = "\n".join(
         [
