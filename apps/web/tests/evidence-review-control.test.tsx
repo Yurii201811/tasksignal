@@ -105,6 +105,15 @@ describe("EvidenceReviewControl", () => {
       "500",
     );
     expect(screen.getByLabelText("New evidence review note")).toHaveValue("");
+    expect(await screen.findByText("Evidence review added")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Evidence label"), {
+      target: { value: "false_positive" },
+    });
+    expect(screen.getByLabelText("Evidence label")).toHaveValue(
+      "false_positive",
+    );
+    expect(screen.queryByText("Evidence review added")).not.toBeInTheDocument();
   });
 
   it("retains current evidence and the rejected draft without invalidating", async () => {
@@ -177,5 +186,15 @@ describe("EvidenceReviewControl", () => {
     expect(screen.getByText("2 stored review(s)")).toBeInTheDocument();
     expect(screen.queryByText("Evidence review added")).not.toBeInTheDocument();
     expect(invalidate).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByLabelText("New evidence review note"), {
+      target: { value: "Revised privacy note." },
+    });
+    expect(screen.getByLabelText("New evidence review note")).toHaveValue(
+      "Revised privacy note.",
+    );
+    expect(
+      screen.queryByText("Could not add evidence review."),
+    ).not.toBeInTheDocument();
   });
 });

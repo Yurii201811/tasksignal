@@ -47,6 +47,10 @@ export function EvidenceReviewControl({
     },
   });
 
+  function clearMutationFeedback() {
+    if (mutation.isSuccess || mutation.isError) mutation.reset();
+  }
+
   return (
     <div className="mt-4 border-t border-border pt-4">
       <div className="flex flex-wrap items-center gap-2">
@@ -82,9 +86,10 @@ export function EvidenceReviewControl({
           <Select
             className="mt-1"
             value={label}
-            onChange={(event) =>
-              setLabel(event.target.value as EvidenceReviewLabel)
-            }
+            onChange={(event) => {
+              clearMutationFeedback();
+              setLabel(event.target.value as EvidenceReviewLabel);
+            }}
           >
             {EVIDENCE_REVIEW_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>
@@ -101,7 +106,10 @@ export function EvidenceReviewControl({
             className="mt-1 min-h-20"
             maxLength={500}
             value={note}
-            onChange={(event) => setNote(event.target.value)}
+            onChange={(event) => {
+              clearMutationFeedback();
+              setNote(event.target.value);
+            }}
           />
         </label>
         <Button onClick={() => mutation.mutate()} loading={mutation.isPending}>
