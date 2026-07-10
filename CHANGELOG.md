@@ -4,6 +4,26 @@ All notable public-facing changes to TaskSignal are recorded here.
 
 ## Unreleased
 
+## 0.2.0 - 2026-07-09
+
+### Added
+
+- Persistent opportunity decision states and export-excluded local review notes.
+- Append-only evidence reviews, transparent evidence readiness, and a selection-biased evaluation report.
+- Decision queue filtering, opportunity review controls, and the Evaluation page.
+- Decision Context in evidence bundles and Codex task packs.
+
+### Changed
+
+- Local API/web/database host ports bind to loopback by default.
+- Development setup uses locked API and web dependencies through `make setup`.
+- First-run smoke evidence now proves the complete decision and evidence-review loop.
+
+### Security
+
+- Local review notes remain outside shared exports, and unauthenticated review writes are documented as local-only.
+- Compatible frontend dependency advisories were resolved without a framework major upgrade.
+
 ### Added
 
 - First-run smoke checks can now write a shareable Markdown proof report with
@@ -26,7 +46,7 @@ All notable public-facing changes to TaskSignal are recorded here.
 - Prompt enhancement now requires an operator token before any configured OpenAI or Ollama request is made.
 - Security reporting docs now include a no-details public fallback when GitHub private vulnerability reporting is unavailable.
 - Source URLs are limited to absolute `http` and `https` links before storage and before frontend rendering.
-- API version metadata now matches the `0.1.3` package and public release docs.
+- API version metadata now matches the `0.2.0` development package while published-release links remain at `v0.1.3`.
 
 ## 0.1.3 - 2026-06-01
 

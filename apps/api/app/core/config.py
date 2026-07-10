@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     auto_create_tables: bool = True
     reddit_client_id: str = ""
     reddit_client_secret: str = ""
-    reddit_user_agent: str = "tasksignal-local-demo/0.1"
+    reddit_user_agent: str = "tasksignal-local-demo/0.2"
     github_token: str = ""
     stack_exchange_key: str = ""
     demo_reset_token: str = ""

@@ -17,6 +17,12 @@ TaskSignal is a local-first research app for public discussion data. This threat
 - Backend to PostgreSQL/SQLite storage.
 - Local checkout to GitHub Actions CI.
 
+## Local-Only Deployment Boundary
+
+Docker Compose publishes PostgreSQL, FastAPI, and Next.js on `127.0.0.1` by default. Opportunity decisions and evidence labels are unauthenticated local-operator writes. Do not expose them publicly or to a team until authentication, workspace isolation, retention, and deletion controls exist.
+
+`AUTO_CREATE_TABLES=true` creates missing tables but does not migrate an existing PostgreSQL schema. Run `make migrate` for migration-managed databases. A legacy unversioned Compose volume requires schema inspection and an explicit Alembic stamp/migration plan; do not delete the volume automatically.
+
 ## Key Risks
 
 - **Credential exposure:** connector tokens could leak through commits, logs, error messages, or exported prompts.
@@ -31,6 +37,7 @@ TaskSignal is a local-first research app for public discussion data. This threat
 - **Source registry credential drift:** source config records could accidentally become a second secret store if mutation and readback are not constrained.
 - **Unsafe source links:** public-source URL fields must not become clickable non-http(s) links in the operator UI.
 - **Agent handoff drift:** exported task packs could be used by another agent without preserving evidence caveats or privacy constraints.
+- **Unauthenticated review writes:** a publicly exposed API would let network callers alter local opportunity decisions and append evidence labels.
 - **Weak release hygiene:** unreviewed dependencies or generated artifacts could be published unintentionally.
 
 ## Current Mitigations
@@ -57,6 +64,8 @@ TaskSignal is a local-first research app for public discussion data. This threat
   source links.
 - Exported prompts and task packs keep source excerpts as evidence and include
   privacy constraints.
+- Opportunity and evidence review notes are local annotations and are omitted
+  from evidence bundles and task-pack exports.
 - CI runs backend and frontend checks before public release work.
 - Security reports are directed away from public issue details.
 

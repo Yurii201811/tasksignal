@@ -7,6 +7,10 @@ cp .env.example .env
 make up
 ```
 
+Docker Compose publishes PostgreSQL, FastAPI, and Next.js on `127.0.0.1` by default. Opportunity decisions and evidence labels are unauthenticated local-operator writes. Do not expose them publicly or to a team until authentication, workspace isolation, retention, and deletion controls exist.
+
+`AUTO_CREATE_TABLES=true` creates missing tables but does not migrate an existing PostgreSQL schema. Run `make migrate` for migration-managed databases. A legacy unversioned Compose volume requires schema inspection and an explicit Alembic stamp/migration plan; do not delete the volume automatically.
+
 The default deployment target is a single local operator. Configure the local
 workspace from Settings or with `scripts/tasksignal_cli.py configure-workspace`;
 do not add public multi-user access until authentication, tenant isolation,

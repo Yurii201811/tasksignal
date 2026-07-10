@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -10,17 +11,55 @@ release_check = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(release_check)
 
 
-def write_release_files(root: Path, api_version: str = "1.2.3", web_version: str = "1.2.3") -> None:
+def write_release_files(
+    root: Path,
+    api_version: str = "1.2.3",
+    web_version: str = "1.2.3",
+    fastapi_version: str | None = None,
+    api_lock_version: str | None = None,
+    web_lock_top_version: str | None = None,
+    web_lock_root_version: str | None = None,
+) -> None:
+    fastapi_version = fastapi_version or api_version
+    api_lock_version = api_lock_version or api_version
+    web_lock_top_version = web_lock_top_version or web_version
+    web_lock_root_version = web_lock_root_version or web_version
     api_dir = root / "apps" / "api"
     web_dir = root / "apps" / "web"
-    api_dir.mkdir(parents=True)
+    (api_dir / "app").mkdir(parents=True)
     web_dir.mkdir(parents=True)
     (api_dir / "pyproject.toml").write_text(
         f'[project]\nname = "tasksignal-api"\nversion = "{api_version}"\n',
         encoding="utf-8",
     )
+    (api_dir / "uv.lock").write_text(
+        'version = 1\n\n[[package]]\nname = "tasksignal-api"\n'
+        f'version = "{api_lock_version}"\n',
+        encoding="utf-8",
+    )
+    (api_dir / "app" / "main.py").write_text(
+        f'app = FastAPI(version="{fastapi_version}")\n',
+        encoding="utf-8",
+    )
     (web_dir / "package.json").write_text(
-        f'{{"name":"tasksignal-web","version":"{web_version}"}}\n',
+        json.dumps({"name": "tasksignal-web", "version": web_version}) + "\n",
+        encoding="utf-8",
+    )
+    (web_dir / "package-lock.json").write_text(
+        json.dumps(
+            {
+                "name": "tasksignal-web",
+                "version": web_lock_top_version,
+                "lockfileVersion": 3,
+                "packages": {
+                    "": {
+                        "name": "tasksignal-web",
+                        "version": web_lock_root_version,
+                    }
+                },
+            }
+        )
+        + "\n",
         encoding="utf-8",
     )
 
@@ -44,6 +83,27 @@ def test_project_version_check_rejects_mismatched_metadata(tmp_path, monkeypatch
     assert version == "1.2.3"
     assert "Project versions do not match" in failures[0]
     assert "Requested release version 1.2.3 does not match project metadata" in failures[1]
+
+
+def test_project_version_check_rejects_fastapi_and_lock_mismatch(
+    tmp_path, monkeypatch
+) -> None:
+    write_release_files(
+        tmp_path,
+        fastapi_version="1.2.4",
+        api_lock_version="1.2.5",
+        web_lock_top_version="1.2.6",
+        web_lock_root_version="1.2.7",
+    )
+    monkeypatch.setattr(release_check, "ROOT", tmp_path)
+
+    _version, failures = release_check.check_project_versions("1.2.3")
+
+    message = " ".join(failures)
+    assert "fastapi=1.2.4" in message
+    assert "api_lock=1.2.5" in message
+    assert "web_lock_top=1.2.6" in message
+    assert "web_lock_root=1.2.7" in message
 
 
 def test_changelog_check_requires_release_heading(tmp_path, monkeypatch) -> None:

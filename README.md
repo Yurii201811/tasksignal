@@ -53,6 +53,10 @@ TaskSignal is for maintainers, builders, indie hackers, developer-tool teams, an
 - Clusters signals with a local thematic fallback by default, with optional DBSCAN when `TASKSIGNAL_USE_SKLEARN_CLUSTERING=1`.
 - Scores opportunities using frequency, recency, pain, concreteness, buying intent, feasibility, and competition penalty.
 - Generates opportunity cards, full Codex-ready build prompts, and richer Codex task packs.
+- Stores one explicit decision state and an export-excluded local note for each opportunity.
+- Keeps evidence reviews append-only and preserves legacy label history without treating unknown labels as current recognized reviews.
+- Reports evidence readiness from evidence count, source diversity, safe URL coverage, and human review coverage.
+- Shows selection-biased review coverage and precision on reviewed positives without claiming recall, F1, or market validation.
 - Optionally enhances generated prompts through OpenAI API or local Ollama when explicitly configured.
 
 ## Architecture
@@ -84,10 +88,29 @@ Infra: Docker Compose, Makefile, GitHub Actions CI, scheduled ingestion template
 ## Quickstart
 
 ```bash
+make setup
 cp .env.example .env
 make doctor
-make up
 ```
+
+`make dev` prints the two native launch commands. Run those commands in
+separate terminals:
+
+```bash
+cd apps/api
+.venv/bin/uvicorn app.main:app --reload
+```
+
+```bash
+cd apps/web
+npm run dev
+```
+
+Use `make up` instead to start the loopback-only Docker Compose stack.
+
+The API command runs from `apps/api`, so it does not automatically load the
+repository-root `.env`; export non-default API settings in that terminal. The
+copied root `.env` is still checked by `make doctor`.
 
 Open the frontend at [http://localhost:3000](http://localhost:3000), go to Projects, save a research workflow, then run it. For a first proof path, go to Dashboard and click **Process demo data**. To use live public data, choose a source, query, and limit in **Live source**, then click **Run scan**.
 
@@ -108,18 +131,6 @@ curl http://localhost:8000/health
 ```
 
 ## Local Development
-
-Run the API and frontend separately:
-
-```bash
-cd apps/api
-../../.venv/bin/uvicorn app.main:app --reload
-```
-
-```bash
-cd apps/web
-npm run dev
-```
 
 Run checks before publishing changes:
 
@@ -326,6 +337,6 @@ This repository demonstrates full-stack engineering, API design, Python backend 
 - Expand contributor-friendly fixtures, docs, and public issues.
 - Add richer source scheduling and rate-limit state after privacy review.
 - Add pgvector ANN search in production mode.
-- Add reviewer workflow for human labels.
+- Keep decision review, evidence readiness, and evaluation exports aligned as the workbench evolves.
 
 See [Roadmap](docs/roadmap.md) for maintainer tasks, security milestones, and longer-term ideas.

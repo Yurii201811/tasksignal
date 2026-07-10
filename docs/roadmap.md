@@ -2,6 +2,13 @@
 
 TaskSignal is early-stage open source. The roadmap prioritizes maintainability, privacy, and useful public-data research over opaque automation.
 
+## Current v0.2 Work
+
+- Keep the six-state opportunity decision queue, local review notes, and detail controls aligned across the API and web app.
+- Keep evidence reviews append-only, expose complete history, and treat legacy unknown labels as history rather than current recognized reviews.
+- Maintain transparent evidence-readiness checks and the selection-biased Evaluation report without claiming recall, F1, or market validation.
+- Keep opportunity and evidence review notes outside evidence bundles and Codex task-pack exports.
+
 ## Near Term
 
 - Keep saved research projects, public scans, and fixture mode green in CI.
@@ -34,6 +41,6 @@ TaskSignal is early-stage open source. The roadmap prioritizes maintainability, 
 
 - Add hosted-worker examples for run-due scheduling with explicit rate-limit state and opt-in storage retention.
 - Add pgvector ANN search in production mode.
-- Add reviewer workflows for human labels and quality feedback.
+- Add authentication and workspace isolation before turning local review writes into a team workflow.
 - Add an MCP server so Codex and other agents can query opportunities directly.
 - Consider publishing reusable subpackages only if a stable library boundary emerges.

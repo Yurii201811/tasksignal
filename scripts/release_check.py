@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import os
 import re
@@ -127,12 +128,43 @@ def normalize_version(version: str) -> str:
     return version.strip().removeprefix("v")
 
 
+def fastapi_version(path: Path) -> str:
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        for keyword in node.keywords:
+            if keyword.arg == "version" and isinstance(keyword.value, ast.Constant):
+                if isinstance(keyword.value.value, str):
+                    return normalize_version(keyword.value.value)
+    raise ValueError(f"FastAPI version was not found in {path}")
+
+
 def read_project_versions() -> dict[str, str]:
-    pyproject = tomllib.loads((ROOT / "apps/api/pyproject.toml").read_text(encoding="utf-8"))
-    package = json.loads((ROOT / "apps/web/package.json").read_text(encoding="utf-8"))
+    pyproject = tomllib.loads(
+        (ROOT / "apps/api/pyproject.toml").read_text(encoding="utf-8")
+    )
+    uv_lock = tomllib.loads(
+        (ROOT / "apps/api/uv.lock").read_text(encoding="utf-8")
+    )
+    api_lock_package = next(
+        package for package in uv_lock["package"] if package["name"] == "tasksignal-api"
+    )
+    package = json.loads(
+        (ROOT / "apps/web/package.json").read_text(encoding="utf-8")
+    )
+    package_lock = json.loads(
+        (ROOT / "apps/web/package-lock.json").read_text(encoding="utf-8")
+    )
     return {
         "api": normalize_version(str(pyproject["project"]["version"])),
+        "api_lock": normalize_version(str(api_lock_package["version"])),
+        "fastapi": fastapi_version(ROOT / "apps/api/app/main.py"),
         "web": normalize_version(str(package["version"])),
+        "web_lock_top": normalize_version(str(package_lock["version"])),
+        "web_lock_root": normalize_version(
+            str(package_lock["packages"][""]["version"])
+        ),
     }
 
 

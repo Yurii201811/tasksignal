@@ -35,7 +35,7 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: apps/web/package-lock.json
-      - run: npm install
-      - run: npm audit
+      - run: npm ci
+      - run: npm audit --audit-level=moderate
       - run: npm run build
       - run: npm test

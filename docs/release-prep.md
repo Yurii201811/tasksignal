@@ -8,7 +8,7 @@ evidence concrete without requiring publishing credentials.
 1. Confirm project metadata versions match:
 
    ```bash
-   python3 scripts/release_check.py --version 0.1.3
+   python3 scripts/release_check.py --version 0.2.0
    ```
 
 1. Confirm `CHANGELOG.md` has a heading for the release being cut.
@@ -16,7 +16,7 @@ evidence concrete without requiring publishing credentials.
 1. Run the release gate with a clean worktree:
 
    ```bash
-   python3 scripts/release_check.py --version 0.1.3 --require-clean
+   python3 scripts/release_check.py --version 0.2.0 --require-clean
    ```
 
 1. Link the exact GitHub Actions run used as release evidence. In GitHub Actions,
@@ -25,7 +25,7 @@ evidence concrete without requiring publishing credentials.
 
    ```bash
    python3 scripts/release_check.py \
-     --version 0.1.3 \
+     --version 0.2.0 \
      --ci-run-url https://github.com/Yurii201811/tasksignal/actions/runs/123456789 \
      --require-ci-run-url
    ```
