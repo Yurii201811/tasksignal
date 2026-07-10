@@ -97,7 +97,14 @@ make dev
 `make dev` prints ready-to-run API and Node-safe web commands. Run each printed
 command in a separate terminal.
 
-Use `make up` instead to start the loopback-only Docker Compose stack.
+For the loopback-only Docker Compose stack, migrate the PostgreSQL schema before
+serving it:
+
+```bash
+cp .env.example .env
+make migrate
+make up
+```
 
 The repository-root `.env` is a `make doctor` input only: the native API and
 Next.js do not automatically load it, and the current Compose file does not
@@ -134,9 +141,10 @@ make lint
 make verify
 ```
 
-The Makefile prefers repo-local Python tools in `.venv/bin`. On Apple Silicon
-macOS it also prepends Homebrew Node 20 from `/opt/homebrew/opt/node@20/bin`
-when available, matching the runtime required by the Next.js web app.
+The Makefile prefers repo-local Python tools in `apps/api/.venv/bin`. On Apple
+Silicon macOS it also prepends Homebrew Node 20 from
+`/opt/homebrew/opt/node@20/bin` when available, matching the runtime required by
+the Next.js web app.
 
 Run the release-readiness gate before tagging a release:
 

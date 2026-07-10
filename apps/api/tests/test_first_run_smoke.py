@@ -7,6 +7,8 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[3]
 SPEC = importlib.util.spec_from_file_location(
     "first_run_smoke",
@@ -111,6 +113,61 @@ def test_api_smoke_rejects_generic_evaluation_increase_without_true_signal() -> 
         raise AssertionError(
             "Expected smoke to reject an evaluation whose true_signal count did not increase"
         )
+
+
+@pytest.mark.parametrize(
+    ("missing_line", "expected_message"),
+    [
+        (
+            "## Decision Context",
+            "Evidence Markdown is missing Decision Context.",
+        ),
+        (
+            "- Review state: promising",
+            "Evidence Markdown is missing promising review state.",
+        ),
+        (
+            "- Evidence readiness: medium",
+            "Evidence Markdown is missing medium evidence readiness.",
+        ),
+    ],
+)
+def test_export_context_rejects_evidence_markdown_without_required_line(
+    missing_line: str,
+    expected_message: str,
+) -> None:
+    context_lines = [
+        "## Decision Context",
+        "- Review state: promising",
+        "- Evidence readiness: medium",
+    ]
+    task_pack = {
+        "review_state": "promising",
+        "evidence_readiness": {"level": "medium"},
+        "markdown": "\n".join(context_lines),
+    }
+    evidence_markdown = "\n".join(
+        ["# Evidence Bundle", *[line for line in context_lines if line != missing_line]]
+    )
+
+    with pytest.raises(first_run_smoke.SmokeError, match=expected_message):
+        first_run_smoke.assert_decision_export_context(task_pack, evidence_markdown)
+
+
+def test_export_context_requires_state_and_readiness_in_both_markdown_exports() -> None:
+    context = "## Decision Context\n- Review state: promising\n- Evidence readiness: medium\n"
+    task_pack = {
+        "review_state": "promising",
+        "evidence_readiness": {"level": "medium"},
+        "markdown": f"# Task Pack\n\n{context}",
+    }
+
+    readiness = first_run_smoke.assert_decision_export_context(
+        task_pack,
+        f"# Evidence Bundle\n\n{context}",
+    )
+
+    assert readiness == {"level": "medium"}
 
 
 def test_task_pack_contract_check_uses_repo_local_skill_contract() -> None:
@@ -338,8 +395,7 @@ def test_proof_report_markdown_records_fixture_result_without_local_paths() -> N
     assert report.startswith("# TaskSignal First-Run Proof")
     assert "Generated: 2026-06-17T12:00:00+00:00" in report
     assert (
-        "Repository revision: codex/first-run-proof-report @ c2567ce12345 "
-        "(local changes present)"
+        "Repository revision: codex/first-run-proof-report @ c2567ce12345 (local changes present)"
     ) in report
     assert "| API health | passed | status=ok |" in report
     assert (
@@ -463,16 +519,17 @@ def test_write_proof_bundle_creates_review_package(tmp_path) -> None:
 
     bundle_dir = tmp_path / "proof-bundle"
     assert {entry.name for entry in bundle_dir.iterdir()} == set(first_run_smoke.PROOF_BUNDLE_FILES)
-    assert (bundle_dir / "README.md").read_text(encoding="utf-8").startswith(
-        "# TaskSignal First-Run Proof Bundle"
+    assert (
+        (bundle_dir / "README.md")
+        .read_text(encoding="utf-8")
+        .startswith("# TaskSignal First-Run Proof Bundle")
     )
     assert (bundle_dir / "first-run-proof.md").read_text(encoding="utf-8") == "# proof\n"
     summary_json = json.loads((bundle_dir / "first-run-summary.json").read_text())
     assert summary_json["checks"]["task_pack_export"]["evidence"]["evidence_urls"] == 4
-    assert (
-        (bundle_dir / "top-opportunity-task-pack.md").read_text(encoding="utf-8")
-        == "# TaskSignal Codex Task Pack: Operators need automation\n"
-    )
+    assert (bundle_dir / "top-opportunity-task-pack.md").read_text(
+        encoding="utf-8"
+    ) == "# TaskSignal Codex Task Pack: Operators need automation\n"
     manifest = json.loads((bundle_dir / "MANIFEST.json").read_text())
     manifest_files = {entry["path"]: entry for entry in manifest["files"]}
     assert set(manifest_files) == {
@@ -669,7 +726,9 @@ def test_skip_web_proof_bundle_writes_expected_files(tmp_path, monkeypatch) -> N
 
     monkeypatch.setattr(first_run_smoke, "free_port", fail_if_called)
     monkeypatch.setattr(first_run_smoke, "run_api_checks", lambda _database_path: smoke_result())
-    monkeypatch.setattr(first_run_smoke, "repository_revision", lambda: "main @ c2567ce12345 (clean)")
+    monkeypatch.setattr(
+        first_run_smoke, "repository_revision", lambda: "main @ c2567ce12345 (clean)"
+    )
     monkeypatch.setattr(
         sys,
         "argv",

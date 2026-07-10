@@ -71,16 +71,61 @@ describe("OpportunityDecisionPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save decision" }));
 
     await waitFor(() => {
-      expect(api.updateOpportunityReview).toHaveBeenCalledWith("opportunity-1", {
-        review_state: "promising",
-        review_note: "Validate with maintainers.",
-      });
+      expect(api.updateOpportunityReview).toHaveBeenCalledWith(
+        "opportunity-1",
+        {
+          review_state: "promising",
+          review_note: "Validate with maintainers.",
+        },
+      );
       expect(invalidate).toHaveBeenCalledWith({
         queryKey: ["opportunity", "opportunity-1"],
       });
       expect(invalidate).toHaveBeenCalledWith({ queryKey: ["opportunities"] });
     });
-    expect(await screen.findByText("Decision saved")).toBeInTheDocument();
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Decision saved",
+    );
+  });
+
+  it("locks the submitted draft until the decision request settles", async () => {
+    const request = deferred<never>();
+    vi.mocked(api.updateOpportunityReview).mockReturnValue(request.promise);
+    const client = new QueryClient();
+    render(
+      <QueryClientProvider client={client}>
+        <OpportunityDecisionPanel
+          opportunityId="opportunity-1"
+          reviewState="new"
+          reviewNote={null}
+          decisionUpdatedAt={null}
+        />
+      </QueryClientProvider>,
+    );
+    const state = screen.getByLabelText("Decision state");
+    const note = screen.getByLabelText("Local review note");
+    fireEvent.change(state, { target: { value: "promising" } });
+    fireEvent.change(note, { target: { value: "Submitted draft" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save decision" }));
+
+    await waitFor(() => expect(api.updateOpportunityReview).toHaveBeenCalled());
+    expect(state).toBeDisabled();
+    expect(note).toBeDisabled();
+    state.focus();
+    expect(state).not.toHaveFocus();
+    note.focus();
+    expect(note).not.toHaveFocus();
+    expect(state).toHaveValue("promising");
+    expect(note).toHaveValue("Submitted draft");
+
+    request.reject(new Error("Request failed"));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Decision was not saved",
+    );
+    expect(state).toBeEnabled();
+    expect(note).toBeEnabled();
+    expect(state).toHaveValue("promising");
+    expect(note).toHaveValue("Submitted draft");
   });
 
   it("keeps a non-default failed draft separate from confirmed server state", async () => {
@@ -134,6 +179,9 @@ describe("OpportunityDecisionPanel", () => {
     expect(
       await screen.findByText("Could not save decision."),
     ).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Decision was not saved",
+    );
     expect(screen.getByLabelText("Decision state")).toHaveValue(
       "build_candidate",
     );

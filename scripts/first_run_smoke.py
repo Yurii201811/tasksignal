@@ -29,7 +29,11 @@ API_DIR = ROOT / "apps" / "api"
 WEB_DIR = ROOT / "apps" / "web"
 HOMEBREW_NODE20_BIN = Path("/opt/homebrew/opt/node@20/bin")
 TASK_PACK_CHECKER_PATH = (
-    ROOT / "skills" / "tasksignal-opportunity-builder" / "scripts" / "check_task_pack.py"
+    ROOT
+    / "skills"
+    / "tasksignal-opportunity-builder"
+    / "scripts"
+    / "check_task_pack.py"
 )
 PROOF_BUNDLE_ARTIFACTS = [
     "README.md",
@@ -109,7 +113,9 @@ def start_process(
         stderr=subprocess.STDOUT,
         text=True,
     )
-    return ManagedProcess(name=name, process=process, log_path=log_path, log_handle=log_handle)
+    return ManagedProcess(
+        name=name, process=process, log_path=log_path, log_handle=log_handle
+    )
 
 
 def request_text(url: str, *, timeout: float = 30) -> str:
@@ -140,7 +146,9 @@ def wait_for(name: str, check, *, timeout: float, delay: float = 0.5) -> None:
 def tail_log(path: Path, *, lines: int = 20) -> str:
     if not path.exists():
         return "log file is missing"
-    return "\n".join(path.read_text(encoding="utf-8", errors="replace").splitlines()[-lines:])
+    return "\n".join(
+        path.read_text(encoding="utf-8", errors="replace").splitlines()[-lines:]
+    )
 
 
 def assert_condition(condition: bool, message: str) -> None:
@@ -174,7 +182,48 @@ def assert_evaluation_review_progress(
     )
 
 
-def client_json(client, method: str, path: str, payload: dict | None = None) -> dict | list:
+def assert_decision_export_context(
+    task_pack: dict[str, object],
+    evidence_markdown: str,
+) -> dict[str, object]:
+    review_state = task_pack.get("review_state")
+    assert_condition(
+        review_state == "promising",
+        "Task pack is missing the promising decision state.",
+    )
+    readiness = task_pack.get("evidence_readiness")
+    assert_condition(
+        isinstance(readiness, dict)
+        and readiness.get("level") in {"weak", "medium", "strong"},
+        "Task pack is missing evidence readiness.",
+    )
+    assert isinstance(readiness, dict)  # Narrowed by the smoke assertion above.
+    readiness_level = readiness["level"]
+    expected_lines = (
+        ("## Decision Context", "Decision Context"),
+        ("- Review state: promising", "promising review state"),
+        (
+            f"- Evidence readiness: {readiness_level}",
+            f"{readiness_level} evidence readiness",
+        ),
+    )
+    exports = (
+        ("Task pack", str(task_pack.get("markdown", ""))),
+        ("Evidence Markdown", evidence_markdown),
+    )
+    for export_name, markdown in exports:
+        markdown_lines = set(markdown.splitlines())
+        for expected_line, description in expected_lines:
+            assert_condition(
+                expected_line in markdown_lines,
+                f"{export_name} is missing {description}.",
+            )
+    return readiness
+
+
+def client_json(
+    client, method: str, path: str, payload: dict | None = None
+) -> dict | list:
     response = client.request(method, path, json=payload)
     if response.status_code >= 400:
         raise SmokeError(
@@ -277,7 +326,9 @@ def check_task_pack_contract(markdown: str) -> int:
         TASK_PACK_CHECKER_PATH,
     )
     if not spec or not spec.loader:
-        raise SmokeError(f"Task-pack checker could not be loaded: {TASK_PACK_CHECKER_PATH}")
+        raise SmokeError(
+            f"Task-pack checker could not be loaded: {TASK_PACK_CHECKER_PATH}"
+        )
 
     checker = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(checker)
@@ -285,11 +336,15 @@ def check_task_pack_contract(markdown: str) -> int:
     required_sections = getattr(checker, "REQUIRED_SECTIONS", None)
     structure_errors = getattr(checker, "task_pack_structure_errors", None)
     if not isinstance(required_sections, list) or not callable(structure_errors):
-        raise SmokeError("Task-pack checker does not expose the expected validation contract.")
+        raise SmokeError(
+            "Task-pack checker does not expose the expected validation contract."
+        )
 
     errors = [str(error) for error in structure_errors(markdown)]
     if errors:
-        raise SmokeError("Task-pack markdown failed structure check: " + "; ".join(errors))
+        raise SmokeError(
+            "Task-pack markdown failed structure check: " + "; ".join(errors)
+        )
     return len(required_sections)
 
 
@@ -352,9 +407,7 @@ def proof_summary(
                 "evidence": {
                     "review_state": result["decision_review_state"],
                     "evidence_reviews": result["evidence_reviews"],
-                    "reviewed_items_before": result[
-                        "evaluation_reviewed_items_before"
-                    ],
+                    "reviewed_items_before": result["evaluation_reviewed_items_before"],
                     "reviewed_items": result["evaluation_reviewed_items"],
                     "review_coverage_before": result[
                         "evaluation_review_coverage_before"
@@ -373,7 +426,9 @@ def proof_summary(
             },
             "live_dashboard_request": {
                 "result": check_result(live_dashboard_checked),
-                "evidence": check_evidence(live_dashboard_checked, "/dashboard returned HTML"),
+                "evidence": check_evidence(
+                    live_dashboard_checked, "/dashboard returned HTML"
+                ),
             },
         },
         "source_breakdown": source_breakdown_summary(result.get("source_breakdown")),
@@ -576,29 +631,38 @@ def proof_bundle_manifest_errors(path: Path) -> list[str]:
 
         expected_bytes = entry.get("bytes")
         if not isinstance(expected_bytes, int) or expected_bytes < 0:
-            errors.append(f"manifested bytes must be a non-negative integer: {artifact_name}")
+            errors.append(
+                f"manifested bytes must be a non-negative integer: {artifact_name}"
+            )
         elif artifact_path.stat().st_size != expected_bytes:
             errors.append(f"byte count mismatch for {artifact_name}")
 
         expected_sha256 = entry.get("sha256")
         if not isinstance(expected_sha256, str) or not expected_sha256:
-            errors.append(f"manifested sha256 must be a non-empty string: {artifact_name}")
+            errors.append(
+                f"manifested sha256 must be a non-empty string: {artifact_name}"
+            )
         elif file_sha256(artifact_path) != expected_sha256:
             errors.append(f"sha256 mismatch for {artifact_name}")
 
     missing_entries = sorted(expected_artifacts - seen_artifacts)
     if missing_entries:
-        errors.append("manifest is missing generated artifact(s): " + ", ".join(missing_entries))
+        errors.append(
+            "manifest is missing generated artifact(s): " + ", ".join(missing_entries)
+        )
 
     unexpected_manifest_entries = sorted(seen_artifacts - expected_artifacts)
     if unexpected_manifest_entries:
         errors.append(
-            "manifest lists unexpected artifact(s): " + ", ".join(unexpected_manifest_entries)
+            "manifest lists unexpected artifact(s): "
+            + ", ".join(unexpected_manifest_entries)
         )
 
     unexpected_files = unexpected_proof_bundle_entries(path)
     if unexpected_files:
-        errors.append("proof bundle contains unexpected file(s): " + ", ".join(unexpected_files))
+        errors.append(
+            "proof bundle contains unexpected file(s): " + ", ".join(unexpected_files)
+        )
 
     return errors
 
@@ -606,7 +670,9 @@ def proof_bundle_manifest_errors(path: Path) -> list[str]:
 def verify_proof_bundle_manifest(path: Path) -> None:
     errors = proof_bundle_manifest_errors(path)
     if errors:
-        raise SmokeError("Proof bundle manifest verification failed: " + "; ".join(errors))
+        raise SmokeError(
+            "Proof bundle manifest verification failed: " + "; ".join(errors)
+        )
 
 
 def proof_bundle_readme(summary: dict[str, object]) -> str:
@@ -681,7 +747,11 @@ def write_proof_bundle(
         f"{str(result['task_pack_markdown']).rstrip()}\n",
     )
     (path / "MANIFEST.json").write_text(
-        json.dumps(proof_bundle_manifest(path, summary, artifact_names), indent=2, sort_keys=True)
+        json.dumps(
+            proof_bundle_manifest(path, summary, artifact_names),
+            indent=2,
+            sort_keys=True,
+        )
         + "\n",
         encoding="utf-8",
     )
@@ -707,12 +777,20 @@ def run_api_checks(database_path: Path) -> dict[str, object]:
         opportunities = client_json(client, "GET", "/api/opportunities")
 
         assert_condition(isinstance(health, dict), "Health response was not an object.")
-        assert_condition(health.get("status") == "ok", "Health endpoint did not return ok.")
+        assert_condition(
+            health.get("status") == "ok", "Health endpoint did not return ok."
+        )
 
-        assert_condition(isinstance(api_readiness, dict), "Readiness response was not an object.")
-        assert_condition(api_readiness.get("status") == "ready", "Readiness did not report ready.")
+        assert_condition(
+            isinstance(api_readiness, dict), "Readiness response was not an object."
+        )
+        assert_condition(
+            api_readiness.get("status") == "ready", "Readiness did not report ready."
+        )
 
-        assert_condition(isinstance(summary, dict), "Demo summary response was not an object.")
+        assert_condition(
+            isinstance(summary, dict), "Demo summary response was not an object."
+        )
         assert_condition(
             summary.get("raw_items_loaded", 0) >= 17,
             "Demo loaded too few raw items.",
@@ -728,13 +806,17 @@ def run_api_checks(database_path: Path) -> dict[str, object]:
 
         assert_condition(isinstance(stats, dict), "Stats response was not an object.")
         assert_condition(stats.get("total_items", 0) >= 17, "Stats show too few items.")
-        assert_condition(stats.get("opportunities", 0) >= 5, "Stats show too few opportunities.")
+        assert_condition(
+            stats.get("opportunities", 0) >= 5, "Stats show too few opportunities."
+        )
 
         assert_condition(
             isinstance(opportunities, list),
             "Opportunities response was not a list.",
         )
-        assert_condition(len(opportunities) >= 5, "Opportunity list contains too few items.")
+        assert_condition(
+            len(opportunities) >= 5, "Opportunity list contains too few items."
+        )
         first_opportunity = opportunities[0]
         assert_condition(
             isinstance(first_opportunity, dict) and first_opportunity.get("id"),
@@ -786,13 +868,21 @@ def run_api_checks(database_path: Path) -> dict[str, object]:
             "GET",
             f"/api/opportunities/{first_opportunity['id']}/task-pack.json",
         )
-        assert_condition(isinstance(task_pack, dict), "Task-pack response was not an object.")
         assert_condition(
-            str(task_pack.get("markdown", "")).startswith("# TaskSignal Codex Task Pack:"),
+            isinstance(task_pack, dict), "Task-pack response was not an object."
+        )
+        assert_condition(
+            str(task_pack.get("markdown", "")).startswith(
+                "# TaskSignal Codex Task Pack:"
+            ),
             "Task-pack markdown was not generated.",
         )
-        assert_condition(task_pack.get("evidence_urls"), "Task-pack has no evidence URLs.")
-        task_pack_required_sections = check_task_pack_contract(str(task_pack["markdown"]))
+        assert_condition(
+            task_pack.get("evidence_urls"), "Task-pack has no evidence URLs."
+        )
+        task_pack_required_sections = check_task_pack_contract(
+            str(task_pack["markdown"])
+        )
         evidence_response = client.get(
             f"/api/opportunities/{first_opportunity['id']}/evidence.md"
         )
@@ -801,20 +891,7 @@ def run_api_checks(database_path: Path) -> dict[str, object]:
             "Evidence Markdown export failed.",
         )
         export_text = json.dumps(task_pack, sort_keys=True) + evidence_response.text
-        assert_condition(
-            task_pack.get("review_state") == "promising",
-            "Task pack is missing the decision state.",
-        )
-        readiness = task_pack.get("evidence_readiness")
-        assert_condition(
-            isinstance(readiness, dict)
-            and readiness.get("level") in {"weak", "medium", "strong"},
-            "Task pack is missing evidence readiness.",
-        )
-        assert_condition(
-            "## Decision Context" in str(task_pack.get("markdown", "")),
-            "Task pack is missing Decision Context.",
-        )
+        readiness = assert_decision_export_context(task_pack, evidence_response.text)
         assert_condition(
             opportunity_note not in export_text and evidence_note not in export_text,
             "Local review notes leaked into an export.",
@@ -838,13 +915,9 @@ def run_api_checks(database_path: Path) -> dict[str, object]:
             "task_pack_required_sections": task_pack_required_sections,
             "decision_review_state": reviewed_opportunity["review_state"],
             "evidence_reviews": 1,
-            "evaluation_reviewed_items_before": baseline_evaluation[
-                "reviewed_items"
-            ],
+            "evaluation_reviewed_items_before": baseline_evaluation["reviewed_items"],
             "evaluation_reviewed_items": evaluation["reviewed_items"],
-            "evaluation_review_coverage_before": baseline_evaluation[
-                "review_coverage"
-            ],
+            "evaluation_review_coverage_before": baseline_evaluation["review_coverage"],
             "evaluation_review_coverage": evaluation["review_coverage"],
             "task_pack_readiness": readiness["level"],
             "llm_provider": os.environ["LLM_PROVIDER"],
@@ -867,7 +940,9 @@ def run_dashboard_source_check() -> None:
 
 def run_live_web_check(web_base: str) -> None:
     dashboard_html = request_text(f"{web_base}/dashboard")
-    assert_condition("<html" in dashboard_html.lower(), "Dashboard route did not return HTML.")
+    assert_condition(
+        "<html" in dashboard_html.lower(), "Dashboard route did not return HTML."
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -925,7 +1000,9 @@ def main() -> int:
         except SmokeError as exc:
             print(f"[FAIL] {exc}", file=sys.stderr)
             return 1
-        print(f"[OK] Proof bundle manifest verified: {args.verify_proof_dir}", flush=True)
+        print(
+            f"[OK] Proof bundle manifest verified: {args.verify_proof_dir}", flush=True
+        )
         return 0
 
     processes: list[ManagedProcess] = []

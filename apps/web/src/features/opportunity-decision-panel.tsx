@@ -71,6 +71,7 @@ export function OpportunityDecisionPanel({
         <span className="text-sm font-semibold text-muted">Decision state</span>
         <Select
           className="mt-2"
+          disabled={mutation.isPending}
           value={draftState}
           onChange={(event) => {
             clearMutationFeedback();
@@ -91,6 +92,7 @@ export function OpportunityDecisionPanel({
         <Textarea
           aria-label="Local review note"
           className="mt-2"
+          disabled={mutation.isPending}
           maxLength={1000}
           value={draftNote}
           onChange={(event) => {

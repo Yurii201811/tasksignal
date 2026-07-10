@@ -4,6 +4,25 @@ from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+def resolve_project_root(config_file: Path) -> Path:
+    """Resolve fixture roots across source checkouts and container images."""
+    resolved = config_file.resolve()
+    ancestors = list(resolved.parents)
+
+    for candidate in ancestors:
+        if (candidate / "data/fixtures").is_dir():
+            return candidate
+        if (candidate / "apps/api/app").is_dir():
+            return candidate
+
+    for candidate in ancestors:
+        if (candidate / "app").is_dir() and (candidate / "alembic.ini").is_file():
+            return candidate
+
+    app_package = next((candidate for candidate in ancestors if candidate.name == "app"), None)
+    return app_package.parent if app_package is not None else resolved.parent
+
+
 class Settings(BaseSettings):
     database_url: str = "sqlite:///./tasksignal.db"
     api_base_url: str = "http://localhost:8000"
@@ -28,7 +47,7 @@ class Settings(BaseSettings):
 
     @property
     def project_root(self) -> Path:
-        return Path(__file__).resolve().parents[4]
+        return resolve_project_root(Path(__file__))
 
     @property
     def fixture_dir(self) -> Path:

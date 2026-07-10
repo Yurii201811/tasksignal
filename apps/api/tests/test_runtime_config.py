@@ -20,7 +20,7 @@ def compose_port_mappings(compose: str) -> list[str]:
             ports_indent = None
             continue
         if stripped.startswith("-"):
-            mappings.append(stripped.removeprefix("-").strip().strip('"\''))
+            mappings.append(stripped.removeprefix("-").strip().strip("\"'"))
     return mappings
 
 
@@ -34,13 +34,32 @@ def git_ignores(path: str) -> bool:
     return completed.returncode == 0
 
 
+def test_project_root_resolution_supports_native_and_container_layouts(tmp_path) -> None:
+    from app.core import config
+
+    native_config = ROOT / "apps/api/app/core/config.py"
+    assert config.resolve_project_root(native_config) == ROOT
+
+    container_root = tmp_path / "app"
+    container_config = container_root / "app/core/config.py"
+    container_config.parent.mkdir(parents=True)
+    container_config.touch()
+    (container_root / "data/fixtures").mkdir(parents=True)
+
+    assert config.resolve_project_root(container_config) == container_root
+
+
 def test_default_runtime_is_loopback_only_and_reproducible() -> None:
     compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
     package = json.loads((ROOT / "apps/web/package.json").read_text(encoding="utf-8"))
-    dockerfile = (ROOT / "apps/web/Dockerfile").read_text(encoding="utf-8")
+    web_dockerfile = (ROOT / "apps/web/Dockerfile").read_text(encoding="utf-8")
+    api_dockerfile = (ROOT / "apps/api/Dockerfile").read_text(encoding="utf-8")
     ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
     api_config = (ROOT / "apps/api/app/core/config.py").read_text(encoding="utf-8")
-    dockerignore_path = ROOT / "apps/web/.dockerignore"
+    deployment = (ROOT / "docs/deployment.md").read_text(encoding="utf-8")
+    web_dockerignore_path = ROOT / "apps/web/.dockerignore"
+    api_dockerignore_path = ROOT / "apps/api/.dockerignore"
 
     port_mappings = compose_port_mappings(compose)
     assert port_mappings == [
@@ -59,17 +78,68 @@ def test_default_runtime_is_loopback_only_and_reproducible() -> None:
     assert unsafe_mappings.isdisjoint(port_mappings)
     assert package["scripts"]["dev"] == "next dev -H 127.0.0.1"
     assert package["scripts"]["start"] == "next start -H 0.0.0.0"
-    assert "COPY package.json package-lock.json ./" in dockerfile
-    assert "RUN npm ci" in dockerfile
+    assert "COPY package.json package-lock.json ./" in web_dockerfile
+    assert "RUN npm ci" in web_dockerfile
     assert "- run: npm ci" in ci
     assert "- run: npm audit --audit-level=moderate" in ci
     assert 'reddit_user_agent: str = "tasksignal-local-demo/0.2"' in api_config
-    assert dockerignore_path.exists()
-    dockerignore = dockerignore_path.read_text(encoding="utf-8").splitlines()
-    assert "node_modules" in dockerignore
-    assert ".next" in dockerignore
+    assert web_dockerignore_path.exists()
+    web_dockerignore = web_dockerignore_path.read_text(encoding="utf-8").splitlines()
+    assert "node_modules" in web_dockerignore
+    assert ".next" in web_dockerignore
     assert git_ignores("apps/web/.env.local")
     assert git_ignores(".env.local")
     assert not git_ignores(".env.example")
     assert not git_ignores("apps/web/.env.example")
-    assert dockerignore[-2:] == [".env*", "!.env.example"]
+    assert web_dockerignore[-2:] == [".env*", "!.env.example"]
+
+    assert api_dockerignore_path.exists()
+    api_dockerignore = api_dockerignore_path.read_text(encoding="utf-8").splitlines()
+    assert {
+        ".venv",
+        "__pycache__",
+        ".pytest_cache",
+        ".ruff_cache",
+        ".mypy_cache",
+        "*.pyc",
+        "*.db",
+        "*.db-shm",
+        "*.db-wal",
+        "*.egg-info",
+        "build",
+        "dist",
+        ".DS_Store",
+    }.issubset(api_dockerignore)
+    assert api_dockerignore[-2:] == [".env*", "!.env.example"]
+    assert "uv.lock" not in api_dockerignore
+    assert "app" not in api_dockerignore
+    assert "alembic" not in api_dockerignore
+
+    assert "ghcr.io/astral-sh/uv:0.9.26" in api_dockerfile
+    assert "COPY pyproject.toml uv.lock ./" in api_dockerfile
+    assert 'ENV PATH="/app/.venv/bin:$PATH"' in api_dockerfile
+    assert "uv sync --locked --no-dev --no-install-project" in api_dockerfile
+    assert "uv sync --locked --no-dev" in api_dockerfile
+    assert "pip install" not in api_dockerfile
+
+    backend_ci = ci.split("  frontend:", maxsplit=1)[0]
+    assert "uses: astral-sh/setup-uv@v7" in backend_ci
+    assert 'version: "0.9.26"' in backend_ci
+    assert "working-directory: apps/api" not in backend_ci
+    assert "- run: uv sync --project apps/api --extra dev --locked" in backend_ci
+    assert (
+        "- run: uv run --project apps/api --extra dev --locked ruff check "
+        "apps/api/app apps/api/tests" in backend_ci
+    )
+    assert (
+        "- run: uv run --project apps/api --extra dev --locked pytest apps/api/tests" in backend_ci
+    )
+    assert "pip install" not in backend_ci
+
+    compose_database_url = "postgresql+psycopg://tasksignal:tasksignal@db:5432/tasksignal"
+    assert f"DATABASE_URL: {compose_database_url}" in compose
+    assert "migrate:\n\tdocker compose run --rm --build api alembic upgrade head" in makefile
+    assert "migrate-native:\n\tcd apps/api && .venv/bin/alembic upgrade head" in makefile
+    assert "`make migrate` runs Alembic inside the Compose API service" in deployment
+    assert "`make migrate-native`" in deployment
+    assert "apps/api/.env" in deployment

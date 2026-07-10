@@ -105,7 +105,9 @@ describe("EvidenceReviewControl", () => {
       "500",
     );
     expect(screen.getByLabelText("New evidence review note")).toHaveValue("");
-    expect(await screen.findByText("Evidence review added")).toBeInTheDocument();
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Evidence review added",
+    );
 
     fireEvent.change(screen.getByLabelText("Evidence label"), {
       target: { value: "false_positive" },
@@ -114,6 +116,43 @@ describe("EvidenceReviewControl", () => {
       "false_positive",
     );
     expect(screen.queryByText("Evidence review added")).not.toBeInTheDocument();
+  });
+
+  it("locks the submitted evidence draft until the request settles", async () => {
+    const request = deferred<never>();
+    vi.mocked(api.createEvidenceReview).mockReturnValue(request.promise);
+    const client = new QueryClient();
+    render(
+      <QueryClientProvider client={client}>
+        <EvidenceReviewControl opportunityId="opportunity-1" item={item} />
+      </QueryClientProvider>,
+    );
+    const label = screen.getByLabelText("Evidence label");
+    const note = screen.getByLabelText("New evidence review note");
+    fireEvent.change(label, { target: { value: "unclear" } });
+    fireEvent.change(note, { target: { value: "Submitted evidence draft" } });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Add evidence review" }),
+    );
+
+    await waitFor(() => expect(api.createEvidenceReview).toHaveBeenCalled());
+    expect(label).toBeDisabled();
+    expect(note).toBeDisabled();
+    label.focus();
+    expect(label).not.toHaveFocus();
+    note.focus();
+    expect(note).not.toHaveFocus();
+    expect(label).toHaveValue("unclear");
+    expect(note).toHaveValue("Submitted evidence draft");
+
+    request.reject(new Error("Request failed"));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Evidence review was not saved",
+    );
+    expect(label).toBeEnabled();
+    expect(note).toBeEnabled();
+    expect(label).toHaveValue("unclear");
+    expect(note).toHaveValue("Submitted evidence draft");
   });
 
   it("retains current evidence and the rejected draft without invalidating", async () => {
@@ -171,6 +210,9 @@ describe("EvidenceReviewControl", () => {
     expect(
       await screen.findByText("Could not add evidence review."),
     ).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Evidence review was not saved",
+    );
     expect(screen.getByLabelText("Evidence label")).toHaveValue(
       "sensitive_risk",
     );

@@ -4,18 +4,9 @@ import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
-import {
-  EVIDENCE_REVIEW_OPTIONS,
-  evidenceReviewLabel,
-} from "@/lib/review";
+import { EVIDENCE_REVIEW_OPTIONS, evidenceReviewLabel } from "@/lib/review";
 import type { EvidenceItem, EvidenceReviewLabel } from "@/lib/types";
-import {
-  Badge,
-  Button,
-  Select,
-  StateMessage,
-  Textarea,
-} from "@/components/ui";
+import { Badge, Button, Select, StateMessage, Textarea } from "@/components/ui";
 
 export function EvidenceReviewControl({
   opportunityId,
@@ -85,6 +76,7 @@ export function EvidenceReviewControl({
           </span>
           <Select
             className="mt-1"
+            disabled={mutation.isPending}
             value={label}
             onChange={(event) => {
               clearMutationFeedback();
@@ -104,6 +96,7 @@ export function EvidenceReviewControl({
           </span>
           <Textarea
             className="mt-1 min-h-20"
+            disabled={mutation.isPending}
             maxLength={500}
             value={note}
             onChange={(event) => {

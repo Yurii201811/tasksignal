@@ -263,7 +263,7 @@ RUFF := $(API_VENV_BIN)/ruff
 NODE20_BIN := /opt/homebrew/opt/node@20/bin
 WEB_PATH := $(if $(wildcard $(NODE20_BIN)/node),$(NODE20_BIN):$(PATH),$(PATH))
 
-.PHONY: setup dev up down migrate seed process-demo doctor smoke test lint format reset-data verify release-check
+.PHONY: setup dev up down migrate migrate-native seed process-demo doctor smoke test lint format reset-data verify release-check
 
 setup:
 	uv sync --project apps/api --extra dev --locked
@@ -275,6 +275,9 @@ dev:
 	@printf "  cd apps/web && PATH=\"$(WEB_PATH)\" npm run dev\n"
 
 migrate:
+	docker compose run --rm --build api alembic upgrade head
+
+migrate-native:
 	cd apps/api && .venv/bin/alembic upgrade head
 
 doctor:
@@ -3904,7 +3907,7 @@ Add this deployment warning to `docs/deployment.md` and the same boundary to
 ```markdown
 Docker Compose publishes PostgreSQL, FastAPI, and Next.js on `127.0.0.1` by default. Opportunity decisions and evidence labels are unauthenticated local-operator writes. Do not expose them publicly or to a team until authentication, workspace isolation, retention, and deletion controls exist.
 
-`AUTO_CREATE_TABLES=true` creates missing tables but does not migrate an existing PostgreSQL schema. Run `make migrate` for migration-managed databases. A legacy unversioned Compose volume requires schema inspection and an explicit Alembic stamp/migration plan; do not delete the volume automatically.
+`AUTO_CREATE_TABLES=true` creates missing tables but does not migrate an existing PostgreSQL schema. Run `make migrate` before `make up` for migration-managed Compose databases; use `make migrate-native` only with an explicitly verified native or hosted `DATABASE_URL`. A legacy unversioned Compose volume requires schema inspection and an explicit Alembic stamp/migration plan; do not delete the volume automatically.
 ```
 
 Update `docs/architecture.md` with the data flow
