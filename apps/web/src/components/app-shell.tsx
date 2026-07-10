@@ -6,6 +6,7 @@ import { clsx } from "clsx";
 import { ReactNode } from "react";
 import {
   BarChart3,
+  ClipboardCheck,
   Database,
   FolderKanban,
   Home,
@@ -21,6 +22,7 @@ const NAV_ICON_CLASS = "h-[18px] w-[18px] shrink-0";
 const nav: { href: string; label: string; icon: LucideIcon }[] = [
   { href: "/", label: "Home", icon: Home },
   { href: "/dashboard", label: "Dashboard", icon: BarChart3 },
+  { href: "/evaluation", label: "Evaluation", icon: ClipboardCheck },
   { href: "/projects", label: "Projects", icon: FolderKanban },
   { href: "/sources", label: "Sources", icon: Database },
   { href: "/scans", label: "Scans", icon: TimerReset },
@@ -134,7 +136,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       <header className="border-b border-border bg-surface px-4 py-3 lg:hidden">
         <BrandMark />
-        <nav className="mt-3 grid grid-cols-3 gap-1" aria-label="Primary">
+        <nav className="mt-3 grid grid-cols-4 gap-1" aria-label="Primary">
           {nav.map((item) => (
             <ShellNavLink
               key={item.href}
