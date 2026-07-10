@@ -111,6 +111,23 @@ const opportunityWithoutSignalMetadata: Opportunity = {
   ],
 };
 
+const opportunityWithSavedDecision: Opportunity = {
+  ...opportunity,
+  review_state: "promising",
+  review_note: "Server-normalized note.",
+  decision_updated_at: "2026-06-03T10:30:00.000Z",
+};
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, reject, resolve };
+}
+
 function renderWithClient(ui: React.ReactElement) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
@@ -141,6 +158,113 @@ describe("OpportunityDetail", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     installLocalStorageMock();
+  });
+
+  it("renders all three review controls from a complete opportunity response", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).endsWith("/api/opportunities/opportunity-1")) {
+        return Response.json(opportunity);
+      }
+      return Response.json({ detail: "Unexpected request" }, { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWithClient(<OpportunityDetail id="opportunity-1" />);
+
+    const decision = await screen.findByRole("region", {
+      name: "Opportunity decision",
+    });
+    expect(within(decision).getByLabelText("Decision state")).toHaveValue(
+      "new",
+    );
+    expect(
+      screen.getByRole("heading", { name: "Evidence readiness" }),
+    ).toBeInTheDocument();
+    const evidenceHeading = screen.getByRole("heading", {
+      name: "AI code review",
+    });
+    const evidenceCard = evidenceHeading.closest("article");
+    expect(evidenceCard).not.toBeNull();
+    expect(within(evidenceCard!).getByText("Evidence review")).toBeInTheDocument();
+    expect(within(evidenceCard!).getByLabelText("Evidence label")).toHaveValue(
+      "true_signal",
+    );
+  });
+
+  it("keeps save success through the real refetch and clears it on a new draft", async () => {
+    const saveResponse = deferred<Response>();
+    let decisionPersisted = false;
+    const fetchMock = vi.fn(
+      (
+        input: RequestInfo | URL,
+        init?: RequestInit,
+      ): Promise<Response> => {
+        const url = String(input);
+        if (
+          url.endsWith("/api/opportunities/opportunity-1/review") &&
+          init?.method === "PATCH"
+        ) {
+          return saveResponse.promise;
+        }
+        if (url.endsWith("/api/opportunities/opportunity-1")) {
+          return Promise.resolve(
+            Response.json(
+              decisionPersisted ? opportunityWithSavedDecision : opportunity,
+            ),
+          );
+        }
+        return Promise.resolve(
+          Response.json({ detail: "Unexpected request" }, { status: 404 }),
+        );
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWithClient(<OpportunityDetail id="opportunity-1" />);
+
+    const decisionState = await screen.findByLabelText("Decision state");
+    fireEvent.change(decisionState, { target: { value: "promising" } });
+    fireEvent.change(screen.getByLabelText("Local review note"), {
+      target: { value: "  Server-normalized note.  " },
+    });
+    expect(screen.getByText("Confirmed: New")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Save decision" }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "http://localhost:8000/api/opportunities/opportunity-1/review",
+        expect.objectContaining({
+          method: "PATCH",
+          body: JSON.stringify({
+            review_state: "promising",
+            review_note: "Server-normalized note.",
+          }),
+        }),
+      );
+    });
+    expect(screen.getByText("Confirmed: New")).toBeInTheDocument();
+    expect(screen.getByLabelText("Decision state")).toHaveValue("promising");
+    expect(screen.queryByText("Decision saved")).not.toBeInTheDocument();
+
+    decisionPersisted = true;
+    saveResponse.resolve(Response.json(opportunityWithSavedDecision));
+
+    expect(
+      await screen.findByText("Confirmed: Promising"),
+    ).toBeInTheDocument();
+    expect(await screen.findByText("Decision saved")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Local review note")).toHaveValue(
+        "Server-normalized note.",
+      );
+    });
+
+    fireEvent.change(screen.getByLabelText("Decision state"), {
+      target: { value: "rejected" },
+    });
+    expect(screen.getByText("Confirmed: Promising")).toBeInTheDocument();
+    expect(screen.queryByText("Decision saved")).not.toBeInTheDocument();
   });
 
   it("sends the local operator token when enhancing a prompt", async () => {

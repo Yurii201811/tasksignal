@@ -9,6 +9,16 @@ vi.mock("../src/lib/api", () => ({
   api: { createEvidenceReview: vi.fn() },
 }));
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, reject, resolve };
+}
+
 const item: EvidenceItem = {
   id: "item-1",
   source: "hackernews",
@@ -33,6 +43,27 @@ const item: EvidenceItem = {
 
 describe("EvidenceReviewControl", () => {
   beforeEach(() => vi.clearAllMocks());
+
+  it("renders the exact evidence-review value and label options", () => {
+    const client = new QueryClient();
+    render(
+      <QueryClientProvider client={client}>
+        <EvidenceReviewControl opportunityId="opportunity-1" item={item} />
+      </QueryClientProvider>,
+    );
+
+    const select = screen.getByLabelText("Evidence label") as HTMLSelectElement;
+    expect(
+      Array.from(select.options, (option) => [option.value, option.label]),
+    ).toEqual([
+      ["true_signal", "True signal"],
+      ["false_positive", "False positive"],
+      ["unclear", "Unclear"],
+      ["duplicate", "Duplicate"],
+      ["not_actionable", "Not actionable"],
+      ["sensitive_risk", "Sensitive risk"],
+    ]);
+  });
 
   it("appends a review and invalidates every dependent query", async () => {
     vi.mocked(api.createEvidenceReview).mockResolvedValue({} as never);
@@ -74,5 +105,77 @@ describe("EvidenceReviewControl", () => {
       "500",
     );
     expect(screen.getByLabelText("New evidence review note")).toHaveValue("");
+  });
+
+  it("retains current evidence and the rejected draft without invalidating", async () => {
+    const request = deferred<never>();
+    vi.mocked(api.createEvidenceReview).mockReturnValue(request.promise);
+    const client = new QueryClient();
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+    const reviewedItem: EvidenceItem = {
+      ...item,
+      review_label: "unclear",
+      review_note: "Existing operator note.",
+      reviewed_at: "2026-06-03T10:15:00.000Z",
+      review_history_count: 2,
+    };
+    render(
+      <QueryClientProvider client={client}>
+        <EvidenceReviewControl
+          opportunityId="opportunity-1"
+          item={reviewedItem}
+        />
+      </QueryClientProvider>,
+    );
+
+    fireEvent.change(screen.getByLabelText("Evidence label"), {
+      target: { value: "sensitive_risk" },
+    });
+    fireEvent.change(screen.getByLabelText("New evidence review note"), {
+      target: { value: "Needs privacy review." },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Add evidence review" }),
+    );
+
+    await waitFor(() => {
+      expect(api.createEvidenceReview).toHaveBeenCalledWith({
+        item_id: "item-1",
+        label: "sensitive_risk",
+        user_note: "Needs privacy review.",
+      });
+    });
+    expect(
+      screen.getByText("Unclear", { selector: "span" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Current note: Existing operator note."),
+    ).toBeInTheDocument();
+    expect(screen.getByText("2 stored review(s)")).toBeInTheDocument();
+    expect(screen.queryByText("Evidence review added")).not.toBeInTheDocument();
+    expect(invalidate).not.toHaveBeenCalled();
+
+    request.reject(
+      new Error(JSON.stringify({ detail: "Could not add evidence review." })),
+    );
+
+    expect(
+      await screen.findByText("Could not add evidence review."),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Evidence label")).toHaveValue(
+      "sensitive_risk",
+    );
+    expect(screen.getByLabelText("New evidence review note")).toHaveValue(
+      "Needs privacy review.",
+    );
+    expect(
+      screen.getByText("Unclear", { selector: "span" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Current note: Existing operator note."),
+    ).toBeInTheDocument();
+    expect(screen.getByText("2 stored review(s)")).toBeInTheDocument();
+    expect(screen.queryByText("Evidence review added")).not.toBeInTheDocument();
+    expect(invalidate).not.toHaveBeenCalled();
   });
 });

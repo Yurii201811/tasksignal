@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
@@ -46,6 +46,15 @@ export function OpportunityDecisionPanel({
   });
   const confirmed = reviewStateOption(reviewState);
 
+  useEffect(() => {
+    setDraftState(reviewState);
+    setDraftNote(reviewNote ?? "");
+  }, [decisionUpdatedAt, opportunityId, reviewNote, reviewState]);
+
+  function clearMutationFeedback() {
+    if (mutation.isSuccess || mutation.isError) mutation.reset();
+  }
+
   return (
     <Card className="space-y-4" aria-label="Opportunity decision">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -63,9 +72,10 @@ export function OpportunityDecisionPanel({
         <Select
           className="mt-2"
           value={draftState}
-          onChange={(event) =>
-            setDraftState(event.target.value as ReviewState)
-          }
+          onChange={(event) => {
+            clearMutationFeedback();
+            setDraftState(event.target.value as ReviewState);
+          }}
         >
           {REVIEW_STATE_OPTIONS.map((option) => (
             <option key={option.value} value={option.value}>
@@ -83,7 +93,10 @@ export function OpportunityDecisionPanel({
           className="mt-2"
           maxLength={1000}
           value={draftNote}
-          onChange={(event) => setDraftNote(event.target.value)}
+          onChange={(event) => {
+            clearMutationFeedback();
+            setDraftNote(event.target.value);
+          }}
         />
         <span className="mt-1 flex justify-between text-xs text-muted">
           <span>Excluded from exports.</span>

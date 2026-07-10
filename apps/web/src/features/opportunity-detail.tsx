@@ -206,7 +206,6 @@ export function OpportunityDetail({ id }: { id: string }) {
       </div>
 
       <OpportunityDecisionPanel
-        key={`${data.id}:${data.decision_updated_at ?? "unsaved"}`}
         opportunityId={data.id}
         reviewState={data.review_state}
         reviewNote={data.review_note}
