@@ -19,5 +19,5 @@ coverage/
 *.log
 *.tsbuildinfo
 .vercel
-apps/api/data/
 apps/api/build/
+.vercel-api/

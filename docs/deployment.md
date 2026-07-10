@@ -34,9 +34,10 @@ The card-free preview topology uses two Vercel projects and a Neon Free
 PostgreSQL database:
 
 - frontend project root: `apps/web`;
-- API project root: `apps/api`, prepared with
-  `scripts/prepare_vercel_api.sh` so only the API and a generated copy of the
-  canonical `data/fixtures` tree enter the deployment boundary;
+- API source root: `apps/api`, packaged by `scripts/prepare_vercel_api.sh` into
+  the gitignored `.vercel-api` deployment root so only runtime code, locked
+  dependencies, configuration, and the canonical public fixtures enter the
+  upload boundary;
 - database: Neon Free PostgreSQL through the Vercel Marketplace integration.
 
 Health and CORS preflight stay public, while
@@ -69,18 +70,20 @@ when the evaluation window ends.
 ## Vercel API and Neon Database
 
 - Prepare command: `scripts/prepare_vercel_api.sh`
-- Root: `apps/api`
+- Deployment root: `.vercel-api` (generated and gitignored)
+- Source root: `apps/api`
 - Framework preset: FastAPI
 - Entrypoint: `app.main:app`
 - Function region: Washington, D.C. (`iad1`), matching the current Neon resource
 - Environment: Neon pooled `DATABASE_URL` plus the hosted guardrails below
 
-Vercel installs the API package from `apps/api/pyproject.toml`. The prepare
-script refreshes the gitignored `apps/api/data/fixtures` directory before every
-deployment, keeping the source-of-truth fixture files at the repository root
-without exposing unrelated repo files or local environment files. Keep
-migrations outside request startup: use the Neon unpooled URL for
-`alembic upgrade head`, then use the pooled URL in the serverless API.
+Vercel installs the API package from the copied `pyproject.toml` and `uv.lock`.
+The prepare script recreates `.vercel-api` before every deployment and copies
+only the runtime package, deployment manifests, and public fixtures. It never
+copies local environment files, tests, SQLite databases, frontend files, or
+other repository content. Keep migrations outside request startup: use the
+Neon unpooled URL for `alembic upgrade head`, then use the pooled URL in the
+serverless API.
 
 ## Optional Render Backend
 
@@ -96,8 +99,10 @@ Blueprint, so it is not the primary card-free preview path.
 For a protected single-operator preview, start narrow:
 
 ```env
+AUTO_CREATE_TABLES=false
 PUBLIC_SCAN_SOURCES=fixture
 CORS_ALLOWED_ORIGINS=https://tasksignal-yurii201811.vercel.app
+AUTHOR_HASH_SALT=<long random value>
 DEMO_RESET_TOKEN=<long random value>
 OPERATOR_SCAN_TOKEN=<different long random value>
 REQUIRE_OPERATOR_TOKEN_FOR_ALL_API=true
