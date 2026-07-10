@@ -38,6 +38,13 @@ def smoke_result() -> dict[str, object]:
         "task_pack_evidence_urls": 4,
         "task_pack_markdown": "# TaskSignal Codex Task Pack: Operators need automation\n",
         "task_pack_required_sections": 8,
+        "decision_review_state": "promising",
+        "evidence_reviews": 1,
+        "evaluation_reviewed_items_before": 0,
+        "evaluation_reviewed_items": 1,
+        "evaluation_review_coverage_before": 0.0,
+        "evaluation_review_coverage": 0.2,
+        "task_pack_readiness": "medium",
         "llm_provider": "none",
         "public_scan_sources": "fixture,hackernews",
     }
@@ -314,6 +321,22 @@ def test_proof_report_markdown_records_fixture_result_without_local_paths() -> N
     assert "smoke.db" not in report
 
 
+def test_proof_report_mentions_decision_workflow_without_local_notes() -> None:
+    report = first_run_smoke.proof_report_markdown(
+        smoke_result(),
+        dashboard_source_checked=True,
+        live_dashboard_checked=None,
+        revision="codex/first-run-proof-report @ abc123 (clean)",
+        generated_at=datetime(2026, 7, 9, 12, 0, tzinfo=UTC),
+    )
+
+    assert "Decision review workflow | passed" in report
+    assert "state=promising" in report
+    assert "1 reviewed evidence item" in report
+    assert "reviewed items=0->1" in report
+    assert "local notes excluded" in report
+
+
 def test_proof_summary_records_checks_and_runtime_boundaries() -> None:
     summary = first_run_smoke.proof_summary(
         smoke_result(),
@@ -337,6 +360,23 @@ def test_proof_summary_records_checks_and_runtime_boundaries() -> None:
     ]
     assert summary["runtime_boundaries"]["llm_provider"] == "none"
     assert "local database paths" in summary["runtime_boundaries"]["omitted"]
+
+
+def test_proof_summary_records_decision_review_workflow() -> None:
+    summary = smoke_summary()
+
+    check = summary["checks"]["decision_review_workflow"]
+    assert check["result"] == "passed"
+    assert check["evidence"] == {
+        "review_state": "promising",
+        "evidence_reviews": 1,
+        "reviewed_items_before": 0,
+        "reviewed_items": 1,
+        "review_coverage_before": 0.0,
+        "review_coverage": 0.2,
+        "task_pack_readiness": "medium",
+        "local_notes_exported": False,
+    }
 
 
 def test_repository_revision_reports_unavailable_when_git_is_missing(monkeypatch) -> None:

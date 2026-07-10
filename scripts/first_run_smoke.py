@@ -321,6 +321,23 @@ def proof_summary(
                     "validator": "skills/tasksignal-opportunity-builder/scripts/check_task_pack.py",
                 },
             },
+            "decision_review_workflow": {
+                "result": "passed",
+                "evidence": {
+                    "review_state": result["decision_review_state"],
+                    "evidence_reviews": result["evidence_reviews"],
+                    "reviewed_items_before": result[
+                        "evaluation_reviewed_items_before"
+                    ],
+                    "reviewed_items": result["evaluation_reviewed_items"],
+                    "review_coverage_before": result[
+                        "evaluation_review_coverage_before"
+                    ],
+                    "review_coverage": result["evaluation_review_coverage"],
+                    "task_pack_readiness": result["task_pack_readiness"],
+                    "local_notes_exported": False,
+                },
+            },
             "dashboard_route_source": {
                 "result": check_result(dashboard_source_checked),
                 "evidence": check_evidence(
@@ -396,6 +413,16 @@ def proof_report_markdown(
             "| Task-pack structure | passed | "
             f"{result['task_pack_required_sections']} required sections present, "
             "validated by `skills/tasksignal-opportunity-builder/scripts/check_task_pack.py` |"
+        ),
+        (
+            "| Decision review workflow | passed | "
+            f"state={result['decision_review_state']}, "
+            f"{result['evidence_reviews']} reviewed evidence item, "
+            f"reviewed items={result['evaluation_reviewed_items_before']}"
+            f"->{result['evaluation_reviewed_items']}, "
+            f"coverage={result['evaluation_review_coverage_before']:.0%}"
+            f"->{result['evaluation_review_coverage']:.0%}, "
+            f"readiness={result['task_pack_readiness']}, local notes excluded |"
         ),
         (
             "| Dashboard route source | "
@@ -648,7 +675,7 @@ def run_api_checks(database_path: Path) -> dict[str, object]:
 
     with TestClient(app) as client:
         health = client_json(client, "GET", "/health")
-        readiness = client_json(client, "GET", "/api/readiness")
+        api_readiness = client_json(client, "GET", "/api/readiness")
         summary = client_json(client, "POST", "/api/process/demo")
         stats = client_json(client, "GET", "/api/stats")
         opportunities = client_json(client, "GET", "/api/opportunities")
@@ -656,8 +683,8 @@ def run_api_checks(database_path: Path) -> dict[str, object]:
         assert_condition(isinstance(health, dict), "Health response was not an object.")
         assert_condition(health.get("status") == "ok", "Health endpoint did not return ok.")
 
-        assert_condition(isinstance(readiness, dict), "Readiness response was not an object.")
-        assert_condition(readiness.get("status") == "ready", "Readiness did not report ready.")
+        assert_condition(isinstance(api_readiness, dict), "Readiness response was not an object.")
+        assert_condition(api_readiness.get("status") == "ready", "Readiness did not report ready.")
 
         assert_condition(isinstance(summary, dict), "Demo summary response was not an object.")
         assert_condition(
@@ -687,6 +714,55 @@ def run_api_checks(database_path: Path) -> dict[str, object]:
             isinstance(first_opportunity, dict) and first_opportunity.get("id"),
             "Top opportunity is missing an id.",
         )
+        evidence_items = first_opportunity.get("evidence_items")
+        assert_condition(
+            isinstance(evidence_items, list) and evidence_items,
+            "Top opportunity has no reviewable evidence.",
+        )
+        evidence_item = evidence_items[0]
+        assert_condition(
+            isinstance(evidence_item, dict) and evidence_item.get("id"),
+            "Top evidence item is missing an id.",
+        )
+        opportunity_note = "SMOKE-LOCAL-OPPORTUNITY-NOTE-EXCLUDE"
+        evidence_note = "SMOKE-LOCAL-EVIDENCE-NOTE-EXCLUDE"
+        reviewed_opportunity = client_json(
+            client,
+            "PATCH",
+            f"/api/opportunities/{first_opportunity['id']}/review",
+            {"review_state": "promising", "review_note": opportunity_note},
+        )
+        baseline_evaluation = client_json(client, "GET", "/api/evaluation")
+        evidence_review = client_json(
+            client,
+            "POST",
+            "/api/labels",
+            {
+                "item_id": evidence_item["id"],
+                "label": "true_signal",
+                "user_note": evidence_note,
+            },
+        )
+        evaluation = client_json(client, "GET", "/api/evaluation")
+        assert_condition(
+            isinstance(reviewed_opportunity, dict)
+            and reviewed_opportunity.get("review_state") == "promising",
+            "Opportunity decision did not persist.",
+        )
+        assert_condition(
+            isinstance(evidence_review, dict)
+            and evidence_review.get("label") == "true_signal",
+            "Evidence review did not persist.",
+        )
+        assert_condition(
+            isinstance(baseline_evaluation, dict)
+            and isinstance(evaluation, dict)
+            and evaluation.get("reviewed_items", 0)
+            > baseline_evaluation.get("reviewed_items", 0)
+            and evaluation.get("review_coverage", 0.0)
+            > baseline_evaluation.get("review_coverage", 0.0),
+            "Evaluation did not increase after the evidence review.",
+        )
         task_pack = client_json(
             client,
             "GET",
@@ -699,10 +775,36 @@ def run_api_checks(database_path: Path) -> dict[str, object]:
         )
         assert_condition(task_pack.get("evidence_urls"), "Task-pack has no evidence URLs.")
         task_pack_required_sections = check_task_pack_contract(str(task_pack["markdown"]))
+        evidence_response = client.get(
+            f"/api/opportunities/{first_opportunity['id']}/evidence.md"
+        )
+        assert_condition(
+            evidence_response.status_code == 200,
+            "Evidence Markdown export failed.",
+        )
+        export_text = json.dumps(task_pack, sort_keys=True) + evidence_response.text
+        assert_condition(
+            task_pack.get("review_state") == "promising",
+            "Task pack is missing the decision state.",
+        )
+        readiness = task_pack.get("evidence_readiness")
+        assert_condition(
+            isinstance(readiness, dict)
+            and readiness.get("level") in {"weak", "medium", "strong"},
+            "Task pack is missing evidence readiness.",
+        )
+        assert_condition(
+            "## Decision Context" in str(task_pack.get("markdown", "")),
+            "Task pack is missing Decision Context.",
+        )
+        assert_condition(
+            opportunity_note not in export_text and evidence_note not in export_text,
+            "Local review notes leaked into an export.",
+        )
 
         return {
             "health_status": health["status"],
-            "readiness_status": readiness["status"],
+            "readiness_status": api_readiness["status"],
             "raw_items_loaded": summary["raw_items_loaded"],
             "normalized_items_created": summary["normalized_items_created"],
             "signals_detected": summary["signals_detected"],
@@ -716,6 +818,17 @@ def run_api_checks(database_path: Path) -> dict[str, object]:
             "task_pack_evidence_urls": len(task_pack["evidence_urls"]),
             "task_pack_markdown": task_pack["markdown"],
             "task_pack_required_sections": task_pack_required_sections,
+            "decision_review_state": reviewed_opportunity["review_state"],
+            "evidence_reviews": 1,
+            "evaluation_reviewed_items_before": baseline_evaluation[
+                "reviewed_items"
+            ],
+            "evaluation_reviewed_items": evaluation["reviewed_items"],
+            "evaluation_review_coverage_before": baseline_evaluation[
+                "review_coverage"
+            ],
+            "evaluation_review_coverage": evaluation["review_coverage"],
+            "task_pack_readiness": readiness["level"],
             "llm_provider": os.environ["LLM_PROVIDER"],
             "public_scan_sources": os.environ["PUBLIC_SCAN_SOURCES"],
         }
@@ -815,6 +928,13 @@ def main() -> int:
             flush=True,
         )
         print(f"[OK] Task-pack export: {result['top_opportunity']}", flush=True)
+        print(
+            "[OK] Decision workflow: "
+            f"{result['decision_review_state']}, "
+            f"{result['evidence_reviews']} evidence review, "
+            "local notes excluded",
+            flush=True,
+        )
 
         if not args.skip_web:
             run_dashboard_source_check()
