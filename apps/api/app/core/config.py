@@ -1,7 +1,17 @@
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def normalize_database_url(database_url: str) -> str:
+    """Select the installed psycopg3 driver for provider-style Postgres URLs."""
+    if database_url.startswith("postgres://"):
+        return database_url.replace("postgres://", "postgresql+psycopg://", 1)
+    if database_url.startswith("postgresql://"):
+        return database_url.replace("postgresql://", "postgresql+psycopg://", 1)
+    return database_url
 
 
 def resolve_project_root(config_file: Path) -> Path:
@@ -40,10 +50,17 @@ class Settings(BaseSettings):
     stack_exchange_key: str = ""
     demo_reset_token: str = ""
     operator_scan_token: str = ""
+    require_operator_token_for_all_api: bool = False
+    require_operator_token_for_writes: bool = False
     public_scan_sources: str = "fixture,hackernews"
     cors_allowed_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def select_psycopg3_driver(cls, value: object) -> object:
+        return normalize_database_url(value) if isinstance(value, str) else value
 
     @property
     def project_root(self) -> Path:

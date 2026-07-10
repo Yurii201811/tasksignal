@@ -25,11 +25,21 @@ import type {
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
+function savedOperatorToken(): string | undefined {
+  if (typeof window === "undefined") return undefined;
+  const token = window.localStorage.getItem("tasksignal.operatorToken")?.trim();
+  return token || undefined;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const operatorToken = savedOperatorToken();
   const response = await fetch(`${API_BASE}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",
+      ...(operatorToken
+        ? { "X-Operator-Scan-Token": operatorToken }
+        : undefined),
       ...(init?.headers ?? {}),
     },
   });
@@ -37,6 +47,28 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(await response.text());
   }
   return response.json() as Promise<T>;
+}
+
+async function download(path: string, filename: string): Promise<void> {
+  const operatorToken = savedOperatorToken();
+  const response = await fetch(`${API_BASE}${path}`, {
+    headers: operatorToken
+      ? { "X-Operator-Scan-Token": operatorToken }
+      : undefined,
+  });
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+
+  const objectUrl = URL.createObjectURL(await response.blob());
+  const anchor = document.createElement("a");
+  anchor.href = objectUrl;
+  anchor.download = filename;
+  anchor.hidden = true;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(objectUrl);
 }
 
 export const api = {
@@ -79,6 +111,10 @@ export const api = {
     request<ProcessSummary>("/api/process/demo", { method: "POST" }),
   sources: () => request<Source[]>("/api/sources"),
   integrations: () => request<Integration[]>("/api/integrations"),
+  validateOperatorToken: (operatorToken: string) =>
+    request<Readiness>("/api/readiness", {
+      headers: { "X-Operator-Scan-Token": operatorToken },
+    }),
   localWorkspace: () => request<LocalWorkspace>("/api/local-workspace"),
   updateLocalWorkspace: (payload: LocalWorkspaceUpdate) =>
     request<LocalWorkspace>("/api/local-workspace", {
@@ -127,13 +163,15 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ query, limit: 8 }),
     }),
-  promptExportUrl: (id: string) =>
-    `${API_BASE}/api/opportunities/${id}/export.md`,
-  evidenceExportUrl: (id: string) =>
-    `${API_BASE}/api/opportunities/${id}/evidence.md`,
+  downloadPrompt: (id: string) =>
+    download(`/api/opportunities/${id}/export.md`, `${id}.md`),
+  downloadEvidence: (id: string) =>
+    download(`/api/opportunities/${id}/evidence.md`, `evidence-${id}.md`),
   taskPack: (id: string) =>
     request<TaskPack>(`/api/opportunities/${id}/task-pack.json`),
-  taskPackExportUrl: (id: string) =>
-    `${API_BASE}/api/opportunities/${id}/task-pack.md`,
-  exportUrl: (id: string) => `${API_BASE}/api/opportunities/${id}/export.md`,
+  downloadTaskPack: (id: string) =>
+    download(
+      `/api/opportunities/${id}/task-pack.md`,
+      `tasksignal-task-pack-${id}.md`,
+    ),
 };

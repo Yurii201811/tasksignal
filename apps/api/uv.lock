@@ -1696,8 +1696,6 @@ dependencies = [
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "python-dotenv" },
-    { name = "scikit-learn" },
-    { name = "sentence-transformers" },
     { name = "sqlalchemy" },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -1707,6 +1705,10 @@ dev = [
     { name = "mypy" },
     { name = "pytest" },
     { name = "ruff" },
+]
+ml = [
+    { name = "scikit-learn" },
+    { name = "sentence-transformers" },
 ]
 
 [package.metadata]
@@ -1723,12 +1725,12 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.2.0" },
     { name = "python-dotenv", specifier = ">=1.0.1" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.5.0" },
-    { name = "scikit-learn", specifier = ">=1.5.0" },
-    { name = "sentence-transformers", specifier = ">=3.0.0" },
+    { name = "scikit-learn", marker = "extra == 'ml'", specifier = ">=1.5.0" },
+    { name = "sentence-transformers", marker = "extra == 'ml'", specifier = ">=3.0.0" },
     { name = "sqlalchemy", specifier = ">=2.0.30" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30.0" },
 ]
-provides-extras = ["dev"]
+provides-extras = ["dev", "ml"]
 
 [[package]]
 name = "threadpoolctl"

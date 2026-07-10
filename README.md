@@ -48,7 +48,7 @@ TaskSignal is for maintainers, builders, indie hackers, developer-tool teams, an
 - Normalizes Reddit, Hacker News, GitHub Issues, Stack Exchange, and fixture-style records.
 - Stores author hashes instead of raw usernames by default.
 - Detects complaints, manual workflows, tool requests, workarounds, buying intent, and confusion.
-- Generates local embeddings with `sentence-transformers/all-MiniLM-L6-v2` when available.
+- Generates local embeddings with `sentence-transformers/all-MiniLM-L6-v2` when the optional ML extra and model cache are available.
 - Falls back to deterministic local vectors when the model is unavailable.
 - Clusters signals with a local thematic fallback by default, with optional DBSCAN when `TASKSIGNAL_USE_SKLEARN_CLUSTERING=1`.
 - Scores opportunities using frequency, recency, pain, concreteness, buying intent, feasibility, and competition penalty.
@@ -79,9 +79,9 @@ flowchart TD
 
 Frontend: Next.js, TypeScript, Tailwind CSS, TanStack Query, Recharts, React Markdown, Zod-ready types.
 
-Backend: FastAPI, Pydantic v2, SQLAlchemy 2, Alembic, PostgreSQL, pgvector, pytest, ruff, scikit-learn.
+Backend: FastAPI, Pydantic v2, SQLAlchemy 2, Alembic, PostgreSQL, pgvector, pytest, and ruff.
 
-ML/NLP: sentence-transformers with local-only load when the model cache exists, deterministic fallback vectors, optional DBSCAN clustering, rule-based signal detector.
+ML/NLP: deterministic vectors and thematic clustering by default, with an optional `ml` extra for sentence-transformers and DBSCAN, plus a rule-based signal detector.
 
 Infra: Docker Compose, Makefile, GitHub Actions CI, scheduled ingestion template.
 
@@ -96,6 +96,10 @@ make dev
 
 `make dev` prints ready-to-run API and Node-safe web commands. Run each printed
 command in a separate terminal.
+
+`make setup` installs the lean deterministic runtime. Use `make setup-ml` when
+this machine should also install sentence-transformers and scikit-learn for a
+locally cached embedding model and opt-in DBSCAN clustering.
 
 For the loopback-only Docker Compose stack, migrate the PostgreSQL schema before
 serving it:
@@ -292,7 +296,7 @@ skills.
 
 ## ML/NLP Approach
 
-The MVP uses transparent rules first. It scores pain phrases, repetition phrases, tool requests, buying intent, and task concreteness hints. Embeddings use `sentence-transformers/all-MiniLM-L6-v2` only when locally available; otherwise deterministic vectors keep the demo working.
+The MVP uses transparent rules first. It scores pain phrases, repetition phrases, tool requests, buying intent, and task concreteness hints. Embeddings use `sentence-transformers/all-MiniLM-L6-v2` only when the optional `ml` extra and a local model cache are available; otherwise deterministic vectors keep the demo working.
 
 ## Scoring Formula
 

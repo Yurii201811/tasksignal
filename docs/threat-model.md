@@ -21,6 +21,12 @@ TaskSignal is a local-first research app for public discussion data. This threat
 
 Docker Compose publishes PostgreSQL, FastAPI, and Next.js on `127.0.0.1` by default. Opportunity decisions and evidence labels are unauthenticated local-operator writes. Do not expose them publicly or to a team until authentication, workspace isolation, retention, and deletion controls exist.
 
+The single-operator hosted preview is a narrower exception: when
+`REQUIRE_OPERATOR_TOKEN_FOR_ALL_API=true`, every `/api/` read, write, and export
+requires the matching operator token; health and CORS preflight remain public.
+This is not multi-user authentication and does not provide tenant isolation or
+per-user authorization.
+
 `AUTO_CREATE_TABLES=true` creates missing tables but does not migrate an existing PostgreSQL schema. Run `make migrate` before `make up` for migration-managed Compose databases; use `make migrate-native` only with an explicitly verified native or hosted `DATABASE_URL`. A legacy unversioned Compose volume requires schema inspection and an explicit Alembic stamp/migration plan; do not delete the volume automatically.
 
 ## Key Risks
@@ -54,6 +60,9 @@ Docker Compose publishes PostgreSQL, FastAPI, and Next.js on `127.0.0.1` by defa
   `OPERATOR_SCAN_TOKEN` plus `X-Operator-Scan-Token`.
 - Browser-triggered prompt enhancement requires `OPERATOR_SCAN_TOKEN` plus
   `X-Operator-Scan-Token` before any OpenAI or Ollama request is made.
+- Hosted deployments can require `OPERATOR_SCAN_TOKEN` for every `/api/`
+  request while leaving only health and CORS preflight public. The web client
+  sends the token in a header for JSON and Markdown downloads, never in a URL.
 - Source registry write endpoints require `OPERATOR_SCAN_TOKEN`, reject
   secret-like `config_json` keys, and source read endpoints redact config values.
 - Scheduled workflows store cadence metadata only; operators must explicitly

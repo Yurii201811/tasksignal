@@ -1,5 +1,6 @@
 import json
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 from sqlalchemy import select
@@ -49,6 +50,88 @@ def test_process_demo_endpoint(client) -> None:
     assert opportunities[0]["review_state"] == "new"
     assert opportunities[0]["review_note"] is None
     assert opportunities[0]["decision_updated_at"] is None
+
+
+def test_hosted_write_protection_requires_the_operator_token(client, monkeypatch) -> None:
+    from app import main as app_main
+
+    monkeypatch.setattr(
+        app_main,
+        "settings",
+        SimpleNamespace(
+            require_operator_token_for_all_api=False,
+            require_operator_token_for_writes=True,
+            operator_scan_token="hosted-operator-token",
+            llm_provider=routes.settings.llm_provider,
+            embedding_model=routes.settings.embedding_model,
+        ),
+    )
+
+    assert client.get("/api/stats").status_code == 200
+
+    missing = client.post(
+        "/api/process/demo",
+        headers={"Origin": "http://localhost:3000"},
+    )
+    assert missing.status_code == 403
+    assert missing.headers["access-control-allow-origin"] == "http://localhost:3000"
+    assert missing.json() == {"detail": "Hosted writes require a valid X-Operator-Scan-Token."}
+
+    invalid = client.post(
+        "/api/process/demo",
+        headers={"X-Operator-Scan-Token": "wrong-token"},
+    )
+    assert invalid.status_code == 403
+
+    allowed = client.post(
+        "/api/process/demo",
+        headers={"X-Operator-Scan-Token": "hosted-operator-token"},
+    )
+    assert allowed.status_code == 200
+    assert allowed.json()["raw_items_loaded"] >= 17
+
+
+def test_hosted_api_protection_covers_reads_and_handles_non_ascii_tokens(
+    client, monkeypatch
+) -> None:
+    from app import main as app_main
+
+    monkeypatch.setattr(
+        app_main,
+        "settings",
+        SimpleNamespace(
+            require_operator_token_for_all_api=True,
+            require_operator_token_for_writes=True,
+            operator_scan_token="hosted-operator-token",
+            llm_provider=routes.settings.llm_provider,
+            embedding_model=routes.settings.embedding_model,
+        ),
+    )
+
+    assert client.get("/health").status_code == 200
+    assert (
+        client.options(
+            "/api/stats",
+            headers={
+                "Origin": "http://localhost:3000",
+                "Access-Control-Request-Method": "GET",
+                "Access-Control-Request-Headers": "X-Operator-Scan-Token",
+            },
+        ).status_code
+        == 200
+    )
+
+    missing = client.get("/api/stats", headers={"Origin": "http://localhost:3000"})
+    assert missing.status_code == 403
+    assert missing.headers["access-control-allow-origin"] == "http://localhost:3000"
+
+    allowed = client.get(
+        "/api/stats",
+        headers={"X-Operator-Scan-Token": "hosted-operator-token"},
+    )
+    assert allowed.status_code == 200
+
+    assert app_main.operator_token_matches("\u00ff", "hosted-operator-token") is False
 
 
 def test_integrations_report_status_without_secret_values(client, monkeypatch) -> None:

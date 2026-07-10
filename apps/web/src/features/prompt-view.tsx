@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import ReactMarkdown from "react-markdown";
 import { ArrowLeft, Copy, Download } from "lucide-react";
 import { api } from "@/lib/api";
@@ -18,6 +18,15 @@ export function PromptView({ id }: { id: string }) {
   const { data, error, isError, isLoading } = useQuery({
     queryKey: ["prompt", id],
     queryFn: () => api.prompt(id),
+  });
+  const taskPackDownload = useMutation({
+    mutationFn: () => api.downloadTaskPack(id),
+  });
+  const evidenceDownload = useMutation({
+    mutationFn: () => api.downloadEvidence(id),
+  });
+  const promptDownload = useMutation({
+    mutationFn: () => api.downloadPrompt(id),
   });
   const prompt = data?.prompt ?? "";
   const canCopy = Boolean(prompt) && !isLoading;
@@ -56,24 +65,27 @@ export function PromptView({ id }: { id: string }) {
             <Button onClick={copyPrompt} disabled={!canCopy} variant="primary">
               <Copy size={16} /> {copied ? "Copied" : "Copy prompt"}
             </Button>
-            <a
-              href={api.taskPackExportUrl(id)}
-              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-product border border-border bg-surface px-4 py-2 text-sm font-semibold text-ink hover:bg-surface-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]"
+            <Button
+              variant="secondary"
+              onClick={() => taskPackDownload.mutate()}
+              loading={taskPackDownload.isPending}
             >
               <Download size={16} /> Task pack
-            </a>
-            <a
-              href={api.evidenceExportUrl(id)}
-              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-product border border-border bg-surface px-4 py-2 text-sm font-semibold text-ink hover:bg-surface-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]"
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => evidenceDownload.mutate()}
+              loading={evidenceDownload.isPending}
             >
               <Download size={16} /> Evidence bundle
-            </a>
-            <a
-              href={api.promptExportUrl(id)}
-              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-product border border-border bg-surface px-4 py-2 text-sm font-semibold text-ink hover:bg-surface-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]"
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => promptDownload.mutate()}
+              loading={promptDownload.isPending}
             >
               <Download size={16} /> Download .md
-            </a>
+            </Button>
           </>
         }
       />
@@ -81,6 +93,17 @@ export function PromptView({ id }: { id: string }) {
       {copyError ? (
         <StateMessage tone="danger" title="Copy did not complete">
           {copyError}
+        </StateMessage>
+      ) : null}
+      {taskPackDownload.error ||
+      evidenceDownload.error ||
+      promptDownload.error ? (
+        <StateMessage tone="danger" title="Protected export did not download">
+          {errorMessage(
+            taskPackDownload.error ??
+              evidenceDownload.error ??
+              promptDownload.error,
+          )}
         </StateMessage>
       ) : null}
       {copied ? (

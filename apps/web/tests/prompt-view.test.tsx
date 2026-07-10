@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -8,15 +8,19 @@ import { api } from "../src/lib/api";
 vi.mock("../src/lib/api", () => ({
   api: {
     prompt: vi.fn(),
-    taskPackExportUrl: vi.fn((id: string) => `http://localhost:8000/api/opportunities/${id}/task-pack.md`),
-    evidenceExportUrl: vi.fn((id: string) => `http://localhost:8000/api/opportunities/${id}/evidence.md`),
-    promptExportUrl: vi.fn((id: string) => `http://localhost:8000/api/opportunities/${id}/export.md`),
+    downloadTaskPack: vi.fn(),
+    downloadEvidence: vi.fn(),
+    downloadPrompt: vi.fn(),
   },
 }));
 
 function renderWithClient(ui: React.ReactElement) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={client}>{ui}</QueryClientProvider>,
+  );
 }
 
 describe("PromptView", () => {
@@ -36,23 +40,23 @@ describe("PromptView", () => {
         "No raw usernames or secrets.",
       ].join("\n"),
     });
+    vi.mocked(api.downloadTaskPack).mockResolvedValue(undefined);
+    vi.mocked(api.downloadEvidence).mockResolvedValue(undefined);
+    vi.mocked(api.downloadPrompt).mockResolvedValue(undefined);
   });
 
-  it("links all export artifacts from the prompt screen", async () => {
+  it("downloads all export artifacts through the protected API client", async () => {
     renderWithClient(<PromptView id="opportunity-1" />);
 
     expect(await screen.findByText("Export readiness")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /task pack/i })).toHaveAttribute(
-      "href",
-      "http://localhost:8000/api/opportunities/opportunity-1/task-pack.md",
-    );
-    expect(screen.getByRole("link", { name: /evidence bundle/i })).toHaveAttribute(
-      "href",
-      "http://localhost:8000/api/opportunities/opportunity-1/evidence.md",
-    );
-    expect(screen.getByRole("link", { name: /download \.md/i })).toHaveAttribute(
-      "href",
-      "http://localhost:8000/api/opportunities/opportunity-1/export.md",
-    );
+    fireEvent.click(screen.getByRole("button", { name: /task pack/i }));
+    fireEvent.click(screen.getByRole("button", { name: /evidence bundle/i }));
+    fireEvent.click(screen.getByRole("button", { name: /download \.md/i }));
+
+    await waitFor(() => {
+      expect(api.downloadTaskPack).toHaveBeenCalledWith("opportunity-1");
+      expect(api.downloadEvidence).toHaveBeenCalledWith("opportunity-1");
+      expect(api.downloadPrompt).toHaveBeenCalledWith("opportunity-1");
+    });
   });
 });

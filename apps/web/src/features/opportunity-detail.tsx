@@ -73,6 +73,12 @@ export function OpportunityDetail({ id }: { id: string }) {
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: ["opportunity", id] }),
   });
+  const taskPackDownload = useMutation({
+    mutationFn: () => api.downloadTaskPack(id),
+  });
+  const evidenceDownload = useMutation({
+    mutationFn: () => api.downloadEvidence(id),
+  });
 
   useEffect(() => {
     setOperatorToken(
@@ -146,18 +152,20 @@ export function OpportunityDetail({ id }: { id: string }) {
               >
                 <FileText size={16} /> View Codex Prompt
               </Link>
-              <a
-                href={api.taskPackExportUrl(id)}
-                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-product border border-border bg-surface px-4 py-2 text-sm font-semibold text-ink hover:bg-surface-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]"
+              <Button
+                variant="secondary"
+                onClick={() => taskPackDownload.mutate()}
+                loading={taskPackDownload.isPending}
               >
                 <Download size={16} /> Task Pack
-              </a>
-              <a
-                href={api.evidenceExportUrl(id)}
-                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-product border border-border bg-surface px-4 py-2 text-sm font-semibold text-ink hover:bg-surface-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]"
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => evidenceDownload.mutate()}
+                loading={evidenceDownload.isPending}
               >
                 <Download size={16} /> Export Evidence
-              </a>
+              </Button>
               <Button
                 variant="secondary"
                 onClick={() => regenerate.mutate()}
@@ -226,6 +234,11 @@ export function OpportunityDetail({ id }: { id: string }) {
       {enhance.error ? (
         <StateMessage tone="danger" title="Prompt enhancement did not complete">
           {apiErrorMessage(enhance.error)}
+        </StateMessage>
+      ) : null}
+      {taskPackDownload.error || evidenceDownload.error ? (
+        <StateMessage tone="danger" title="Protected export did not download">
+          {apiErrorMessage(taskPackDownload.error ?? evidenceDownload.error)}
         </StateMessage>
       ) : null}
       {enhance.data ? (

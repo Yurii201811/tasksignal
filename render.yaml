@@ -1,0 +1,49 @@
+services:
+  - type: web
+    name: tasksignal-api-yurii201811
+    runtime: python
+    plan: free
+    region: frankfurt
+    autoDeployTrigger: checksPass
+    buildCommand: pip install uv==0.9.26 && uv sync --project apps/api --locked --no-dev
+    startCommand: cd apps/api && .venv/bin/alembic upgrade head && exec .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port "$PORT"
+    healthCheckPath: /health
+    buildFilter:
+      paths:
+        - apps/api/**
+        - data/fixtures/**
+        - render.yaml
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.12
+      - key: DATABASE_URL
+        fromDatabase:
+          name: tasksignal-db
+          property: connectionString
+      - key: AUTO_CREATE_TABLES
+        value: "false"
+      - key: LLM_PROVIDER
+        value: none
+      - key: PUBLIC_SCAN_SOURCES
+        value: fixture
+      - key: AUTHOR_HASH_SALT
+        generateValue: true
+      - key: DEMO_RESET_TOKEN
+        generateValue: true
+      - key: OPERATOR_SCAN_TOKEN
+        sync: false
+      - key: REQUIRE_OPERATOR_TOKEN_FOR_ALL_API
+        value: "true"
+      - key: REQUIRE_OPERATOR_TOKEN_FOR_WRITES
+        value: "true"
+      - key: CORS_ALLOWED_ORIGINS
+        value: https://tasksignal-yurii201811.vercel.app
+
+databases:
+  - name: tasksignal-db
+    databaseName: tasksignal
+    user: tasksignal
+    plan: free
+    region: frankfurt
+    postgresMajorVersion: "16"
+    ipAllowList: []

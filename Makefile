@@ -4,10 +4,14 @@ RUFF := $(API_VENV_BIN)/ruff
 NODE20_BIN := /opt/homebrew/opt/node@20/bin
 WEB_PATH := $(if $(wildcard $(NODE20_BIN)/node),$(NODE20_BIN):$(PATH),$(PATH))
 
-.PHONY: setup dev up down migrate migrate-native seed process-demo doctor smoke test lint format reset-data verify release-check
+.PHONY: setup setup-ml dev up down migrate migrate-native seed process-demo doctor smoke test lint format reset-data verify release-check
 
 setup:
 	uv sync --project apps/api --extra dev --locked
+	PATH="$(WEB_PATH)" npm --prefix apps/web ci
+
+setup-ml:
+	uv sync --project apps/api --extra dev --extra ml --locked
 	PATH="$(WEB_PATH)" npm --prefix apps/web ci
 
 dev:

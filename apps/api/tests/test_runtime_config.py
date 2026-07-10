@@ -1,5 +1,6 @@
 import json
 import subprocess
+import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -47,6 +48,82 @@ def test_project_root_resolution_supports_native_and_container_layouts(tmp_path)
     (container_root / "data/fixtures").mkdir(parents=True)
 
     assert config.resolve_project_root(container_config) == container_root
+
+
+def test_database_url_normalization_selects_psycopg3() -> None:
+    from app.core.config import Settings, normalize_database_url
+
+    assert normalize_database_url("postgres://user:pass@db:5432/tasksignal") == (
+        "postgresql+psycopg://user:pass@db:5432/tasksignal"
+    )
+    assert normalize_database_url("postgresql://user:pass@db:5432/tasksignal") == (
+        "postgresql+psycopg://user:pass@db:5432/tasksignal"
+    )
+    assert (
+        normalize_database_url("postgresql+psycopg://user:pass@db:5432/tasksignal")
+        == "postgresql+psycopg://user:pass@db:5432/tasksignal"
+    )
+    assert normalize_database_url("sqlite:///./tasksignal.db") == "sqlite:///./tasksignal.db"
+    assert Settings(database_url="postgresql://user:pass@db:5432/tasksignal").database_url == (
+        "postgresql+psycopg://user:pass@db:5432/tasksignal"
+    )
+
+
+def test_cloud_runtime_keeps_local_ml_optional() -> None:
+    project = tomllib.loads((ROOT / "apps/api/pyproject.toml").read_text(encoding="utf-8"))
+    core_dependencies = project["project"]["dependencies"]
+    ml_dependencies = project["project"]["optional-dependencies"]["ml"]
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+
+    assert not any(
+        dependency.startswith("sentence-transformers") for dependency in core_dependencies
+    )
+    assert not any(dependency.startswith("scikit-learn") for dependency in core_dependencies)
+    assert any(dependency.startswith("sentence-transformers") for dependency in ml_dependencies)
+    assert any(dependency.startswith("scikit-learn") for dependency in ml_dependencies)
+    assert "setup-ml:" in makefile
+    assert "--extra dev --extra ml --locked" in makefile
+
+
+def test_hosted_deployment_manifests_are_safe_and_reproducible() -> None:
+    render_config = (ROOT / "render.yaml").read_text(encoding="utf-8")
+    vercel_config = json.loads((ROOT / "apps/web/vercel.json").read_text(encoding="utf-8"))
+    env_example = (ROOT / ".env.example").read_text(encoding="utf-8")
+
+    assert "name: tasksignal-api-yurii201811" in render_config
+    assert "runtime: python" in render_config
+    assert "plan: free" in render_config
+    assert "region: frankfurt" in render_config
+    assert "autoDeployTrigger: checksPass" in render_config
+    assert "rootDir:" not in render_config
+    assert "pip install uv==0.9.26" in render_config
+    assert "uv sync --project apps/api --locked --no-dev" in render_config
+    start = render_config.index(".venv/bin/alembic upgrade head")
+    server = render_config.index(".venv/bin/uvicorn app.main:app")
+    assert start < server
+    assert '--port "$PORT"' in render_config
+    assert "healthCheckPath: /health" in render_config
+    assert "- apps/api/**" in render_config
+    assert "- data/fixtures/**" in render_config
+    assert "key: OPERATOR_SCAN_TOKEN\n        sync: false" in render_config
+    assert 'key: REQUIRE_OPERATOR_TOKEN_FOR_ALL_API\n        value: "true"' in render_config
+    assert 'key: REQUIRE_OPERATOR_TOKEN_FOR_WRITES\n        value: "true"' in render_config
+    assert (
+        "key: CORS_ALLOWED_ORIGINS\n        value: https://tasksignal-yurii201811.vercel.app"
+        in render_config
+    )
+    assert "name: tasksignal-db" in render_config
+    assert 'postgresMajorVersion: "16"' in render_config
+    assert "ipAllowList: []" in render_config
+
+    assert vercel_config["$schema"] == "https://openapi.vercel.sh/vercel.json"
+    assert vercel_config["framework"] == "nextjs"
+    assert vercel_config["installCommand"] == "npm ci"
+    assert vercel_config["buildCommand"] == "npm run build"
+    assert "env" not in vercel_config
+    assert "build" not in vercel_config
+    assert "REQUIRE_OPERATOR_TOKEN_FOR_ALL_API=false" in env_example
+    assert "REQUIRE_OPERATOR_TOKEN_FOR_WRITES=false" in env_example
 
 
 def test_default_runtime_is_loopback_only_and_reproducible() -> None:
