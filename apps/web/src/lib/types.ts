@@ -95,13 +95,18 @@ export type Evaluation = {
 export type EvidenceItem = {
   id: string;
   source: string;
+  external_id: string;
   url: string;
   title: string;
   body: string;
-  signal_type: string;
-  pain_score: number;
-  task_concreteness_score: number;
-  buying_intent_score: number;
+  score: number | null;
+  comments_count: number | null;
+  created_at: string;
+  tags: string[];
+  signal_type: string | null;
+  pain_score: number | null;
+  task_concreteness_score: number | null;
+  buying_intent_score: number | null;
   evidence_spans: string[];
   review_label: EvidenceReviewLabel | null;
   review_note: string | null;

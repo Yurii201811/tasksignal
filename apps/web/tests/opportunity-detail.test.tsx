@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -36,9 +42,14 @@ const opportunity: Opportunity = {
     {
       id: "item-1",
       source: "hackernews",
+      external_id: "1",
       url: "https://news.ycombinator.com/item?id=1",
       title: "AI code review",
       body: "We need production-readiness checks for AI-generated code.",
+      score: 42,
+      comments_count: 7,
+      created_at: "2026-06-03T09:30:00.000Z",
+      tags: ["ai", "code-review"],
       signal_type: "pain",
       pain_score: 0.9,
       task_concreteness_score: 0.8,
@@ -76,6 +87,28 @@ const opportunity: Opportunity = {
       "Review 1 more evidence item.",
     ],
   },
+};
+
+const opportunityWithoutSignalMetadata: Opportunity = {
+  ...opportunity,
+  signal_count: 0,
+  evidence_items: [
+    {
+      ...opportunity.evidence_items[0],
+      id: "item-2",
+      external_id: "2",
+      title: "Unscored evidence",
+      body: "A raw item awaiting signal analysis.",
+      score: null,
+      comments_count: null,
+      tags: [],
+      signal_type: null,
+      pain_score: null,
+      task_concreteness_score: null,
+      buying_intent_score: null,
+      evidence_spans: [],
+    },
+  ],
 };
 
 function renderWithClient(ui: React.ReactElement) {
@@ -183,5 +216,53 @@ describe("OpportunityDetail", () => {
 
     const calledUrls = fetchMock.mock.calls.map(([input]) => String(input));
     expect(calledUrls.filter((url) => url.includes("/enhance"))).toHaveLength(0);
+  });
+
+  it("renders nullable signal metadata as unmeasured", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).endsWith("/api/opportunities/opportunity-1")) {
+        return Response.json(opportunityWithoutSignalMetadata);
+      }
+      return Response.json({ detail: "Unexpected request" }, { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWithClient(<OpportunityDetail id="opportunity-1" />);
+
+    const heading = await screen.findByRole("heading", {
+      name: "Unscored evidence",
+    });
+    const evidenceCard = heading.closest("article");
+    expect(evidenceCard).not.toBeNull();
+
+    const evidence = within(evidenceCard!);
+    expect(evidence.getByText("Not classified")).toBeInTheDocument();
+    expect(evidence.getAllByText("Not measured")).toHaveLength(3);
+    expect(evidence.queryByRole("meter")).not.toBeInTheDocument();
+  });
+
+  it("preserves measured signal metadata", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).endsWith("/api/opportunities/opportunity-1")) {
+        return Response.json(opportunity);
+      }
+      return Response.json({ detail: "Unexpected request" }, { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWithClient(<OpportunityDetail id="opportunity-1" />);
+
+    const heading = await screen.findByRole("heading", {
+      name: "AI code review",
+    });
+    const evidenceCard = heading.closest("article");
+    expect(evidenceCard).not.toBeNull();
+
+    const evidence = within(evidenceCard!);
+    expect(evidence.getByText("pain")).toBeInTheDocument();
+    expect(evidence.getByText("90")).toBeInTheDocument();
+    expect(evidence.getByText("80")).toBeInTheDocument();
+    expect(evidence.getByText("40")).toBeInTheDocument();
+    expect(evidence.getAllByRole("meter")).toHaveLength(3);
   });
 });

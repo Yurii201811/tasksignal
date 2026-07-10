@@ -416,8 +416,10 @@ export function OpportunityDetail({ id }: { id: string }) {
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="flex min-w-0 flex-wrap items-center gap-2">
                     <Badge tone="blue">{item.source}</Badge>
-                    <Badge tone="green">
-                      {item.signal_type?.replace("_", " ")}
+                    <Badge tone={item.signal_type === null ? "slate" : "green"}>
+                      {item.signal_type === null
+                        ? "Not classified"
+                        : item.signal_type.replace("_", " ")}
                     </Badge>
                   </div>
                   {sourceUrl ? (
@@ -467,14 +469,14 @@ export function OpportunityDetail({ id }: { id: string }) {
   );
 }
 
-function MiniScore({ label, value }: { label: string; value: number }) {
+function MiniScore({ label, value }: { label: string; value: number | null }) {
   return (
     <div>
       <div className="mb-1 flex justify-between text-xs font-semibold text-muted">
         <span>{label}</span>
-        <span>{percent(value)}</span>
+        <span>{value === null ? "Not measured" : percent(value)}</span>
       </div>
-      <ScoreBar value={value} />
+      {value === null ? null : <ScoreBar value={value} />}
     </div>
   );
 }
