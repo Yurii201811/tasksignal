@@ -150,6 +150,73 @@ def test_fastapi_version_rejects_duplicate_constructors(tmp_path) -> None:
         release_check.fastapi_version(path)
 
 
+@pytest.mark.parametrize(
+    ("relative_path", "malformed_content"),
+    [
+        ("apps/api/pyproject.toml", "[project\n"),
+        ("apps/api/uv.lock", "package = [\n"),
+        ("apps/api/app/main.py", "app = FastAPI(\n"),
+        ("apps/web/package.json", "{\n"),
+        ("apps/web/package-lock.json", "{\n"),
+    ],
+)
+def test_safe_project_version_check_reports_malformed_metadata(
+    tmp_path, monkeypatch, relative_path, malformed_content
+) -> None:
+    write_release_files(tmp_path)
+    (tmp_path / relative_path).write_text(malformed_content, encoding="utf-8")
+    monkeypatch.setattr(release_check, "ROOT", tmp_path)
+
+    version, failures = release_check.safe_check_project_versions("1.2.3")
+
+    assert version is None
+    assert len(failures) == 1
+    assert failures[0].startswith("Could not read project version metadata:")
+
+
+def test_safe_project_version_check_reports_missing_metadata(
+    tmp_path, monkeypatch
+) -> None:
+    write_release_files(tmp_path)
+    (tmp_path / "apps/web/package-lock.json").unlink()
+    monkeypatch.setattr(release_check, "ROOT", tmp_path)
+
+    version, failures = release_check.safe_check_project_versions("1.2.3")
+
+    assert version is None
+    assert len(failures) == 1
+    assert failures[0].startswith("Could not read project version metadata:")
+
+
+def test_main_reports_malformed_metadata_without_traceback(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    write_release_files(tmp_path)
+    (tmp_path / "apps/api/pyproject.toml").write_text("[project\n", encoding="utf-8")
+    monkeypatch.setattr(release_check, "ROOT", tmp_path)
+    monkeypatch.setattr(
+        release_check.sys,
+        "argv",
+        ["release_check.py", "--version", "1.2.3"],
+    )
+    monkeypatch.setattr(release_check, "check_required_files", lambda: [])
+    monkeypatch.setattr(release_check, "check_secret_patterns", lambda: [])
+    monkeypatch.setattr(release_check, "check_tracked_generated_files", lambda: [])
+    monkeypatch.setattr(release_check, "check_clean_worktree", lambda _required: [])
+    monkeypatch.setattr(release_check, "check_changelog_entry", lambda _version: [])
+    monkeypatch.setattr(
+        release_check,
+        "check_ci_run_url",
+        lambda _url, _required: [],
+    )
+
+    assert release_check.main() == 1
+    output = capsys.readouterr().out
+    assert "Release check failed:" in output
+    assert "Could not read project version metadata:" in output
+    assert "Traceback" not in output
+
+
 def test_changelog_check_requires_release_heading(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(release_check, "ROOT", tmp_path)
     (tmp_path / "CHANGELOG.md").write_text(

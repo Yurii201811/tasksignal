@@ -1,4 +1,5 @@
 import json
+import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -21,6 +22,16 @@ def compose_port_mappings(compose: str) -> list[str]:
         if stripped.startswith("-"):
             mappings.append(stripped.removeprefix("-").strip().strip('"\''))
     return mappings
+
+
+def git_ignores(path: str) -> bool:
+    completed = subprocess.run(
+        ["git", "check-ignore", "--quiet", "--no-index", "--", path],
+        cwd=ROOT,
+        check=False,
+    )
+    assert completed.returncode in {0, 1}
+    return completed.returncode == 0
 
 
 def test_default_runtime_is_loopback_only_and_reproducible() -> None:
@@ -57,3 +68,8 @@ def test_default_runtime_is_loopback_only_and_reproducible() -> None:
     dockerignore = dockerignore_path.read_text(encoding="utf-8").splitlines()
     assert "node_modules" in dockerignore
     assert ".next" in dockerignore
+    assert git_ignores("apps/web/.env.local")
+    assert git_ignores(".env.local")
+    assert not git_ignores(".env.example")
+    assert not git_ignores("apps/web/.env.example")
+    assert dockerignore[-2:] == [".env*", "!.env.example"]

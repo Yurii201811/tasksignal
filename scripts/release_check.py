@@ -203,6 +203,18 @@ def check_project_versions(expected_version: str | None) -> tuple[str | None, li
     return release_version if not failures or expected_version else None, failures
 
 
+def safe_check_project_versions(
+    expected_version: str | None,
+) -> tuple[str | None, list[str]]:
+    try:
+        return check_project_versions(expected_version)
+    except (OSError, SyntaxError, ValueError, LookupError, TypeError, StopIteration) as exc:
+        return None, [
+            "Could not read project version metadata: "
+            f"{type(exc).__name__}: {exc}"
+        ]
+
+
 def check_changelog_entry(version: str | None) -> list[str]:
     if not version:
         return []
@@ -251,7 +263,7 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    release_version, version_failures = check_project_versions(args.version)
+    release_version, version_failures = safe_check_project_versions(args.version)
     ci_run_url = args.ci_run_url or derive_ci_run_url()
     failures = [
         *check_required_files(),
