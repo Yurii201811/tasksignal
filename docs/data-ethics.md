@@ -21,6 +21,10 @@ ranked opportunities remain attributable. Connector responses are minimized
 before storage so raw author fields from live APIs are not retained in
 `raw_items`.
 
+Set `AUTHOR_HASH_SALT` to a machine-specific value before storing live scan
+results. The readiness endpoint warns when the placeholder salt is still in use
+without returning the configured value.
+
 Review [source limits and terms](source-limits.md) before enabling a connector
 in a hosted deployment. The public scan API only exposes non-credentialed
 sources and can be narrowed further with `PUBLIC_SCAN_SOURCES`; credentialed

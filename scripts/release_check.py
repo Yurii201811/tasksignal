@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import os
 import re
@@ -127,12 +128,57 @@ def normalize_version(version: str) -> str:
     return version.strip().removeprefix("v")
 
 
+def fastapi_version(path: Path) -> str:
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    constructors = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "FastAPI"
+    ]
+    if len(constructors) != 1:
+        raise ValueError(
+            f"Expected exactly one direct FastAPI(...) constructor in {path}; "
+            f"found {len(constructors)}."
+        )
+
+    version_keywords = [
+        keyword for keyword in constructors[0].keywords if keyword.arg == "version"
+    ]
+    if len(version_keywords) != 1:
+        raise ValueError(f"FastAPI version must be a string literal in {path}.")
+    value = version_keywords[0].value
+    if not isinstance(value, ast.Constant) or not isinstance(value.value, str):
+        raise ValueError(f"FastAPI version must be a string literal in {path}.")
+    return normalize_version(value.value)
+
+
 def read_project_versions() -> dict[str, str]:
-    pyproject = tomllib.loads((ROOT / "apps/api/pyproject.toml").read_text(encoding="utf-8"))
-    package = json.loads((ROOT / "apps/web/package.json").read_text(encoding="utf-8"))
+    pyproject = tomllib.loads(
+        (ROOT / "apps/api/pyproject.toml").read_text(encoding="utf-8")
+    )
+    uv_lock = tomllib.loads(
+        (ROOT / "apps/api/uv.lock").read_text(encoding="utf-8")
+    )
+    api_lock_package = next(
+        package for package in uv_lock["package"] if package["name"] == "tasksignal-api"
+    )
+    package = json.loads(
+        (ROOT / "apps/web/package.json").read_text(encoding="utf-8")
+    )
+    package_lock = json.loads(
+        (ROOT / "apps/web/package-lock.json").read_text(encoding="utf-8")
+    )
     return {
         "api": normalize_version(str(pyproject["project"]["version"])),
+        "api_lock": normalize_version(str(api_lock_package["version"])),
+        "fastapi": fastapi_version(ROOT / "apps/api/app/main.py"),
         "web": normalize_version(str(package["version"])),
+        "web_lock_top": normalize_version(str(package_lock["version"])),
+        "web_lock_root": normalize_version(
+            str(package_lock["packages"][""]["version"])
+        ),
     }
 
 
@@ -155,6 +201,18 @@ def check_project_versions(expected_version: str | None) -> tuple[str | None, li
         )
 
     return release_version if not failures or expected_version else None, failures
+
+
+def safe_check_project_versions(
+    expected_version: str | None,
+) -> tuple[str | None, list[str]]:
+    try:
+        return check_project_versions(expected_version)
+    except (OSError, SyntaxError, ValueError, LookupError, TypeError, StopIteration) as exc:
+        return None, [
+            "Could not read project version metadata: "
+            f"{type(exc).__name__}: {exc}"
+        ]
 
 
 def check_changelog_entry(version: str | None) -> list[str]:
@@ -205,7 +263,7 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    release_version, version_failures = check_project_versions(args.version)
+    release_version, version_failures = safe_check_project_versions(args.version)
     ci_run_url = args.ci_run_url or derive_ci_run_url()
     failures = [
         *check_required_files(),

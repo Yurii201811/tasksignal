@@ -87,5 +87,6 @@ When a local task-pack Markdown file exists, you can run:
 python skills/tasksignal-opportunity-builder/scripts/check_task_pack.py path/to/task-pack.md
 ```
 
-The script checks for required sections only. Passing it does not prove the
-opportunity is good; it only confirms the pack is structurally usable.
+The script checks required sections, canonical order, and non-empty section
+content. Passing it does not prove the opportunity is good; it only confirms the
+pack is structurally usable.

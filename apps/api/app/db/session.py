@@ -22,6 +22,17 @@ SQLITE_COMPAT_COLUMNS = {
         ("next_run_at", "DATETIME"),
         ("run_count", "INTEGER NOT NULL DEFAULT 0"),
     ],
+    "opportunities": [
+        ("review_state", "TEXT NOT NULL DEFAULT 'new'"),
+        ("review_note", "TEXT"),
+        ("decision_updated_at", "DATETIME"),
+    ],
+}
+
+SQLITE_COMPAT_INDEXES = {
+    "opportunities": [
+        ("ix_opportunities_review_state", "review_state"),
+    ],
 }
 
 
@@ -36,14 +47,24 @@ def ensure_sqlite_schema_compatibility(target_engine: Engine = engine) -> None:
         for table_name, columns in SQLITE_COMPAT_COLUMNS.items():
             if table_name not in tables:
                 continue
-            existing_columns = {
-                column["name"] for column in inspector.get_columns(table_name)
-            }
+            existing_columns = {column["name"] for column in inspector.get_columns(table_name)}
             for column_name, column_sql in columns:
                 if column_name in existing_columns:
                     continue
                 connection.execute(
                     text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_sql}")
+                )
+        for table_name, indexes in SQLITE_COMPAT_INDEXES.items():
+            if table_name not in tables:
+                continue
+            existing_indexes = {
+                index["name"] for index in inspect(target_engine).get_indexes(table_name)
+            }
+            for index_name, column_name in indexes:
+                if index_name in existing_indexes:
+                    continue
+                connection.execute(
+                    text(f"CREATE INDEX IF NOT EXISTS {index_name} ON {table_name} ({column_name})")
                 )
 
 

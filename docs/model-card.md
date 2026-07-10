@@ -27,7 +27,6 @@ The MVP detector is rule-based. It looks for:
 
 TaskSignal can overweight communities that post more frequently, English-language sources, and technical audiences. It should not be treated as market validation by itself.
 
-## Evaluation Plan
+## Human Evaluation
 
-Add labeled examples, train a logistic regression classifier in the notebooks, track precision/recall/F1, and compare cluster quality against human labels.
-
+TaskSignal reports coverage over evidence linked to generated opportunities and precision on manually reviewed predicted-positive evidence: `true_signal / (true_signal + false_positive)`. Reviews are selected by the operator, so the report is subject to selection bias and does not represent all detected or undetected items. Recall and F1 are not reported because v0.2 has no reviewed predicted-negative or undetected examples from which to estimate false negatives and recall.

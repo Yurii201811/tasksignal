@@ -42,6 +42,12 @@ import {
   queryExamplesLabel,
   sourceQueryPresetByType,
 } from "@/lib/source-query-presets";
+import {
+  READINESS_TONES,
+  REVIEW_STATE_OPTIONS,
+  reviewStateOption,
+} from "@/lib/review";
+import type { ReviewState } from "@/lib/types";
 
 const chartColors = [
   "var(--ts-chart-1)",
@@ -61,10 +67,13 @@ export function Dashboard() {
     sourceQueryPresetByType.hackernews.defaultQuery,
   );
   const [scanLimit, setScanLimit] = useState(30);
+  const [reviewStateFilter, setReviewStateFilter] = useState<
+    ReviewState | "all"
+  >("all");
   const stats = useQuery({ queryKey: ["stats"], queryFn: api.stats });
   const opportunities = useQuery({
     queryKey: ["opportunities"],
-    queryFn: api.opportunities,
+    queryFn: () => api.opportunities(),
   });
   const sources = useQuery({ queryKey: ["sources"], queryFn: api.sources });
   const scans = useQuery({ queryKey: ["scans"], queryFn: api.scans });
@@ -113,8 +122,23 @@ export function Dashboard() {
       hint: "Ranked ideas generated from evidence",
     },
   ];
-  const topOpportunity = opportunities.data?.[0];
-  const hasOpportunities = Boolean(opportunities.data?.length);
+  const allOpportunities = opportunities.data ?? [];
+  const decisionCounts = Object.fromEntries(
+    REVIEW_STATE_OPTIONS.map((option) => [
+      option.value,
+      allOpportunities.filter((item) => item.review_state === option.value)
+        .length,
+    ]),
+  ) as Record<ReviewState, number>;
+  const filteredOpportunities =
+    reviewStateFilter === "all"
+      ? allOpportunities
+      : allOpportunities.filter(
+          (item) => item.review_state === reviewStateFilter,
+        );
+  const topOpportunity = allOpportunities[0];
+  const hasOpportunities = allOpportunities.length > 0;
+  const hasFilteredOpportunities = filteredOpportunities.length > 0;
   const isLoadingWorkflow = stats.isLoading || opportunities.isLoading;
   const dataError =
     stats.error ?? opportunities.error ?? sources.error ?? scans.error ?? null;
@@ -122,13 +146,12 @@ export function Dashboard() {
   const scanError = runScan.error ?? null;
   const sourceBreakdown = stats.data?.source_breakdown ?? [];
   const painDistribution = stats.data?.pain_distribution ?? [];
-  const liveSources = (sources.data ?? [])
-    .filter((source) => browserSafeScanSourceOrder.includes(source.type))
-    .sort(
-      (left, right) =>
-        browserSafeScanSourceOrder.indexOf(left.type) -
-        browserSafeScanSourceOrder.indexOf(right.type),
+  const liveSources = browserSafeScanSourceOrder.flatMap((type) => {
+    const source = (sources.data ?? []).find(
+      (candidate) => candidate.type === type,
     );
+    return source ? [source] : [];
+  });
   const sourceOptions =
     liveSources.length > 0
       ? liveSources
@@ -515,10 +538,40 @@ export function Dashboard() {
             <Badge tone="blue">Ranked by computed score</Badge>
           </div>
 
-          <TableShell tableClassName="min-w-[760px]">
+          <div
+            className="mb-4 flex flex-wrap gap-2"
+            role="group"
+            aria-label="Decision state filter"
+          >
+            <Button
+              size="sm"
+              variant={reviewStateFilter === "all" ? "primary" : "secondary"}
+              aria-pressed={reviewStateFilter === "all"}
+              onClick={() => setReviewStateFilter("all")}
+            >
+              All {allOpportunities.length}
+            </Button>
+            {REVIEW_STATE_OPTIONS.map((option) => (
+              <Button
+                key={option.value}
+                size="sm"
+                variant={
+                  reviewStateFilter === option.value ? "primary" : "secondary"
+                }
+                aria-pressed={reviewStateFilter === option.value}
+                onClick={() => setReviewStateFilter(option.value)}
+              >
+                {option.label} {decisionCounts[option.value]}
+              </Button>
+            ))}
+          </div>
+
+          <TableShell tableClassName="min-w-[980px]">
             <thead className="border-b border-border text-xs uppercase text-muted">
               <tr>
                 <th className="py-3 pr-4">Title</th>
+                <th className="py-3 pr-4">Decision</th>
+                <th className="py-3 pr-4">Readiness</th>
                 <th className="py-3 pr-4">Score</th>
                 <th className="py-3 pr-4">Signals</th>
                 <th className="py-3 pr-4">Top source</th>
@@ -531,12 +584,12 @@ export function Dashboard() {
               {isLoadingWorkflow && (
                 <>
                   <tr>
-                    <td colSpan={7} className="py-4">
+                    <td colSpan={9} className="py-4">
                       <div className="h-3 w-3/4 animate-pulse rounded-full bg-surface-muted" />
                     </td>
                   </tr>
                   <tr>
-                    <td colSpan={7} className="py-4">
+                    <td colSpan={9} className="py-4">
                       <div className="h-3 w-1/2 animate-pulse rounded-full bg-surface-muted" />
                     </td>
                   </tr>
@@ -544,7 +597,7 @@ export function Dashboard() {
               )}
               {!isLoadingWorkflow && !hasOpportunities && (
                 <tr>
-                  <td colSpan={7} className="py-8 text-center">
+                  <td colSpan={9} className="py-8 text-center">
                     <div className="mx-auto max-w-md rounded-product border border-dashed border-border bg-surface-muted px-4 py-6">
                       <p className="text-sm font-semibold text-ink">
                         No ranked opportunities yet
@@ -558,7 +611,16 @@ export function Dashboard() {
                 </tr>
               )}
               {!isLoadingWorkflow &&
-                (opportunities.data ?? []).map((opportunity) => (
+                hasOpportunities &&
+                !hasFilteredOpportunities && (
+                  <tr>
+                    <td colSpan={9} className="py-8 text-center">
+                      No opportunities match this decision state
+                    </td>
+                  </tr>
+                )}
+              {!isLoadingWorkflow &&
+                filteredOpportunities.map((opportunity) => (
                   <tr
                     key={opportunity.id}
                     className="border-b border-border last:border-b-0"
@@ -570,6 +632,24 @@ export function Dashboard() {
                       >
                         {opportunity.title}
                       </Link>
+                    </td>
+                    <td className="py-3 pr-4">
+                      <Badge
+                        tone={reviewStateOption(opportunity.review_state).tone}
+                      >
+                        {reviewStateOption(opportunity.review_state).label}
+                      </Badge>
+                    </td>
+                    <td className="py-3 pr-4">
+                      <Badge
+                        tone={
+                          READINESS_TONES[
+                            opportunity.evidence_readiness.level
+                          ]
+                        }
+                      >
+                        {opportunity.evidence_readiness.level}
+                      </Badge>
                     </td>
                     <td className="py-3 pr-4">
                       <span className="font-semibold tabular-nums text-ink">

@@ -3,9 +3,11 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { clsx } from "clsx";
-import { ReactNode } from "react";
+import { FormEvent, ReactNode, useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   BarChart3,
+  ClipboardCheck,
   Database,
   FolderKanban,
   Home,
@@ -15,12 +17,15 @@ import {
   TimerReset,
   type LucideIcon,
 } from "lucide-react";
+import { api } from "../lib/api";
+import { Button, Input } from "./ui";
 
 const NAV_ICON_CLASS = "h-[18px] w-[18px] shrink-0";
 
 const nav: { href: string; label: string; icon: LucideIcon }[] = [
   { href: "/", label: "Home", icon: Home },
   { href: "/dashboard", label: "Dashboard", icon: BarChart3 },
+  { href: "/evaluation", label: "Evaluation", icon: ClipboardCheck },
   { href: "/projects", label: "Projects", icon: FolderKanban },
   { href: "/sources", label: "Sources", icon: Database },
   { href: "/scans", label: "Scans", icon: TimerReset },
@@ -120,8 +125,79 @@ function BrandMark() {
   );
 }
 
+function usesHostedApi(apiBase: string | undefined): boolean {
+  if (!apiBase) return false;
+  try {
+    const hostname = new URL(apiBase).hostname;
+    return !["localhost", "127.0.0.1", "::1"].includes(hostname);
+  } catch {
+    return true;
+  }
+}
+
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const queryClient = useQueryClient();
+  const hostedApi = usesHostedApi(process.env.NEXT_PUBLIC_API_BASE_URL);
+  const [accessState, setAccessState] = useState<
+    "loading" | "locked" | "unlocked"
+  >("loading");
+  const [operatorToken, setOperatorToken] = useState("");
+  const [unlocking, setUnlocking] = useState(false);
+  const [accessError, setAccessError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!hostedApi) return;
+    const saved = window.localStorage
+      .getItem("tasksignal.operatorToken")
+      ?.trim();
+    if (!saved) {
+      setAccessState("locked");
+      return;
+    }
+
+    let active = true;
+    void api
+      .validateOperatorToken(saved)
+      .then(() => {
+        if (active) setAccessState("unlocked");
+      })
+      .catch(() => {
+        if (!active) return;
+        window.localStorage.removeItem("tasksignal.operatorToken");
+        setAccessError("The saved operator token is no longer valid.");
+        setAccessState("locked");
+      });
+    return () => {
+      active = false;
+    };
+  }, [hostedApi]);
+
+  async function unlockPreview(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const token = operatorToken.trim();
+    if (!token) return;
+    setAccessError(null);
+    setUnlocking(true);
+    try {
+      await api.validateOperatorToken(token);
+      window.localStorage.setItem("tasksignal.operatorToken", token);
+      queryClient.clear();
+      setOperatorToken("");
+      setAccessState("unlocked");
+    } catch {
+      setAccessError("The operator token was not accepted.");
+    } finally {
+      setUnlocking(false);
+    }
+  }
+
+  function lockPreview() {
+    window.localStorage.removeItem("tasksignal.operatorToken");
+    queryClient.clear();
+    setAccessError(null);
+    setAccessState("locked");
+  }
 
   return (
     <div className="min-h-screen">
@@ -134,7 +210,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       <header className="border-b border-border bg-surface px-4 py-3 lg:hidden">
         <BrandMark />
-        <nav className="mt-3 grid grid-cols-3 gap-1" aria-label="Primary">
+        <nav className="mt-3 grid grid-cols-4 gap-1" aria-label="Primary">
           {nav.map((item) => (
             <ShellNavLink
               key={item.href}
@@ -162,7 +238,69 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       <main id="main-content" tabIndex={-1} className="min-w-0 lg:pl-64">
         <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
-          {children}
+          {hostedApi && accessState === "locked" ? (
+            <section
+              aria-label="Hosted preview access"
+              className="mb-6 rounded-product border border-warning-border bg-surface-warning p-4"
+            >
+              <form
+                className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between"
+                onSubmit={unlockPreview}
+              >
+                <div className="max-w-2xl">
+                  <h2 className="font-semibold text-ink">
+                    Unlock protected preview
+                  </h2>
+                  <p className="mt-1 text-sm leading-6 text-muted">
+                    API data and exports stay private until this browser sends
+                    the hosted operator token.
+                  </p>
+                </div>
+                <div className="flex w-full flex-col gap-2 sm:flex-row lg:max-w-xl">
+                  <label className="min-w-0 flex-1">
+                    <span className="sr-only">Hosted operator token</span>
+                    <Input
+                      type="password"
+                      autoComplete="current-password"
+                      value={operatorToken}
+                      onChange={(event) => setOperatorToken(event.target.value)}
+                      placeholder="Hosted operator token"
+                      disabled={unlocking}
+                    />
+                  </label>
+                  <Button
+                    type="submit"
+                    disabled={!operatorToken.trim()}
+                    loading={unlocking}
+                  >
+                    Unlock TaskSignal
+                  </Button>
+                </div>
+              </form>
+              {accessError ? (
+                <p
+                  role="alert"
+                  className="mt-3 text-sm font-semibold text-danger"
+                >
+                  {accessError}
+                </p>
+              ) : null}
+            </section>
+          ) : null}
+          {hostedApi && accessState === "unlocked" ? (
+            <section
+              aria-label="Hosted preview access"
+              className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-product border border-success-border bg-surface-success px-4 py-3"
+            >
+              <p className="text-sm font-semibold text-success">
+                Protected API unlocked
+              </p>
+              <Button variant="secondary" size="sm" onClick={lockPreview}>
+                Lock preview
+              </Button>
+            </section>
+          ) : null}
+          {!hostedApi || accessState === "unlocked" ? children : null}
         </div>
       </main>
     </div>

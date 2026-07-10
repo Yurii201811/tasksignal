@@ -17,6 +17,18 @@ TaskSignal is a local-first research app for public discussion data. This threat
 - Backend to PostgreSQL/SQLite storage.
 - Local checkout to GitHub Actions CI.
 
+## Local-Only Deployment Boundary
+
+Docker Compose publishes PostgreSQL, FastAPI, and Next.js on `127.0.0.1` by default. Opportunity decisions and evidence labels are unauthenticated local-operator writes. Do not expose them publicly or to a team until authentication, workspace isolation, retention, and deletion controls exist.
+
+The single-operator hosted preview is a narrower exception: when
+`REQUIRE_OPERATOR_TOKEN_FOR_ALL_API=true`, every `/api/` read, write, and export
+requires the matching operator token; health and CORS preflight remain public.
+This is not multi-user authentication and does not provide tenant isolation or
+per-user authorization.
+
+`AUTO_CREATE_TABLES=true` creates missing tables but does not migrate an existing PostgreSQL schema. Run `make migrate` before `make up` for migration-managed Compose databases; use `make migrate-native` only with an explicitly verified native or hosted `DATABASE_URL`. A legacy unversioned Compose volume requires schema inspection and an explicit Alembic stamp/migration plan; do not delete the volume automatically.
+
 ## Key Risks
 
 - **Credential exposure:** connector tokens could leak through commits, logs, error messages, or exported prompts.
@@ -31,12 +43,15 @@ TaskSignal is a local-first research app for public discussion data. This threat
 - **Source registry credential drift:** source config records could accidentally become a second secret store if mutation and readback are not constrained.
 - **Unsafe source links:** public-source URL fields must not become clickable non-http(s) links in the operator UI.
 - **Agent handoff drift:** exported task packs could be used by another agent without preserving evidence caveats or privacy constraints.
+- **Unauthenticated review writes:** a publicly exposed API would let network callers alter local opportunity decisions and append evidence labels.
 - **Weak release hygiene:** unreviewed dependencies or generated artifacts could be published unintentionally.
 
 ## Current Mitigations
 
 - `.env`, local databases, caches, exports, and build output are ignored.
 - Normalization stores `author_hash` values by default instead of raw usernames.
+- Readiness warns when `AUTHOR_HASH_SALT` is still a placeholder value, without
+  returning the configured salt.
 - Fixture mode works without external credentials or paid LLM APIs.
 - Live connectors use official APIs and explicit credential configuration where required.
 - Public scan exposure is limited to non-credentialed sources (`fixture` and
@@ -45,6 +60,9 @@ TaskSignal is a local-first research app for public discussion data. This threat
   `OPERATOR_SCAN_TOKEN` plus `X-Operator-Scan-Token`.
 - Browser-triggered prompt enhancement requires `OPERATOR_SCAN_TOKEN` plus
   `X-Operator-Scan-Token` before any OpenAI or Ollama request is made.
+- Hosted deployments can require `OPERATOR_SCAN_TOKEN` for every `/api/`
+  request while leaving only health and CORS preflight public. The web client
+  sends the token in a header for JSON and Markdown downloads, never in a URL.
 - Source registry write endpoints require `OPERATOR_SCAN_TOKEN`, reject
   secret-like `config_json` keys, and source read endpoints redact config values.
 - Scheduled workflows store cadence metadata only; operators must explicitly
@@ -55,6 +73,8 @@ TaskSignal is a local-first research app for public discussion data. This threat
   source links.
 - Exported prompts and task packs keep source excerpts as evidence and include
   privacy constraints.
+- Opportunity and evidence review notes are local annotations and are omitted
+  from evidence bundles and task-pack exports.
 - CI runs backend and frontend checks before public release work.
 - Security reports are directed away from public issue details.
 

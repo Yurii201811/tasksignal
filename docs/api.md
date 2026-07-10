@@ -270,6 +270,16 @@ prompt, source URLs, acceptance criteria, and privacy constraints.
 Downloads the same task pack as Markdown for Codex, other coding agents, issue
 drafting, or local review workflows.
 
+## Decision Workbench
+
+- `GET /api/opportunities?review_state=<state>` optionally filters by `new`, `needs_more_evidence`, `promising`, `rejected`, `duplicate`, or `build_candidate`.
+- `PATCH /api/opportunities/{id}/review` saves one of those six `review_state` values and an optional local `review_note` of at most 1,000 characters.
+- `POST /api/labels` appends one recognized evidence review—`true_signal`, `false_positive`, `unclear`, `duplicate`, `not_actionable`, or `sensitive_risk`—with an optional 500-character note.
+- `GET /api/items/{id}/labels` returns complete newest-first history, including legacy unrecognized labels.
+- `GET /api/evaluation` reports reviewable/reviewed counts, coverage, reviewed-positive precision, label counts, and source/signal breakdowns.
+
+Decision and evidence review notes are local annotations and are omitted from evidence and task-pack exports. These write endpoints are unauthenticated local-operator actions, not public collaboration APIs.
+
 ## Search
 
 `POST /api/search/semantic`

@@ -4,31 +4,37 @@ TaskSignal is a local-first MVP for discovering evidence-backed software opportu
 
 ## Development Setup
 
-1. Copy the example environment file:
+1. Install the locked API and web development dependencies:
 
-```bash
-cp .env.example .env
-```
+   ```bash
+   make setup
+   ```
 
-1. Start the full local stack:
+2. Copy the example environment file:
 
-```bash
-make up
-```
+   ```bash
+   cp .env.example .env
+   ```
 
-1. Open the web app at `http://localhost:3000` and process the demo fixture data from the dashboard.
+3. Run the local setup diagnostic:
 
-For day-to-day development, run the API and frontend separately:
+   ```bash
+   make doctor
+   ```
 
-```bash
-cd apps/api
-uvicorn app.main:app --reload
-```
+4. Start the API and web app in separate terminals:
 
-```bash
-cd apps/web
-npm run dev
-```
+   ```bash
+   cd apps/api
+   .venv/bin/uvicorn app.main:app --reload
+   ```
+
+   ```bash
+   cd apps/web
+   npm run dev
+   ```
+
+Use `make up` instead when you want the full Docker Compose stack.
 
 ## Checks
 

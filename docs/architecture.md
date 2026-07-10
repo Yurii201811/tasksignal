@@ -10,6 +10,7 @@ TaskSignal is a local-first full-stack app for one local operator on one machine
 - `services/clustering`: local thematic clustering fallback by default, with optional DBSCAN when `TASKSIGNAL_USE_SKLEARN_CLUSTERING=1`.
 - `services/scoring`: opportunity score components and explanation.
 - `services/generation`: deterministic opportunity cards, Codex prompt generation, and optional runtime-backed prompt enhancement.
+- `services/evidence_review`: append-only evidence-review snapshots, evidence readiness, and selection-biased evaluation summaries.
 - `workers`: process orchestration for fixture processing and explicit scan jobs.
 - `workers.scan_pipeline`: synchronous live-source scan orchestration for one
   selected source/query/limit without a background job framework.
@@ -21,6 +22,9 @@ TaskSignal is a local-first full-stack app for one local operator on one machine
 
 ## Data Flow
 
+Decision-workbench flow: opportunity evidence → `evidence_review` service →
+readiness/evaluation → API → dashboard/detail/Evaluation/exports.
+
 ```mermaid
 flowchart LR
   Fixtures --> Raw[raw_items]
@@ -30,8 +34,12 @@ flowchart LR
   Signals --> Embeddings[item_embeddings]
   Embeddings --> Clusters[clusters and cluster_items]
   Clusters --> Opportunities[opportunities]
-  Opportunities --> Dashboard[Next.js dashboard]
-  Opportunities --> TaskPacks[Codex task packs]
+  Opportunities --> Evidence[Opportunity evidence]
+  Evidence --> Review[Evidence review service]
+  Review --> Metrics[Readiness and evaluation]
+  Metrics --> API[FastAPI API]
+  API --> Workbench[Dashboard, detail, and Evaluation]
+  API --> Exports[Evidence bundles and Codex task packs]
   Workspace[Local workspace profile] --> Projects
   Projects[Saved research projects] --> APIs
   Scheduler[CLI, cron, worker, or GitHub Actions] --> Projects
@@ -39,7 +47,7 @@ flowchart LR
 
 ## Local Deployment
 
-Docker Compose starts Postgres with pgvector, the FastAPI API, and the Next.js frontend. `AUTO_CREATE_TABLES=true` keeps the local MVP simple; Alembic migrations are included for production-style evolution.
+Docker Compose starts Postgres with pgvector, the FastAPI API, and the Next.js frontend, publishing all three host ports on `127.0.0.1` by default. `AUTO_CREATE_TABLES=true` creates missing tables for the local MVP but does not migrate an existing PostgreSQL schema; Alembic migrations are included for migration-managed evolution.
 
 Scheduling is explicit: the API stores `next_run_at` and `run_count`, while the
 Projects page, CLI, cron, GitHub Actions, or another worker calls

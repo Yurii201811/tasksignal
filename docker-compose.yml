@@ -6,7 +6,7 @@ services:
       POSTGRES_USER: tasksignal
       POSTGRES_PASSWORD: tasksignal
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -26,7 +26,7 @@ services:
       AUTO_CREATE_TABLES: "true"
       PUBLIC_SCAN_SOURCES: fixture,hackernews
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     volumes:
       - ./data:/app/data:ro
     depends_on:
@@ -39,7 +39,7 @@ services:
     environment:
       NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     depends_on:
       - api
 

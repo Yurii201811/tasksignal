@@ -8,6 +8,7 @@ from uuid import UUID
 import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -28,13 +29,16 @@ from app.models.all_models import (
 from app.schemas.api import (
     DueRunOut,
     EnhancementOut,
+    EvaluationOut,
     IntegrationOut,
     IntegrationTestOut,
     ItemOut,
     LabelCreate,
+    LabelOut,
     LocalWorkspaceOut,
     LocalWorkspaceUpdate,
     OpportunityOut,
+    OpportunityReviewUpdate,
     ProcessSummary,
     ReadinessOut,
     ResearchProjectCreate,
@@ -47,6 +51,13 @@ from app.schemas.api import (
     TaskPackOut,
 )
 from app.services.embeddings.service import EmbeddingService, cosine_similarity
+from app.services.evidence_review.service import (
+    calculate_evidence_readiness,
+    evaluation_summary,
+    get_label_history,
+    get_review_snapshots,
+)
+from app.services.evidence_review.types import EvidenceReviewSnapshot, ReviewState
 from app.services.generation.enhancement import EnhancementUnavailable, enhance_prompt
 from app.services.generation.service import generate_opportunity
 from app.services.ingestion.connectors import connector_display_name, connector_failure_message
@@ -82,6 +93,13 @@ CADENCE_INTERVAL_HOURS = {
     "hourly": 1,
     "daily": 24,
     "weekly": 24 * 7,
+}
+
+DECISION_CHECK_LABELS = {
+    "enough_evidence": "Enough evidence",
+    "source_diversity": "Source diversity",
+    "source_url_coverage": "Safe source URL coverage",
+    "human_review_coverage": "Human review coverage",
 }
 
 INTEGRATION_CATALOG = [
@@ -191,6 +209,10 @@ def public_scan_config_warning() -> str | None:
         "PUBLIC_SCAN_SOURCES does not enable a browser-safe source; "
         f"use {allowed}, or both, for POST /api/scans."
     )
+
+
+def author_hash_salt_uses_default() -> bool:
+    return settings.author_hash_salt.strip() in {"", "change-me", "change-me-local"}
 
 
 def operator_scan_authorized(token: str | None) -> bool:
@@ -475,6 +497,10 @@ def readiness_payload(db: Session) -> ReadinessOut:
         warnings.append("Set the local workspace owner or goal for this machine.")
     if warning := public_scan_config_warning():
         warnings.append(warning)
+    if author_hash_salt_uses_default():
+        warnings.append(
+            "Set AUTHOR_HASH_SALT to a machine-specific value before storing live author hashes."
+        )
 
     ready_sources = [
         integration.id
@@ -495,6 +521,7 @@ def readiness_payload(db: Session) -> ReadinessOut:
             for integration in integrations
         ),
         "operator_scan_token_configured": bool(settings.operator_scan_token),
+        "author_hash_salt_custom": not author_hash_salt_uses_default(),
         "public_scan_sources": sorted(configured_public_scan_sources()),
         "public_scan_sources_configured": bool(configured_public_scan_sources()),
     }
@@ -506,7 +533,12 @@ def readiness_payload(db: Session) -> ReadinessOut:
     )
 
 
-def item_to_out(item: NormalizedItem, signal: ItemSignal | None = None) -> ItemOut:
+def item_to_out(
+    item: NormalizedItem,
+    signal: ItemSignal | None = None,
+    review: EvidenceReviewSnapshot | None = None,
+) -> ItemOut:
+    review = review or EvidenceReviewSnapshot()
     return ItemOut(
         id=item.id,
         source=item.source,
@@ -523,25 +555,35 @@ def item_to_out(item: NormalizedItem, signal: ItemSignal | None = None) -> ItemO
         task_concreteness_score=signal.task_concreteness_score if signal else None,
         buying_intent_score=signal.buying_intent_score if signal else None,
         evidence_spans=signal.evidence_spans_json if signal else [],
+        review_label=review.review_label,
+        review_note=review.review_note,
+        reviewed_at=review.reviewed_at,
+        review_history_count=review.history_count,
     )
 
 
+def items_to_out(
+    db: Session,
+    rows: list[tuple[NormalizedItem, ItemSignal | None]],
+) -> list[ItemOut]:
+    snapshots = get_review_snapshots(db, [item.id for item, _signal in rows])
+    return [
+        item_to_out(item, signal, snapshots.get(item.id))
+        for item, signal in rows
+    ]
+
+
 def opportunity_to_out(db: Session, opportunity: Opportunity) -> OpportunityOut:
-    rows = db.execute(
-        select(NormalizedItem, ItemSignal)
-        .join(ClusterItem, ClusterItem.item_id == NormalizedItem.id)
-        .join(ItemSignal, ItemSignal.item_id == NormalizedItem.id)
-        .where(ClusterItem.cluster_id == opportunity.cluster_id)
-        .order_by(
-            ItemSignal.pain_score.desc(),
-            ItemSignal.task_concreteness_score.desc(),
-            NormalizedItem.created_at.desc(),
-        )
-    ).all()
-    evidence = [item_to_out(item, signal) for item, signal in rows]
+    rows = cluster_signal_rows(db, opportunity.cluster_id)
+    items = [item for item, _signal in rows]
+    snapshots = get_review_snapshots(db, [item.id for item in items])
+    evidence = [
+        item_to_out(item, signal, snapshots.get(item.id))
+        for item, signal in rows
+    ]
     top_source = max(
-        {item.source for item, _ in rows},
-        key=lambda s: sum(1 for item, _ in rows if item.source == s),
+        {item.source for item in items},
+        key=lambda source: sum(item.source == source for item in items),
         default="fixture",
     )
     return OpportunityOut(
@@ -552,6 +594,7 @@ def opportunity_to_out(db: Session, opportunity: Opportunity) -> OpportunityOut:
         evidence_items=evidence,
         signal_count=len(evidence),
         top_source=top_source,
+        evidence_readiness=calculate_evidence_readiness(items, snapshots),
     )
 
 
@@ -603,6 +646,26 @@ def evidence_source_url(item: ItemOut) -> str:
     return safe_source_url(item.url, fallback="No source URL stored")
 
 
+def decision_context_lines(opportunity: OpportunityOut) -> list[str]:
+    readiness = opportunity.evidence_readiness
+    lines = [
+        "## Decision Context",
+        "",
+        f"- Review state: {opportunity.review_state.value}",
+        f"- Evidence readiness: {readiness.level.value}",
+        f"- Human review coverage: {readiness.human_review_coverage:.0%}",
+        "- Readiness checks:",
+    ]
+    check_values = readiness.checks.model_dump()
+    for key, label in DECISION_CHECK_LABELS.items():
+        lines.append(f"  - {label}: {'passed' if check_values[key] else 'needs work'}")
+    lines.append("- Readiness gaps:")
+    lines.extend(f"  - {gap}" for gap in readiness.gaps)
+    if not readiness.gaps:
+        lines.append("  - None.")
+    return lines
+
+
 def evidence_bundle_markdown(opportunity: OpportunityOut) -> str:
     breakdown = opportunity.scoring_breakdown_json
     score_rows = [
@@ -627,6 +690,8 @@ def evidence_bundle_markdown(opportunity: OpportunityOut) -> str:
         f"- Why now: {markdown_value(opportunity.why_now)}",
         f"- Competition notes: {markdown_value(opportunity.competition_notes)}",
         f"- Generated prompt: /api/opportunities/{opportunity.id}/prompt",
+        "",
+        *decision_context_lines(opportunity),
         "",
         "## Score Breakdown",
         "",
@@ -722,6 +787,8 @@ def task_pack_json(opportunity: OpportunityOut) -> TaskPackOut:
         evidence_urls=evidence_urls,
         acceptance_criteria=task_pack_acceptance_criteria(opportunity),
         privacy_constraints=task_pack_privacy_constraints(),
+        review_state=opportunity.review_state,
+        evidence_readiness=opportunity.evidence_readiness,
     )
 
 
@@ -778,6 +845,8 @@ def task_pack_markdown(opportunity: OpportunityOut) -> str:
         f"- Opportunity score: {score}/100",
         f"- Signal count: {opportunity.signal_count}",
         f"- Top source: {markdown_value(opportunity.top_source)}",
+        "",
+        *decision_context_lines(opportunity),
         "",
         "## Rank Drivers",
         "",
@@ -1106,7 +1175,7 @@ def list_items(db: Session = Depends(get_db)) -> list[ItemOut]:
         .order_by(NormalizedItem.created_at.desc())
         .limit(100)
     ).all()
-    return [item_to_out(item, signal) for item, signal in rows]
+    return items_to_out(db, list(rows))
 
 
 @router.get("/items/{item_id}", response_model=ItemOut)
@@ -1119,7 +1188,8 @@ def get_item(item_id: UUID, db: Session = Depends(get_db)) -> ItemOut:
     if row is None:
         raise HTTPException(status_code=404, detail="Item not found")
     item, signal = row
-    return item_to_out(item, signal)
+    snapshots = get_review_snapshots(db, [item.id])
+    return item_to_out(item, signal, snapshots.get(item.id))
 
 
 @router.post("/process/demo", response_model=ProcessSummary)
@@ -1149,11 +1219,43 @@ def process_stage() -> dict:
 
 
 @router.get("/opportunities", response_model=list[OpportunityOut])
-def list_opportunities(db: Session = Depends(get_db)) -> list[OpportunityOut]:
-    opportunities = db.scalars(
-        select(Opportunity).order_by(Opportunity.opportunity_score.desc())
-    ).all()
-    return [opportunity_to_out(db, opportunity) for opportunity in opportunities]
+def list_opportunities(
+    review_state: ReviewState | None = None,
+    db: Session = Depends(get_db),
+) -> list[OpportunityOut]:
+    query = select(Opportunity).order_by(Opportunity.opportunity_score.desc())
+    if review_state is not None:
+        query = query.where(Opportunity.review_state == review_state.value)
+    return [opportunity_to_out(db, item) for item in db.scalars(query).all()]
+
+
+def commit_review_write(db: Session, failure_detail: str) -> None:
+    try:
+        db.commit()
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=failure_detail) from exc
+
+
+@router.patch(
+    "/opportunities/{opportunity_id}/review",
+    response_model=OpportunityOut,
+)
+def update_opportunity_review(
+    opportunity_id: UUID,
+    payload: OpportunityReviewUpdate,
+    db: Session = Depends(get_db),
+) -> OpportunityOut:
+    opportunity = db.get(Opportunity, opportunity_id)
+    if opportunity is None:
+        raise HTTPException(status_code=404, detail="Opportunity not found")
+    note = payload.review_note.strip() if payload.review_note else None
+    opportunity.review_state = payload.review_state.value
+    opportunity.review_note = note or None
+    opportunity.decision_updated_at = datetime.now(UTC)
+    commit_review_write(db, "Could not save the opportunity decision.")
+    db.refresh(opportunity)
+    return opportunity_to_out(db, opportunity)
 
 
 @router.get("/opportunities/{opportunity_id}", response_model=OpportunityOut)
@@ -1312,9 +1414,29 @@ def semantic_search(payload: SearchRequest, db: Session = Depends(get_db)) -> di
     return {"items": ranked[: payload.limit], "opportunities": []}
 
 
-@router.post("/labels")
-def create_label(payload: LabelCreate, db: Session = Depends(get_db)) -> dict:
-    label = Label(**payload.model_dump())
+@router.post("/labels", response_model=LabelOut)
+def create_label(payload: LabelCreate, db: Session = Depends(get_db)) -> LabelOut:
+    if db.get(NormalizedItem, payload.item_id) is None:
+        raise HTTPException(status_code=404, detail="Item not found")
+    note = payload.user_note.strip() if payload.user_note else None
+    label = Label(
+        item_id=payload.item_id,
+        label=payload.label.value,
+        user_note=note or None,
+    )
     db.add(label)
-    db.commit()
-    return {"id": label.id, "created": True}
+    commit_review_write(db, "Could not save the evidence review.")
+    db.refresh(label)
+    return LabelOut.model_validate(label)
+
+
+@router.get("/items/{item_id}/labels", response_model=list[LabelOut])
+def list_item_labels(item_id: UUID, db: Session = Depends(get_db)) -> list[LabelOut]:
+    if db.get(NormalizedItem, item_id) is None:
+        raise HTTPException(status_code=404, detail="Item not found")
+    return [LabelOut.model_validate(row) for row in get_label_history(db, item_id)]
+
+
+@router.get("/evaluation", response_model=EvaluationOut)
+def get_evaluation(db: Session = Depends(get_db)) -> EvaluationOut:
+    return evaluation_summary(db)

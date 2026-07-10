@@ -7,17 +7,19 @@ on:
 jobs:
   backend:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: apps/api
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      - run: pip install -e ".[dev]"
-      - run: ruff check app tests
-      - run: pytest
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.9.26"
+          enable-cache: true
+          cache-dependency-glob: apps/api/uv.lock
+      - run: uv sync --project apps/api --extra dev --locked
+      - run: uv run --project apps/api --extra dev --locked ruff check apps/api/app apps/api/tests
+      - run: uv run --project apps/api --extra dev --locked pytest apps/api/tests
         env:
           DATABASE_URL: sqlite:///./test_tasksignal.db
           AUTO_CREATE_TABLES: "true"
@@ -35,7 +37,7 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: apps/web/package-lock.json
-      - run: npm install
-      - run: npm audit
+      - run: npm ci
+      - run: npm audit --audit-level=moderate
       - run: npm run build
       - run: npm test

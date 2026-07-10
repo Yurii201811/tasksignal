@@ -6,6 +6,7 @@ import {
   InputHTMLAttributes,
   ReactNode,
   SelectHTMLAttributes,
+  TextareaHTMLAttributes,
   forwardRef,
 } from "react";
 
@@ -14,7 +15,13 @@ const focusRing =
 const motion =
   "motion-safe:transition-[color,background-color,border-color,box-shadow,opacity] motion-safe:duration-200 motion-safe:ease-product";
 
-type CardVariant = "default" | "muted" | "success" | "warning" | "danger" | "compact";
+type CardVariant =
+  | "default"
+  | "muted"
+  | "success"
+  | "warning"
+  | "danger"
+  | "compact";
 
 const cardVariants: Record<CardVariant, string> = {
   default: "border-border bg-surface shadow-soft",
@@ -99,42 +106,44 @@ export type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   loading?: boolean;
 };
 
-export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
-  {
-    children,
-    className,
-    variant = "primary",
-    size = "md",
-    loading = false,
-    disabled,
-    type = "button",
-    ...props
+export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
+  function Button(
+    {
+      children,
+      className,
+      variant = "primary",
+      size = "md",
+      loading = false,
+      disabled,
+      type = "button",
+      ...props
+    },
+    ref,
+  ) {
+    const isDisabled = disabled || loading;
+    return (
+      <button
+        ref={ref}
+        type={type}
+        disabled={isDisabled}
+        aria-busy={loading || undefined}
+        data-loading={loading ? "true" : undefined}
+        className={clsx(
+          "inline-flex items-center justify-center rounded-product font-semibold",
+          focusRing,
+          motion,
+          buttonVariants[variant],
+          buttonSizes[size],
+          isDisabled && "cursor-not-allowed opacity-60",
+          className,
+        )}
+        {...props}
+      >
+        {children}
+      </button>
+    );
   },
-  ref,
-) {
-  const isDisabled = disabled || loading;
-  return (
-    <button
-      ref={ref}
-      type={type}
-      disabled={isDisabled}
-      aria-busy={loading || undefined}
-      data-loading={loading ? "true" : undefined}
-      className={clsx(
-        "inline-flex items-center justify-center rounded-product font-semibold",
-        focusRing,
-        motion,
-        buttonVariants[variant],
-        buttonSizes[size],
-        isDisabled && "cursor-not-allowed opacity-60",
-        className,
-      )}
-      {...props}
-    >
-      {children}
-    </button>
-  );
-});
+);
 
 export function ButtonLink({
   href,
@@ -188,7 +197,9 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
         fieldBase,
         "px-3 py-2",
         error && "border-danger-border focus-visible:outline-danger",
-        success && !error && "border-success-border focus-visible:outline-success",
+        success &&
+          !error &&
+          "border-success-border focus-visible:outline-success",
         className,
       )}
       {...props}
@@ -201,28 +212,56 @@ export type SelectProps = SelectHTMLAttributes<HTMLSelectElement> & {
   success?: boolean;
 };
 
-export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select(
-  { className, error, success, children, ...props },
-  ref,
-) {
-  return (
-    <select
-      ref={ref}
-      aria-invalid={error || undefined}
-      data-state={error ? "error" : success ? "success" : undefined}
-      className={clsx(
-        fieldBase,
-        "px-3 py-2",
-        error && "border-danger-border focus-visible:outline-danger",
-        success && !error && "border-success-border focus-visible:outline-success",
-        className,
-      )}
-      {...props}
-    >
-      {children}
-    </select>
-  );
-});
+export const Select = forwardRef<HTMLSelectElement, SelectProps>(
+  function Select({ className, error, success, children, ...props }, ref) {
+    return (
+      <select
+        ref={ref}
+        aria-invalid={error || undefined}
+        data-state={error ? "error" : success ? "success" : undefined}
+        className={clsx(
+          fieldBase,
+          "px-3 py-2",
+          error && "border-danger-border focus-visible:outline-danger",
+          success &&
+            !error &&
+            "border-success-border focus-visible:outline-success",
+          className,
+        )}
+        {...props}
+      >
+        {children}
+      </select>
+    );
+  },
+);
+
+export type TextareaProps = TextareaHTMLAttributes<HTMLTextAreaElement> & {
+  error?: boolean;
+  success?: boolean;
+};
+
+export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
+  function Textarea({ className, error, success, ...props }, ref) {
+    return (
+      <textarea
+        ref={ref}
+        aria-invalid={error || undefined}
+        data-state={error ? "error" : success ? "success" : undefined}
+        className={clsx(
+          fieldBase,
+          "min-h-24 resize-y px-3 py-2",
+          error && "border-danger-border focus-visible:outline-danger",
+          success &&
+            !error &&
+            "border-success-border focus-visible:outline-success",
+          className,
+        )}
+        {...props}
+      />
+    );
+  },
+);
 
 export function PageHeader({
   title,
@@ -243,7 +282,9 @@ export function PageHeader({
       )}
     >
       <div className="min-w-0">
-        <h1 className="text-3xl font-semibold tracking-tight text-ink">{title}</h1>
+        <h1 className="text-3xl font-semibold tracking-tight text-ink">
+          {title}
+        </h1>
         {description ? (
           <p className="mt-2 max-w-3xl break-words text-base leading-7 text-muted">
             {description}
@@ -281,7 +322,12 @@ export function StateMessage({
 }) {
   const styles = stateTones[tone];
   return (
-    <Card variant={styles.card} className={className}>
+    <Card
+      variant={styles.card}
+      className={className}
+      role={tone === "danger" ? "alert" : "status"}
+      aria-atomic="true"
+    >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 text-sm">
           <p className={clsx("font-semibold", styles.text)}>{title}</p>
@@ -310,7 +356,9 @@ export function EmptyState({
     <Card variant="muted" className={clsx("text-center", className)}>
       <p className="text-sm font-semibold text-ink">{title}</p>
       {description ? (
-        <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-muted">{description}</p>
+        <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-muted">
+          {description}
+        </p>
       ) : null}
       {action ? <div className="mt-4 flex justify-center">{action}</div> : null}
     </Card>
@@ -330,7 +378,9 @@ export function TableShell({
 }) {
   return (
     <div className={clsx("min-w-0 overflow-x-auto", className)}>
-      <table className={clsx("w-full min-w-0 text-left text-sm", tableClassName)}>
+      <table
+        className={clsx("w-full min-w-0 text-left text-sm", tableClassName)}
+      >
         {children}
       </table>
       {caption ? (
@@ -356,7 +406,9 @@ export function MetricTile({
   return (
     <Card variant="default" className={className}>
       <p className="text-sm font-medium text-muted">{label}</p>
-      <p className="mt-2 text-3xl font-semibold tabular-nums text-ink">{value}</p>
+      <p className="mt-2 text-3xl font-semibold tabular-nums text-ink">
+        {value}
+      </p>
       {hint ? <p className="mt-1 text-xs text-muted">{hint}</p> : null}
     </Card>
   );

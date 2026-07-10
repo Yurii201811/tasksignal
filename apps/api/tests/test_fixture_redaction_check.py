@@ -26,6 +26,7 @@ def test_unsafe_fixture_fails_redaction_check(tmp_path) -> None:
     fixture_dir = tmp_path / "fixtures"
     fixture_dir.mkdir()
     unsafe_path = fixture_dir / "github_unsafe_sample.json"
+    fake_token = "ghp_" + "abcdefghijklmnopqrstuvwxyz123456"
     unsafe_path.write_text(
         json.dumps(
             {
@@ -36,7 +37,7 @@ def test_unsafe_fixture_fails_redaction_check(tmp_path) -> None:
                         "title": "Unsafe sample",
                         "body": "Contact jane.doe@example.com about this private issue.",
                         "user": {"login": "janedoe"},
-                        "api_token": "ghp_abcdefghijklmnopqrstuvwxyz123456",
+                        "api_token": fake_token,
                         "html_url": "https://github.com/acme/private-repo/issues/1",
                     }
                 ],

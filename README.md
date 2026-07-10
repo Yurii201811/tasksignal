@@ -10,7 +10,7 @@ TaskSignal is an AI-assisted engine that mines public developer and community di
 
 TaskSignal is a portfolio-ready MVP built by Yurii Bakurov. It is designed for one local operator on their own machine: fixture data works out of the box, a local workspace profile stores that user's research defaults, and repeatable API-backed workflows can be enabled for supported public sources when credentials are provided.
 
-Current public posture: TaskSignal is an early public application repository, not a widely adopted package. Its strongest evidence today is reproducibility, release hygiene, CI, security/privacy documentation, contributor issues, and a browser-verified demo flow. See the [demo evidence snapshot](docs/demo-evidence.md) and [Codex for OSS evidence](docs/codex-for-oss-application.md) for the current review package.
+Current public posture: TaskSignal is an early public application repository, not a widely adopted package. Its published v0.1.3 review package includes a browser-verified fixture demo. The committed v0.2 decision workbench has automated and smoke evidence, while fresh interactive browser verification remains a pre-release step. See the [demo evidence snapshot](docs/demo-evidence.md) and [Codex for OSS evidence](docs/codex-for-oss-application.md) for the current review package.
 
 Useful starting points:
 
@@ -48,11 +48,15 @@ TaskSignal is for maintainers, builders, indie hackers, developer-tool teams, an
 - Normalizes Reddit, Hacker News, GitHub Issues, Stack Exchange, and fixture-style records.
 - Stores author hashes instead of raw usernames by default.
 - Detects complaints, manual workflows, tool requests, workarounds, buying intent, and confusion.
-- Generates local embeddings with `sentence-transformers/all-MiniLM-L6-v2` when available.
+- Generates local embeddings with `sentence-transformers/all-MiniLM-L6-v2` when the optional ML extra and model cache are available.
 - Falls back to deterministic local vectors when the model is unavailable.
 - Clusters signals with a local thematic fallback by default, with optional DBSCAN when `TASKSIGNAL_USE_SKLEARN_CLUSTERING=1`.
 - Scores opportunities using frequency, recency, pain, concreteness, buying intent, feasibility, and competition penalty.
 - Generates opportunity cards, full Codex-ready build prompts, and richer Codex task packs.
+- Stores one explicit decision state and an export-excluded local note for each opportunity.
+- Keeps evidence reviews append-only and preserves legacy label history without treating unknown labels as current recognized reviews.
+- Reports evidence readiness from evidence count, source diversity, safe URL coverage, and human review coverage.
+- Shows selection-biased review coverage and precision on reviewed positives without claiming recall, F1, or market validation.
 - Optionally enhances generated prompts through OpenAI API or local Ollama when explicitly configured.
 
 ## Architecture
@@ -75,19 +79,43 @@ flowchart TD
 
 Frontend: Next.js, TypeScript, Tailwind CSS, TanStack Query, Recharts, React Markdown, Zod-ready types.
 
-Backend: FastAPI, Pydantic v2, SQLAlchemy 2, Alembic, PostgreSQL, pgvector, pytest, ruff, scikit-learn.
+Backend: FastAPI, Pydantic v2, SQLAlchemy 2, Alembic, PostgreSQL, pgvector, pytest, and ruff.
 
-ML/NLP: sentence-transformers with local-only load when the model cache exists, deterministic fallback vectors, optional DBSCAN clustering, rule-based signal detector.
+ML/NLP: deterministic vectors and thematic clustering by default, with an optional `ml` extra for sentence-transformers and DBSCAN, plus a rule-based signal detector.
 
 Infra: Docker Compose, Makefile, GitHub Actions CI, scheduled ingestion template.
 
 ## Quickstart
 
 ```bash
+make setup
 cp .env.example .env
 make doctor
+make dev
+```
+
+`make dev` prints ready-to-run API and Node-safe web commands. Run each printed
+command in a separate terminal.
+
+`make setup` installs the lean deterministic runtime. Use `make setup-ml` when
+this machine should also install sentence-transformers and scikit-learn for a
+locally cached embedding model and opt-in DBSCAN clustering.
+
+For the loopback-only Docker Compose stack, migrate the PostgreSQL schema before
+serving it:
+
+```bash
+cp .env.example .env
+make migrate
 make up
 ```
+
+The repository-root `.env` is a `make doctor` input only: the native API and
+Next.js do not automatically load it, and the current Compose file does not
+inject it. For native API settings, use `apps/api/.env` or export values in the
+API terminal. For non-default web settings, use `apps/web/.env.local` or export
+`NEXT_PUBLIC_API_BASE_URL` in the web terminal. For Compose, use explicit
+service environment entries or a Compose override.
 
 Open the frontend at [http://localhost:3000](http://localhost:3000), go to Projects, save a research workflow, then run it. For a first proof path, go to Dashboard and click **Process demo data**. To use live public data, choose a source, query, and limit in **Live source**, then click **Run scan**.
 
@@ -109,18 +137,6 @@ curl http://localhost:8000/health
 
 ## Local Development
 
-Run the API and frontend separately:
-
-```bash
-cd apps/api
-../../.venv/bin/uvicorn app.main:app --reload
-```
-
-```bash
-cd apps/web
-npm run dev
-```
-
 Run checks before publishing changes:
 
 ```bash
@@ -129,9 +145,10 @@ make lint
 make verify
 ```
 
-The Makefile prefers repo-local Python tools in `.venv/bin`. On Apple Silicon
-macOS it also prepends Homebrew Node 20 from `/opt/homebrew/opt/node@20/bin`
-when available, matching the runtime required by the Next.js web app.
+The Makefile prefers repo-local Python tools in `apps/api/.venv/bin`. On Apple
+Silicon macOS it also prepends Homebrew Node 20 from
+`/opt/homebrew/opt/node@20/bin` when available, matching the runtime required by
+the Next.js web app.
 
 Run the release-readiness gate before tagging a release:
 
@@ -140,10 +157,31 @@ make release-check
 ```
 
 Run the first-run smoke check to verify the credential-free fixture path against
-a temporary database, including dashboard route wiring and task-pack export:
+a temporary database, including dashboard route wiring, task-pack export, and
+task-pack contract validation:
 
 ```bash
 make smoke
+```
+
+To save a reviewer-friendly Markdown proof from the same run:
+
+```bash
+apps/api/.venv/bin/python -u scripts/first_run_smoke.py --proof-out first-run-proof.md
+```
+
+To save a complete reviewer bundle with the Markdown proof, machine-readable
+summary, top opportunity task pack, and artifact manifest:
+
+```bash
+apps/api/.venv/bin/python -u scripts/first_run_smoke.py --proof-dir first-run-proof-bundle
+```
+
+To verify a saved proof bundle's manifest, file sizes, hashes, and top-level
+contents without rerunning smoke:
+
+```bash
+apps/api/.venv/bin/python -u scripts/first_run_smoke.py --verify-proof-dir first-run-proof-bundle
 ```
 
 To also boot the Next.js dev server and request `/dashboard`, run:
@@ -258,7 +296,7 @@ skills.
 
 ## ML/NLP Approach
 
-The MVP uses transparent rules first. It scores pain phrases, repetition phrases, tool requests, buying intent, and task concreteness hints. Embeddings use `sentence-transformers/all-MiniLM-L6-v2` only when locally available; otherwise deterministic vectors keep the demo working.
+The MVP uses transparent rules first. It scores pain phrases, repetition phrases, tool requests, buying intent, and task concreteness hints. Embeddings use `sentence-transformers/all-MiniLM-L6-v2` only when the optional `ml` extra and a local model cache are available; otherwise deterministic vectors keep the demo working.
 
 ## Scoring Formula
 
@@ -305,6 +343,6 @@ This repository demonstrates full-stack engineering, API design, Python backend 
 - Expand contributor-friendly fixtures, docs, and public issues.
 - Add richer source scheduling and rate-limit state after privacy review.
 - Add pgvector ANN search in production mode.
-- Add reviewer workflow for human labels.
+- Keep decision review, evidence readiness, and evaluation exports aligned as the workbench evolves.
 
 See [Roadmap](docs/roadmap.md) for maintainer tasks, security milestones, and longer-term ideas.

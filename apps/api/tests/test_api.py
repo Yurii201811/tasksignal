@@ -1,5 +1,6 @@
 import json
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 from sqlalchemy import select
@@ -46,6 +47,91 @@ def test_process_demo_endpoint(client) -> None:
     assert opportunities[0]["scoring_breakdown_json"]["rank_drivers"]
     assert opportunities[0]["evidence_items"][0]["evidence_spans"]
     assert "Ranking rationale" in opportunities[0]["generated_prompt"]
+    assert opportunities[0]["review_state"] == "new"
+    assert opportunities[0]["review_note"] is None
+    assert opportunities[0]["decision_updated_at"] is None
+
+
+def test_hosted_write_protection_requires_the_operator_token(client, monkeypatch) -> None:
+    from app import main as app_main
+
+    monkeypatch.setattr(
+        app_main,
+        "settings",
+        SimpleNamespace(
+            require_operator_token_for_all_api=False,
+            require_operator_token_for_writes=True,
+            operator_scan_token="hosted-operator-token",
+            llm_provider=routes.settings.llm_provider,
+            embedding_model=routes.settings.embedding_model,
+        ),
+    )
+
+    assert client.get("/api/stats").status_code == 200
+
+    missing = client.post(
+        "/api/process/demo",
+        headers={"Origin": "http://localhost:3000"},
+    )
+    assert missing.status_code == 403
+    assert missing.headers["access-control-allow-origin"] == "http://localhost:3000"
+    assert missing.json() == {"detail": "Hosted writes require a valid X-Operator-Scan-Token."}
+
+    invalid = client.post(
+        "/api/process/demo",
+        headers={"X-Operator-Scan-Token": "wrong-token"},
+    )
+    assert invalid.status_code == 403
+
+    allowed = client.post(
+        "/api/process/demo",
+        headers={"X-Operator-Scan-Token": "hosted-operator-token"},
+    )
+    assert allowed.status_code == 200
+    assert allowed.json()["raw_items_loaded"] >= 17
+
+
+def test_hosted_api_protection_covers_reads_and_handles_non_ascii_tokens(
+    client, monkeypatch
+) -> None:
+    from app import main as app_main
+
+    monkeypatch.setattr(
+        app_main,
+        "settings",
+        SimpleNamespace(
+            require_operator_token_for_all_api=True,
+            require_operator_token_for_writes=True,
+            operator_scan_token="hosted-operator-token",
+            llm_provider=routes.settings.llm_provider,
+            embedding_model=routes.settings.embedding_model,
+        ),
+    )
+
+    assert client.get("/health").status_code == 200
+    assert (
+        client.options(
+            "/api/stats",
+            headers={
+                "Origin": "http://localhost:3000",
+                "Access-Control-Request-Method": "GET",
+                "Access-Control-Request-Headers": "X-Operator-Scan-Token",
+            },
+        ).status_code
+        == 200
+    )
+
+    missing = client.get("/api/stats", headers={"Origin": "http://localhost:3000"})
+    assert missing.status_code == 403
+    assert missing.headers["access-control-allow-origin"] == "http://localhost:3000"
+
+    allowed = client.get(
+        "/api/stats",
+        headers={"X-Operator-Scan-Token": "hosted-operator-token"},
+    )
+    assert allowed.status_code == 200
+
+    assert app_main.operator_token_matches("\u00ff", "hosted-operator-token") is False
 
 
 def test_integrations_report_status_without_secret_values(client, monkeypatch) -> None:
@@ -88,6 +174,31 @@ def test_readiness_warns_when_public_scan_sources_exclude_browser_safe_sources(
     assert payload["checks"]["public_scan_sources_configured"] is False
     assert any("browser-safe source" in warning for warning in payload["warnings"])
     assert "github" not in json.dumps(payload["checks"]["public_scan_sources"])
+
+
+def test_readiness_warns_when_author_hash_salt_uses_default(client, monkeypatch) -> None:
+    monkeypatch.setattr(routes.settings, "author_hash_salt", "change-me")
+
+    response = client.get("/api/readiness")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["checks"]["author_hash_salt_custom"] is False
+    assert any("AUTHOR_HASH_SALT" in warning for warning in payload["warnings"])
+    assert "change-me" not in json.dumps(payload)
+
+
+def test_readiness_reports_custom_author_hash_salt_without_secret_value(
+    client, monkeypatch
+) -> None:
+    monkeypatch.setattr(routes.settings, "author_hash_salt", "do-not-leak")
+
+    response = client.get("/api/readiness")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["checks"]["author_hash_salt_custom"] is True
+    assert "do-not-leak" not in json.dumps(payload)
 
 
 def test_sources_redact_stored_config_values(client) -> None:
@@ -573,6 +684,9 @@ def test_evidence_bundle_export_drops_unsafe_source_urls() -> None:
         competition_notes="Focused export scope.",
         scoring_breakdown_json={"frequency": 1.0},
         generated_prompt="# Build test",
+        review_state="new",
+        review_note=None,
+        decision_updated_at=None,
         created_at=now,
         updated_at=now,
         evidence_items=[
@@ -596,6 +710,28 @@ def test_evidence_bundle_export_drops_unsafe_source_urls() -> None:
         ],
         signal_count=1,
         top_source="github",
+        evidence_readiness={
+            "level": "weak",
+            "evidence_count": 1,
+            "source_count": 1,
+            "safe_url_count": 0,
+            "reviewed_count": 0,
+            "source_url_coverage": 0.0,
+            "human_review_coverage": 0.0,
+            "checks": {
+                "enough_evidence": False,
+                "source_diversity": False,
+                "source_url_coverage": False,
+                "human_review_coverage": False,
+            },
+            "passed_checks": [],
+            "gaps": [
+                "Collect 4 more evidence items.",
+                "Add evidence from 1 more source.",
+                "Increase safe source URL coverage to at least 80%.",
+                "Review 1 more evidence item.",
+            ],
+        },
     )
 
     text = routes.evidence_bundle_markdown(opportunity)

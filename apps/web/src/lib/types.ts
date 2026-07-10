@@ -15,17 +15,103 @@ export type ProcessSummary = {
   opportunities_created: number;
 };
 
+export type ReviewState =
+  | "new"
+  | "needs_more_evidence"
+  | "promising"
+  | "rejected"
+  | "duplicate"
+  | "build_candidate";
+
+export type EvidenceReviewLabel =
+  | "true_signal"
+  | "false_positive"
+  | "unclear"
+  | "duplicate"
+  | "not_actionable"
+  | "sensitive_risk";
+
+export type EvidenceReadinessLevel = "weak" | "medium" | "strong";
+export type EvidenceReadinessCheck =
+  | "enough_evidence"
+  | "source_diversity"
+  | "source_url_coverage"
+  | "human_review_coverage";
+
+export type EvidenceReadiness = {
+  level: EvidenceReadinessLevel;
+  evidence_count: number;
+  source_count: number;
+  safe_url_count: number;
+  reviewed_count: number;
+  source_url_coverage: number;
+  human_review_coverage: number;
+  checks: Record<EvidenceReadinessCheck, boolean>;
+  passed_checks: EvidenceReadinessCheck[];
+  gaps: string[];
+};
+
+export type OpportunityReviewUpdate = {
+  review_state: ReviewState;
+  review_note: string | null;
+};
+
+export type EvidenceReviewCreate = {
+  item_id: string;
+  label: EvidenceReviewLabel;
+  user_note: string | null;
+};
+
+export type LabelOut = {
+  id: string;
+  item_id: string;
+  label: string;
+  user_note: string | null;
+  created_at: string;
+};
+
+export type EvaluationLabelCounts = Record<EvidenceReviewLabel, number>;
+
+export type EvaluationSlice = {
+  total_items: number;
+  reviewed_items: number;
+  review_coverage: number;
+  label_counts: EvaluationLabelCounts;
+  precision_on_reviewed_positives: number | null;
+};
+
+export type Evaluation = {
+  total_reviewable_items: number;
+  reviewed_items: number;
+  review_coverage: number;
+  label_counts: EvaluationLabelCounts;
+  unrecognized_latest_labels: number;
+  precision_on_reviewed_positives: number | null;
+  by_source: Record<string, EvaluationSlice>;
+  by_signal_type: Record<string, EvaluationSlice>;
+  selection_bias_warning: string;
+};
+
 export type EvidenceItem = {
   id: string;
   source: string;
+  external_id: string;
   url: string;
   title: string;
   body: string;
-  signal_type: string;
-  pain_score: number;
-  task_concreteness_score: number;
-  buying_intent_score: number;
+  score: number | null;
+  comments_count: number | null;
+  created_at: string;
+  tags: string[];
+  signal_type: string | null;
+  pain_score: number | null;
+  task_concreteness_score: number | null;
+  buying_intent_score: number | null;
   evidence_spans: string[];
+  review_label: EvidenceReviewLabel | null;
+  review_note: string | null;
+  reviewed_at: string | null;
+  review_history_count: number;
 };
 
 export type ScoreBreakdown = {
@@ -58,11 +144,15 @@ export type Opportunity = {
   competition_notes: string;
   scoring_breakdown_json: ScoreBreakdown;
   generated_prompt: string;
+  review_state: ReviewState;
+  review_note: string | null;
+  decision_updated_at: string | null;
   created_at: string;
   updated_at: string;
   evidence_items: EvidenceItem[];
   signal_count: number;
   top_source: string;
+  evidence_readiness: EvidenceReadiness;
 };
 
 export type Source = {
@@ -212,6 +302,8 @@ export type TaskPack = {
   evidence_urls: string[];
   acceptance_criteria: string[];
   privacy_constraints: string[];
+  review_state: ReviewState;
+  evidence_readiness: EvidenceReadiness;
 };
 
 export type Enhancement = {

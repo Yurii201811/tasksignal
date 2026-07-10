@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -21,8 +22,12 @@ import {
   StateMessage,
   TableShell,
 } from "@/components/ui";
+import { apiErrorMessage } from "@/lib/api-error";
 import type { EvidenceItem, ScoreBreakdown } from "@/lib/types";
 import { safeExternalUrl } from "@/lib/url";
+import { EvidenceReadinessCard } from "./evidence-readiness-card";
+import { EvidenceReviewControl } from "./evidence-review-control";
+import { OpportunityDecisionPanel } from "./opportunity-decision-panel";
 
 const SCORE_ROWS = [
   { key: "frequency", label: "Frequency", weight: 0.25 },
@@ -50,24 +55,9 @@ function evidenceSnippets(item: EvidenceItem) {
   return [`${item.body.slice(0, 240)}${item.body.length > 240 ? "..." : ""}`];
 }
 
-function errorMessage(error: unknown) {
-  if (error instanceof Error) {
-    try {
-      const parsed = JSON.parse(error.message);
-      if (parsed?.detail) {
-        return typeof parsed.detail === "string"
-          ? parsed.detail
-          : JSON.stringify(parsed.detail);
-      }
-    } catch {
-      return error.message;
-    }
-  }
-  return "The request failed.";
-}
-
 export function OpportunityDetail({ id }: { id: string }) {
   const queryClient = useQueryClient();
+  const [operatorToken, setOperatorToken] = useState("");
   const { data, error, isError, isLoading } = useQuery({
     queryKey: ["opportunity", id],
     queryFn: () => api.opportunity(id),
@@ -78,10 +68,23 @@ export function OpportunityDetail({ id }: { id: string }) {
       queryClient.invalidateQueries({ queryKey: ["opportunity", id] }),
   });
   const enhance = useMutation({
-    mutationFn: () => api.enhanceOpportunity(id, true),
+    mutationFn: () =>
+      api.enhanceOpportunity(id, true, operatorToken.trim() || undefined),
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: ["opportunity", id] }),
   });
+  const taskPackDownload = useMutation({
+    mutationFn: () => api.downloadTaskPack(id),
+  });
+  const evidenceDownload = useMutation({
+    mutationFn: () => api.downloadEvidence(id),
+  });
+
+  useEffect(() => {
+    setOperatorToken(
+      window.localStorage.getItem("tasksignal.operatorToken") ?? "",
+    );
+  }, []);
 
   if (isLoading) {
     return (
@@ -94,7 +97,7 @@ export function OpportunityDetail({ id }: { id: string }) {
   if (isError) {
     return (
       <StateMessage tone="danger" title="Could not load this opportunity">
-        {errorMessage(error)}
+        {apiErrorMessage(error)}
       </StateMessage>
     );
   }
@@ -124,10 +127,8 @@ export function OpportunityDetail({ id }: { id: string }) {
   const sourceMixLabel = Object.entries(sourceMix)
     .map(([source, count]) => `${source} ${count}`)
     .join(", ");
-  const sourcesWithUrls = data.evidence_items.filter((item) =>
-    Boolean(item.url),
-  ).length;
   const formula = String(breakdown.score_formula ?? "");
+  const hasOperatorToken = operatorToken.trim().length > 0;
 
   return (
     <div className="space-y-6">
@@ -151,18 +152,20 @@ export function OpportunityDetail({ id }: { id: string }) {
               >
                 <FileText size={16} /> View Codex Prompt
               </Link>
-              <a
-                href={api.taskPackExportUrl(id)}
-                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-product border border-border bg-surface px-4 py-2 text-sm font-semibold text-ink hover:bg-surface-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]"
+              <Button
+                variant="secondary"
+                onClick={() => taskPackDownload.mutate()}
+                loading={taskPackDownload.isPending}
               >
                 <Download size={16} /> Task Pack
-              </a>
-              <a
-                href={api.evidenceExportUrl(id)}
-                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-product border border-border bg-surface px-4 py-2 text-sm font-semibold text-ink hover:bg-surface-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]"
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => evidenceDownload.mutate()}
+                loading={evidenceDownload.isPending}
               >
                 <Download size={16} /> Export Evidence
-              </a>
+              </Button>
               <Button
                 variant="secondary"
                 onClick={() => regenerate.mutate()}
@@ -179,7 +182,14 @@ export function OpportunityDetail({ id }: { id: string }) {
                 variant="secondary"
                 onClick={() => enhance.mutate()}
                 loading={enhance.isPending}
-                disabled={regenerate.isPending || enhance.isPending}
+                disabled={
+                  regenerate.isPending || enhance.isPending || !hasOperatorToken
+                }
+                title={
+                  hasOperatorToken
+                    ? "Enhance Prompt"
+                    : "Add the local operator token in Settings first."
+                }
               >
                 <Sparkles
                   size={16}
@@ -203,9 +213,16 @@ export function OpportunityDetail({ id }: { id: string }) {
         </Card>
       </div>
 
+      <OpportunityDecisionPanel
+        opportunityId={data.id}
+        reviewState={data.review_state}
+        reviewNote={data.review_note}
+        decisionUpdatedAt={data.decision_updated_at}
+      />
+
       {regenerate.error ? (
         <StateMessage tone="danger" title="Regeneration did not complete">
-          {errorMessage(regenerate.error)}
+          {apiErrorMessage(regenerate.error)}
         </StateMessage>
       ) : null}
       {regenerate.data ? (
@@ -216,7 +233,12 @@ export function OpportunityDetail({ id }: { id: string }) {
       ) : null}
       {enhance.error ? (
         <StateMessage tone="danger" title="Prompt enhancement did not complete">
-          {errorMessage(enhance.error)}
+          {apiErrorMessage(enhance.error)}
+        </StateMessage>
+      ) : null}
+      {taskPackDownload.error || evidenceDownload.error ? (
+        <StateMessage tone="danger" title="Protected export did not download">
+          {apiErrorMessage(taskPackDownload.error ?? evidenceDownload.error)}
         </StateMessage>
       ) : null}
       {enhance.data ? (
@@ -225,25 +247,46 @@ export function OpportunityDetail({ id }: { id: string }) {
           {enhance.data.model}.
         </StateMessage>
       ) : null}
+      {!hasOperatorToken ? (
+        <StateMessage
+          tone="warning"
+          title="Local operator token required"
+          action={
+            <Link
+              href="/settings"
+              className="inline-flex min-h-9 items-center justify-center gap-1 rounded-product border border-border bg-surface px-3 py-1.5 text-xs font-semibold text-ink hover:bg-surface-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]"
+            >
+              Settings <ArrowRight size={14} />
+            </Link>
+          }
+        >
+          Prompt enhancement is gated before it can use configured model
+          credentials or local runtime capacity.
+        </StateMessage>
+      ) : null}
 
-      <Card variant="muted">
-        <h2 className="text-lg font-semibold text-ink">Evidence trail</h2>
-        <div className="mt-3 flex flex-wrap gap-2">
-          <Badge tone="blue">{data.signal_count} signals</Badge>
-          {sourceMixLabel ? (
-            <Badge>Source mix: {sourceMixLabel}</Badge>
-          ) : (
-            <Badge>No source mix yet</Badge>
-          )}
-          <Badge tone="green">
-            {sourcesWithUrls}/{data.evidence_items.length} with source URLs
-          </Badge>
-        </div>
-        <p className="mt-3 text-sm leading-6 text-muted">
-          Evidence excerpts come from detector spans. Author identity is omitted
-          from exports; source URLs are preserved for review.
-        </p>
-      </Card>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <EvidenceReadinessCard readiness={data.evidence_readiness} />
+        <Card variant="muted">
+          <h2 className="text-lg font-semibold text-ink">Evidence trail</h2>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Badge tone="blue">{data.signal_count} signals</Badge>
+            {sourceMixLabel ? (
+              <Badge>Source mix: {sourceMixLabel}</Badge>
+            ) : (
+              <Badge>No source mix yet</Badge>
+            )}
+            <Badge tone="green">
+              {data.evidence_readiness.safe_url_count}/
+              {data.evidence_items.length} with safe source URLs
+            </Badge>
+          </div>
+          <p className="mt-3 text-sm leading-6 text-muted">
+            Evidence excerpts come from detector spans. Author identity is
+            omitted from exports; safe source URLs are preserved for review.
+          </p>
+        </Card>
+      </div>
 
       <div className="grid gap-4 lg:grid-cols-[1.05fr_0.95fr]">
         <Card className="space-y-5">
@@ -397,8 +440,10 @@ export function OpportunityDetail({ id }: { id: string }) {
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="flex min-w-0 flex-wrap items-center gap-2">
                     <Badge tone="blue">{item.source}</Badge>
-                    <Badge tone="green">
-                      {item.signal_type?.replace("_", " ")}
+                    <Badge tone={item.signal_type === null ? "slate" : "green"}>
+                      {item.signal_type === null
+                        ? "Not classified"
+                        : item.signal_type.replace("_", " ")}
                     </Badge>
                   </div>
                   {sourceUrl ? (
@@ -439,6 +484,7 @@ export function OpportunityDetail({ id }: { id: string }) {
                     </blockquote>
                   ))}
                 </div>
+                <EvidenceReviewControl opportunityId={data.id} item={item} />
               </article>
             );
           })}
@@ -448,14 +494,14 @@ export function OpportunityDetail({ id }: { id: string }) {
   );
 }
 
-function MiniScore({ label, value }: { label: string; value: number }) {
+function MiniScore({ label, value }: { label: string; value: number | null }) {
   return (
     <div>
       <div className="mb-1 flex justify-between text-xs font-semibold text-muted">
         <span>{label}</span>
-        <span>{percent(value)}</span>
+        <span>{value === null ? "Not measured" : percent(value)}</span>
       </div>
-      <ScoreBar value={value} />
+      {value === null ? null : <ScoreBar value={value} />}
     </div>
   );
 }
