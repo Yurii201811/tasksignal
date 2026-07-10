@@ -87,13 +87,26 @@ def test_generic_connector_exception_redacts_secrets_in_error_message(db_session
 
 
 def test_sanitize_error_message_redacts_common_secret_patterns() -> None:
-    raw = "Bearer abc123 client_secret=something token=query-leak"
+    raw = "Bearer abc123 client_secret=something token=query-leak access_token=other-leak"
     sanitized = sanitize_error_message(raw)
 
     assert "abc123" not in sanitized
     assert "something" not in sanitized
     assert "query-leak" not in sanitized
+    assert "other-leak" not in sanitized
     assert "[redacted secret]" in sanitized
+    assert "secret] secret]" not in sanitized
+
+
+def test_sanitize_error_message_redacts_full_authorization_credentials() -> None:
+    for authorization in (
+        "Authorization: Basic dXNlcjpwYXNzd29yZA==",
+        "Authorization: token github-personal-access-token",
+        "Authorization: opaque-credential",
+    ):
+        sanitized = sanitize_error_message(f"request failed: {authorization}; retry later")
+
+        assert sanitized == ("request failed: Authorization: [redacted secret]; retry later")
 
 
 def test_connector_failure_message_includes_reddit_guidance() -> None:

@@ -260,7 +260,14 @@ SOURCE_GUIDANCE: dict[str, str] = {
 
 _SECRET_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"Bearer\s+\S+", re.IGNORECASE), "Bearer [redacted secret]"),
-    (re.compile(r"Authorization:\s*\S+", re.IGNORECASE), "Authorization: [redacted secret]"),
+    (
+        re.compile(
+            r"Authorization\s*:\s*"
+            r"(?:(?:Bearer|Basic|Digest|Token|Negotiate|ApiKey)\s+)?[^\s,;]+",
+            re.IGNORECASE,
+        ),
+        "Authorization: [redacted secret]",
+    ),
     (
         re.compile(
             r"(client_secret|access_token|api_key|password|token)=[^\s&]+",
@@ -268,7 +275,6 @@ _SECRET_PATTERNS: list[tuple[re.Pattern[str], str]] = [
         ),
         r"\1=[redacted secret]",
     ),
-    (re.compile(r"token=[^\s&]+", re.IGNORECASE), "token=[redacted secret]"),
 ]
 
 
