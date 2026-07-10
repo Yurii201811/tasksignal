@@ -18,3 +18,6 @@ coverage/
 .DS_Store
 *.log
 *.tsbuildinfo
+.vercel
+apps/api/build/
+.vercel-api/

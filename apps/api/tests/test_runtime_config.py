@@ -87,7 +87,14 @@ def test_cloud_runtime_keeps_local_ml_optional() -> None:
 
 def test_hosted_deployment_manifests_are_safe_and_reproducible() -> None:
     render_config = (ROOT / "render.yaml").read_text(encoding="utf-8")
+    api_vercel_config = json.loads(
+        (ROOT / "apps/api/vercel.json").read_text(encoding="utf-8")
+    )
     vercel_config = json.loads((ROOT / "apps/web/vercel.json").read_text(encoding="utf-8"))
+    api_project = tomllib.loads((ROOT / "apps/api/pyproject.toml").read_text(encoding="utf-8"))
+    api_vercelignore = (ROOT / "apps/api/.vercelignore").read_text(encoding="utf-8")
+    prepare_script = (ROOT / "scripts/prepare_vercel_api.sh").read_text(encoding="utf-8")
+    deployment = (ROOT / "docs/deployment.md").read_text(encoding="utf-8")
     env_example = (ROOT / ".env.example").read_text(encoding="utf-8")
 
     assert "name: tasksignal-api-yurii201811" in render_config
@@ -116,6 +123,29 @@ def test_hosted_deployment_manifests_are_safe_and_reproducible() -> None:
     assert 'postgresMajorVersion: "16"' in render_config
     assert "ipAllowList: []" in render_config
 
+    assert api_vercel_config["$schema"] == "https://openapi.vercel.sh/vercel.json"
+    assert api_vercel_config["framework"] == "fastapi"
+    assert api_vercel_config["regions"] == ["iad1"]
+    api_function = api_vercel_config["functions"]["app/main.py"]
+    assert api_function["maxDuration"] == 60
+    assert api_function["includeFiles"] == "data/fixtures/**"
+    assert api_function["excludeFiles"] == "{tests/**,alembic/**,**/__pycache__/**}"
+    assert api_project["tool"]["vercel"]["entrypoint"] == "app.main:app"
+    assert (ROOT / "apps/api/.python-version").read_text(encoding="utf-8").strip() == "3.12"
+    assert ".env*" in api_vercelignore
+    assert "tests" in api_vercelignore
+    assert 'SOURCE_DIR="$ROOT_DIR/data/fixtures"' in prepare_script
+    assert 'TARGET_DIR="$ROOT_DIR/.vercel-api"' in prepare_script
+    assert "--exclude '__pycache__/' --exclude '*.pyc'" in prepare_script
+    assert '"$API_DIR/app/" "$TARGET_DIR/app/"' in prepare_script
+    assert 'rsync -a --delete "$SOURCE_DIR/" "$TARGET_DIR/data/fixtures/"' in prepare_script
+    assert "for file in pyproject.toml uv.lock vercel.json .python-version .vercelignore" in (
+        prepare_script
+    )
+    assert 'rsync -a "$API_DIR/.vercel/project.json"' in prepare_script
+    assert "AUTO_CREATE_TABLES=false" in deployment
+    assert "AUTHOR_HASH_SALT=<long random value>" in deployment
+
     assert vercel_config["$schema"] == "https://openapi.vercel.sh/vercel.json"
     assert vercel_config["framework"] == "nextjs"
     assert vercel_config["installCommand"] == "npm ci"
@@ -124,6 +154,57 @@ def test_hosted_deployment_manifests_are_safe_and_reproducible() -> None:
     assert "build" not in vercel_config
     assert "REQUIRE_OPERATOR_TOKEN_FOR_ALL_API=false" in env_example
     assert "REQUIRE_OPERATOR_TOKEN_FOR_WRITES=false" in env_example
+
+
+def test_vercel_api_bundle_contains_only_runtime_inputs() -> None:
+    completed = subprocess.run(
+        [str(ROOT / "scripts/prepare_vercel_api.sh")],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+
+    bundle = ROOT / ".vercel-api"
+    allowed_top_level = {
+        ".python-version",
+        ".vercel",
+        ".vercelignore",
+        "app",
+        "data",
+        "pyproject.toml",
+        "uv.lock",
+        "vercel.json",
+    }
+    assert {path.name for path in bundle.iterdir()} <= allowed_top_level
+    assert not list(bundle.glob(".env*"))
+    assert not (bundle / "tests").exists()
+    assert not (bundle / "test_tasksignal.db").exists()
+
+    source_app_files = {
+        path.relative_to(ROOT / "apps/api/app")
+        for path in (ROOT / "apps/api/app").rglob("*")
+        if path.is_file() and "__pycache__" not in path.parts
+    }
+    bundled_app_files = {
+        path.relative_to(bundle / "app")
+        for path in (bundle / "app").rglob("*")
+        if path.is_file() and "__pycache__" not in path.parts
+    }
+    assert bundled_app_files == source_app_files
+
+    source_fixture_files = {
+        path.relative_to(ROOT / "data/fixtures")
+        for path in (ROOT / "data/fixtures").rglob("*")
+        if path.is_file()
+    }
+    bundled_fixture_files = {
+        path.relative_to(bundle / "data/fixtures")
+        for path in (bundle / "data/fixtures").rglob("*")
+        if path.is_file()
+    }
+    assert bundled_fixture_files == source_fixture_files
 
 
 def test_default_runtime_is_loopback_only_and_reproducible() -> None:
