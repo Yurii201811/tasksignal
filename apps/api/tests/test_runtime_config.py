@@ -87,7 +87,13 @@ def test_cloud_runtime_keeps_local_ml_optional() -> None:
 
 def test_hosted_deployment_manifests_are_safe_and_reproducible() -> None:
     render_config = (ROOT / "render.yaml").read_text(encoding="utf-8")
+    api_vercel_config = json.loads(
+        (ROOT / "apps/api/vercel.json").read_text(encoding="utf-8")
+    )
     vercel_config = json.loads((ROOT / "apps/web/vercel.json").read_text(encoding="utf-8"))
+    api_project = tomllib.loads((ROOT / "apps/api/pyproject.toml").read_text(encoding="utf-8"))
+    api_vercelignore = (ROOT / "apps/api/.vercelignore").read_text(encoding="utf-8")
+    prepare_script = (ROOT / "scripts/prepare_vercel_api.sh").read_text(encoding="utf-8")
     env_example = (ROOT / ".env.example").read_text(encoding="utf-8")
 
     assert "name: tasksignal-api-yurii201811" in render_config
@@ -115,6 +121,21 @@ def test_hosted_deployment_manifests_are_safe_and_reproducible() -> None:
     assert "name: tasksignal-db" in render_config
     assert 'postgresMajorVersion: "16"' in render_config
     assert "ipAllowList: []" in render_config
+
+    assert api_vercel_config["$schema"] == "https://openapi.vercel.sh/vercel.json"
+    assert api_vercel_config["framework"] == "fastapi"
+    assert api_vercel_config["regions"] == ["iad1"]
+    api_function = api_vercel_config["functions"]["app/main.py"]
+    assert api_function["maxDuration"] == 60
+    assert api_function["includeFiles"] == "data/fixtures/**"
+    assert api_function["excludeFiles"] == "{tests/**,alembic/**,**/__pycache__/**}"
+    assert api_project["tool"]["vercel"]["entrypoint"] == "app.main:app"
+    assert (ROOT / "apps/api/.python-version").read_text(encoding="utf-8").strip() == "3.12"
+    assert ".env*" in api_vercelignore
+    assert "tests" in api_vercelignore
+    assert 'SOURCE_DIR="$ROOT_DIR/data/fixtures"' in prepare_script
+    assert 'TARGET_DIR="$ROOT_DIR/apps/api/data/fixtures"' in prepare_script
+    assert 'rsync -a --delete "$SOURCE_DIR/" "$TARGET_DIR/"' in prepare_script
 
     assert vercel_config["$schema"] == "https://openapi.vercel.sh/vercel.json"
     assert vercel_config["framework"] == "nextjs"

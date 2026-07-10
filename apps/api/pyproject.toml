@@ -25,6 +25,9 @@ build-backend = "setuptools.build_meta"
 include = ["app*"]
 exclude = ["alembic*"]
 
+[tool.vercel]
+entrypoint = "app.main:app"
+
 [project.optional-dependencies]
 dev = [
   "mypy>=1.10.0",

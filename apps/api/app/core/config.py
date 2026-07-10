@@ -20,9 +20,11 @@ def resolve_project_root(config_file: Path) -> Path:
     ancestors = list(resolved.parents)
 
     for candidate in ancestors:
-        if (candidate / "data/fixtures").is_dir():
-            return candidate
         if (candidate / "apps/api/app").is_dir():
+            return candidate
+
+    for candidate in ancestors:
+        if (candidate / "data/fixtures").is_dir():
             return candidate
 
     for candidate in ancestors:

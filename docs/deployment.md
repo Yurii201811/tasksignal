@@ -30,39 +30,66 @@ retention, and admin deletion paths are designed.
 
 ## Hosted Single-Operator Preview
 
-The checked-in `render.yaml` provisions a Frankfurt Render web service and
-PostgreSQL database. Health and CORS preflight stay public, while
+The card-free preview topology uses two Vercel projects and a Neon Free
+PostgreSQL database:
+
+- frontend project root: `apps/web`;
+- API project root: `apps/api`, prepared with
+  `scripts/prepare_vercel_api.sh` so only the API and a generated copy of the
+  canonical `data/fixtures` tree enter the deployment boundary;
+- database: Neon Free PostgreSQL through the Vercel Marketplace integration.
+
+Health and CORS preflight stay public, while
 `REQUIRE_OPERATOR_TOKEN_FOR_ALL_API=true` requires the configured
 `OPERATOR_SCAN_TOKEN` as `X-Operator-Scan-Token` for every `/api/` read, write,
 and Markdown export. Enter the same token in the frontend unlock banner or
 Settings page; it stays in that browser's local storage. The shared API client
 adds it as a header, including protected downloads, without placing it in URLs.
 
-Apply the Blueprint from the repository default branch, provide a long random
-`OPERATOR_SCAN_TOKEN` when prompted, and keep `PUBLIC_SCAN_SOURCES=fixture` for
-the preview. The start command runs the idempotent Alembic upgrade before
-Uvicorn because Render pre-deploy commands require a paid web service.
+Provision Neon for the API project, run `alembic upgrade head` once against its
+unpooled migration URL, provide a long random `OPERATOR_SCAN_TOKEN`, and keep
+`PUBLIC_SCAN_SOURCES=fixture` for the preview. Pin the API function to the same
+region as the provisioned database (`iad1` for the current Vercel Marketplace
+resource); its Hobby duration is configured to the 60-second maximum for
+fixture processing.
 
-The free web service can cold-start after inactivity. Free Render PostgreSQL
-expires after 30 days and has no backups, so this topology is a disposable
-preview, not durable production. Upgrade the database before the expiry window
-and move migrations to `preDeployCommand` before treating the deployment as
-long-lived.
+Neon Free currently has no time limit or card requirement, but its storage,
+compute, and transfer quotas still make this a disposable personal preview, not
+a durable multi-user production system. Delete the database and API project
+when the evaluation window ends.
 
 ## Vercel Frontend
 
 - Root: `apps/web`
 - Install command: `npm ci`
 - Build command: `npm run build`
-- Environment: `NEXT_PUBLIC_API_BASE_URL=https://tasksignal-api-yurii201811.onrender.com`
+- Environment: `NEXT_PUBLIC_API_BASE_URL=https://tasksignal-api-yurii201811.vercel.app`
 - Stable origin: `https://tasksignal-yurii201811.vercel.app`
 
-## Render Backend
+## Vercel API and Neon Database
+
+- Prepare command: `scripts/prepare_vercel_api.sh`
+- Root: `apps/api`
+- Framework preset: FastAPI
+- Entrypoint: `app.main:app`
+- Function region: Washington, D.C. (`iad1`), matching the current Neon resource
+- Environment: Neon pooled `DATABASE_URL` plus the hosted guardrails below
+
+Vercel installs the API package from `apps/api/pyproject.toml`. The prepare
+script refreshes the gitignored `apps/api/data/fixtures` directory before every
+deployment, keeping the source-of-truth fixture files at the repository root
+without exposing unrelated repo files or local environment files. Keep
+migrations outside request startup: use the Neon unpooled URL for
+`alembic upgrade head`, then use the pooled URL in the serverless API.
+
+## Optional Render Backend
 
 Use the repository-root `render.yaml` so repo-level fixtures stay available.
 Render supplies PostgreSQL through `DATABASE_URL`; TaskSignal normalizes the
 provider URL to the installed psycopg3 driver. The hosted core intentionally
-omits the optional ML extra and uses deterministic embeddings/clustering.
+omits the optional ML extra and uses deterministic embeddings/clustering. As of
+2026-07-10, Render account setup required a payment card even for this free
+Blueprint, so it is not the primary card-free preview path.
 
 ## Hosted Demo Guardrails
 
