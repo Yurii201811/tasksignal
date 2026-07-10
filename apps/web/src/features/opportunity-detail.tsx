@@ -25,6 +25,9 @@ import {
 import { apiErrorMessage } from "@/lib/api-error";
 import type { EvidenceItem, ScoreBreakdown } from "@/lib/types";
 import { safeExternalUrl } from "@/lib/url";
+import { EvidenceReadinessCard } from "./evidence-readiness-card";
+import { EvidenceReviewControl } from "./evidence-review-control";
+import { OpportunityDecisionPanel } from "./opportunity-decision-panel";
 
 const SCORE_ROWS = [
   { key: "frequency", label: "Frequency", weight: 0.25 },
@@ -118,9 +121,6 @@ export function OpportunityDetail({ id }: { id: string }) {
   const sourceMixLabel = Object.entries(sourceMix)
     .map(([source, count]) => `${source} ${count}`)
     .join(", ");
-  const sourcesWithUrls = data.evidence_items.filter((item) =>
-    Boolean(item.url),
-  ).length;
   const formula = String(breakdown.score_formula ?? "");
   const hasOperatorToken = operatorToken.trim().length > 0;
 
@@ -205,6 +205,14 @@ export function OpportunityDetail({ id }: { id: string }) {
         </Card>
       </div>
 
+      <OpportunityDecisionPanel
+        key={`${data.id}:${data.decision_updated_at ?? "unsaved"}`}
+        opportunityId={data.id}
+        reviewState={data.review_state}
+        reviewNote={data.review_note}
+        decisionUpdatedAt={data.decision_updated_at}
+      />
+
       {regenerate.error ? (
         <StateMessage tone="danger" title="Regeneration did not complete">
           {apiErrorMessage(regenerate.error)}
@@ -245,24 +253,28 @@ export function OpportunityDetail({ id }: { id: string }) {
         </StateMessage>
       ) : null}
 
-      <Card variant="muted">
-        <h2 className="text-lg font-semibold text-ink">Evidence trail</h2>
-        <div className="mt-3 flex flex-wrap gap-2">
-          <Badge tone="blue">{data.signal_count} signals</Badge>
-          {sourceMixLabel ? (
-            <Badge>Source mix: {sourceMixLabel}</Badge>
-          ) : (
-            <Badge>No source mix yet</Badge>
-          )}
-          <Badge tone="green">
-            {sourcesWithUrls}/{data.evidence_items.length} with source URLs
-          </Badge>
-        </div>
-        <p className="mt-3 text-sm leading-6 text-muted">
-          Evidence excerpts come from detector spans. Author identity is omitted
-          from exports; source URLs are preserved for review.
-        </p>
-      </Card>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <EvidenceReadinessCard readiness={data.evidence_readiness} />
+        <Card variant="muted">
+          <h2 className="text-lg font-semibold text-ink">Evidence trail</h2>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Badge tone="blue">{data.signal_count} signals</Badge>
+            {sourceMixLabel ? (
+              <Badge>Source mix: {sourceMixLabel}</Badge>
+            ) : (
+              <Badge>No source mix yet</Badge>
+            )}
+            <Badge tone="green">
+              {data.evidence_readiness.safe_url_count}/
+              {data.evidence_items.length} with safe source URLs
+            </Badge>
+          </div>
+          <p className="mt-3 text-sm leading-6 text-muted">
+            Evidence excerpts come from detector spans. Author identity is
+            omitted from exports; safe source URLs are preserved for review.
+          </p>
+        </Card>
+      </div>
 
       <div className="grid gap-4 lg:grid-cols-[1.05fr_0.95fr]">
         <Card className="space-y-5">
@@ -460,6 +472,7 @@ export function OpportunityDetail({ id }: { id: string }) {
                     </blockquote>
                   ))}
                 </div>
+                <EvidenceReviewControl opportunityId={data.id} item={item} />
               </article>
             );
           })}
