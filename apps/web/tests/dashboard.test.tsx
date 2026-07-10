@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -20,7 +20,10 @@ vi.mock("../src/lib/api", () => ({
 
 function renderWithClient(ui: React.ReactElement) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
+  return {
+    client,
+    ...render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>),
+  };
 }
 
 const readiness = {
@@ -122,6 +125,35 @@ describe("Dashboard", () => {
     expect(screen.getByText("Live source")).toBeInTheDocument();
     expect(screen.getByText("Run scan")).toBeInTheDocument();
     expect(screen.getByText(/Examples: ask, show, job/)).toBeInTheDocument();
+  });
+
+  it("renders one live source option when the API repeats a source type", async () => {
+    vi.mocked(api.sources).mockResolvedValue([
+      {
+        id: "source-1",
+        name: "Hacker News",
+        type: "hackernews",
+        config_json: {},
+        enabled: true,
+        created_at: "2026-06-03T10:00:00.000Z",
+      },
+      {
+        id: "source-2",
+        name: "Hacker News",
+        type: "hackernews",
+        config_json: {},
+        enabled: true,
+        created_at: "2026-07-10T10:00:00.000Z",
+      },
+    ]);
+
+    const { client } = renderWithClient(<Dashboard />);
+    await waitFor(() => expect(client.isFetching()).toBe(0));
+
+    const liveSource = screen.getByRole("combobox", { name: "Live source" });
+    expect(
+      within(liveSource).getAllByRole("option", { name: "Hacker News" }),
+    ).toHaveLength(1);
   });
 
   it("renders readiness-driven first-use steps", async () => {

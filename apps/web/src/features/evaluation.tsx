@@ -85,7 +85,8 @@ export function Evaluation() {
   const limits = (
     <StateMessage tone="warning" title="Evaluation limits">
       {data.selection_bias_warning} Recall and F1 are not reported because
-      TaskSignal has no reviewed negative population.
+      TaskSignal has no reviewed predicted-negative or undetected examples from
+      which to estimate false negatives and recall.
     </StateMessage>
   );
   if (data.total_reviewable_items === 0) {

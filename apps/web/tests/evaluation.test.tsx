@@ -50,7 +50,11 @@ describe("Evaluation", () => {
     expect(precisionTile).not.toBeNull();
     expect(within(precisionTile!).getByText("0%")).toBeInTheDocument();
     expect(screen.getByText(/may not represent all detected items/)).toBeInTheDocument();
-    expect(screen.getByText(/Recall and F1 are not reported/)).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /Recall and F1 are not reported because TaskSignal has no reviewed predicted-negative or undetected examples from which to estimate false negatives and recall\./,
+      ),
+    ).toBeInTheDocument();
     expect(screen.queryByText("Not defined")).not.toBeInTheDocument();
   });
 

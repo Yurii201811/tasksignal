@@ -146,13 +146,12 @@ export function Dashboard() {
   const scanError = runScan.error ?? null;
   const sourceBreakdown = stats.data?.source_breakdown ?? [];
   const painDistribution = stats.data?.pain_distribution ?? [];
-  const liveSources = (sources.data ?? [])
-    .filter((source) => browserSafeScanSourceOrder.includes(source.type))
-    .sort(
-      (left, right) =>
-        browserSafeScanSourceOrder.indexOf(left.type) -
-        browserSafeScanSourceOrder.indexOf(right.type),
+  const liveSources = browserSafeScanSourceOrder.flatMap((type) => {
+    const source = (sources.data ?? []).find(
+      (candidate) => candidate.type === type,
     );
+    return source ? [source] : [];
+  });
   const sourceOptions =
     liveSources.length > 0
       ? liveSources
