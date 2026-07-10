@@ -272,9 +272,9 @@ drafting, or local review workflows.
 
 ## Decision Workbench
 
-- `GET /api/opportunities?review_state=<state>` optionally filters by one of the six documented decision states.
-- `PATCH /api/opportunities/{id}/review` saves `review_state` and an optional local `review_note` of at most 1,000 characters.
-- `POST /api/labels` appends one recognized evidence review with an optional 500-character note.
+- `GET /api/opportunities?review_state=<state>` optionally filters by `new`, `needs_more_evidence`, `promising`, `rejected`, `duplicate`, or `build_candidate`.
+- `PATCH /api/opportunities/{id}/review` saves one of those six `review_state` values and an optional local `review_note` of at most 1,000 characters.
+- `POST /api/labels` appends one recognized evidence review—`true_signal`, `false_positive`, `unclear`, `duplicate`, `not_actionable`, or `sensitive_risk`—with an optional 500-character note.
 - `GET /api/items/{id}/labels` returns complete newest-first history, including legacy unrecognized labels.
 - `GET /api/evaluation` reports reviewable/reviewed counts, coverage, reviewed-positive precision, label counts, and source/signal breakdowns.
 

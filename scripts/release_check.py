@@ -130,14 +130,28 @@ def normalize_version(version: str) -> str:
 
 def fastapi_version(path: Path) -> str:
     tree = ast.parse(path.read_text(encoding="utf-8"))
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        for keyword in node.keywords:
-            if keyword.arg == "version" and isinstance(keyword.value, ast.Constant):
-                if isinstance(keyword.value.value, str):
-                    return normalize_version(keyword.value.value)
-    raise ValueError(f"FastAPI version was not found in {path}")
+    constructors = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "FastAPI"
+    ]
+    if len(constructors) != 1:
+        raise ValueError(
+            f"Expected exactly one direct FastAPI(...) constructor in {path}; "
+            f"found {len(constructors)}."
+        )
+
+    version_keywords = [
+        keyword for keyword in constructors[0].keywords if keyword.arg == "version"
+    ]
+    if len(version_keywords) != 1:
+        raise ValueError(f"FastAPI version must be a string literal in {path}.")
+    value = version_keywords[0].value
+    if not isinstance(value, ast.Constant) or not isinstance(value.value, str):
+        raise ValueError(f"FastAPI version must be a string literal in {path}.")
+    return normalize_version(value.value)
 
 
 def read_project_versions() -> dict[str, str]:

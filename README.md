@@ -10,7 +10,7 @@ TaskSignal is an AI-assisted engine that mines public developer and community di
 
 TaskSignal is a portfolio-ready MVP built by Yurii Bakurov. It is designed for one local operator on their own machine: fixture data works out of the box, a local workspace profile stores that user's research defaults, and repeatable API-backed workflows can be enabled for supported public sources when credentials are provided.
 
-Current public posture: TaskSignal is an early public application repository, not a widely adopted package. Its strongest evidence today is reproducibility, release hygiene, CI, security/privacy documentation, contributor issues, and a browser-verified demo flow. See the [demo evidence snapshot](docs/demo-evidence.md) and [Codex for OSS evidence](docs/codex-for-oss-application.md) for the current review package.
+Current public posture: TaskSignal is an early public application repository, not a widely adopted package. Its published v0.1.3 review package includes a browser-verified fixture demo. The committed v0.2 decision workbench has automated and smoke evidence, while fresh interactive browser verification remains a pre-release step. See the [demo evidence snapshot](docs/demo-evidence.md) and [Codex for OSS evidence](docs/codex-for-oss-application.md) for the current review package.
 
 Useful starting points:
 
@@ -91,26 +91,20 @@ Infra: Docker Compose, Makefile, GitHub Actions CI, scheduled ingestion template
 make setup
 cp .env.example .env
 make doctor
+make dev
 ```
 
-`make dev` prints the two native launch commands. Run those commands in
-separate terminals:
-
-```bash
-cd apps/api
-.venv/bin/uvicorn app.main:app --reload
-```
-
-```bash
-cd apps/web
-npm run dev
-```
+`make dev` prints ready-to-run API and Node-safe web commands. Run each printed
+command in a separate terminal.
 
 Use `make up` instead to start the loopback-only Docker Compose stack.
 
-The API command runs from `apps/api`, so it does not automatically load the
-repository-root `.env`; export non-default API settings in that terminal. The
-copied root `.env` is still checked by `make doctor`.
+The repository-root `.env` is a `make doctor` input only: the native API and
+Next.js do not automatically load it, and the current Compose file does not
+inject it. For native API settings, use `apps/api/.env` or export values in the
+API terminal. For non-default web settings, use `apps/web/.env.local` or export
+`NEXT_PUBLIC_API_BASE_URL` in the web terminal. For Compose, use explicit
+service environment entries or a Compose override.
 
 Open the frontend at [http://localhost:3000](http://localhost:3000), go to Projects, save a research workflow, then run it. For a first proof path, go to Dashboard and click **Process demo data**. To use live public data, choose a source, query, and limit in **Live source**, then click **Run scan**.
 

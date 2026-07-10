@@ -4,6 +4,25 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 
 
+def compose_port_mappings(compose: str) -> list[str]:
+    mappings: list[str] = []
+    ports_indent: int | None = None
+    for line in compose.splitlines():
+        stripped = line.strip()
+        indent = len(line) - len(line.lstrip())
+        if stripped == "ports:":
+            ports_indent = indent
+            continue
+        if ports_indent is None:
+            continue
+        if stripped and indent <= ports_indent:
+            ports_indent = None
+            continue
+        if stripped.startswith("-"):
+            mappings.append(stripped.removeprefix("-").strip().strip('"\''))
+    return mappings
+
+
 def test_default_runtime_is_loopback_only_and_reproducible() -> None:
     compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
     package = json.loads((ROOT / "apps/web/package.json").read_text(encoding="utf-8"))
@@ -12,10 +31,22 @@ def test_default_runtime_is_loopback_only_and_reproducible() -> None:
     api_config = (ROOT / "apps/api/app/core/config.py").read_text(encoding="utf-8")
     dockerignore_path = ROOT / "apps/web/.dockerignore"
 
-    assert '"127.0.0.1:5432:5432"' in compose
-    assert '"127.0.0.1:8000:8000"' in compose
-    assert '"127.0.0.1:3000:3000"' in compose
-    assert package["scripts"]["dev"] == "next dev"
+    port_mappings = compose_port_mappings(compose)
+    assert port_mappings == [
+        "127.0.0.1:5432:5432",
+        "127.0.0.1:8000:8000",
+        "127.0.0.1:3000:3000",
+    ]
+    unsafe_mappings = {
+        "5432:5432",
+        "8000:8000",
+        "3000:3000",
+        "0.0.0.0:5432:5432",
+        "0.0.0.0:8000:8000",
+        "0.0.0.0:3000:3000",
+    }
+    assert unsafe_mappings.isdisjoint(port_mappings)
+    assert package["scripts"]["dev"] == "next dev -H 127.0.0.1"
     assert package["scripts"]["start"] == "next start -H 0.0.0.0"
     assert "COPY package.json package-lock.json ./" in dockerfile
     assert "RUN npm ci" in dockerfile
