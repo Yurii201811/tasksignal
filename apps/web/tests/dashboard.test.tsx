@@ -146,6 +146,9 @@ describe("Dashboard", () => {
     renderWithClient(<Dashboard />);
 
     expect(await screen.findByText("Promising idea")).toBeInTheDocument();
+    expect(
+      screen.getByRole("group", { name: "Decision state filter" }),
+    ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Promising 1" }));
 
     expect(screen.getByText("Promising idea")).toBeInTheDocument();

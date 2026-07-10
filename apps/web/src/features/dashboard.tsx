@@ -541,6 +541,7 @@ export function Dashboard() {
 
           <div
             className="mb-4 flex flex-wrap gap-2"
+            role="group"
             aria-label="Decision state filter"
           >
             <Button
