@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import io
-import ipaddress
 import json
 import re
 from collections.abc import Mapping, Sequence
@@ -12,12 +11,11 @@ from enum import Enum
 from html import escape
 from pathlib import Path
 from typing import Any, Literal
-from urllib.parse import urlparse
 from uuid import UUID
 from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
 from app.services.build_packets.enhancement import ENHANCEABLE_FILENAMES
-from app.services.ingestion.normalization import safe_source_url
+from app.services.public_safety import redact_public_text, safe_public_source_url
 
 BUILD_PACKET_SCHEMA_VERSION = "tasksignal.build-packet/v1"
 BUILD_PACKET_TEMPLATE_VERSION = "deterministic-v1"
@@ -83,20 +81,6 @@ _SECRET_KEY_SUFFIXES = (
     "signature",
     "token",
 )
-_IDENTITY_SECRET_PATTERNS = (
-    re.compile(
-        r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----",
-        re.DOTALL,
-    ),
-    re.compile(r"(?i)\bbearer\s+[a-z0-9._~+/=-]{12,}"),
-    re.compile(r"(?i)\b(?:sk|gh[pousr]|xox[baprs])[-_][a-z0-9_-]{12,}"),
-    re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
-    re.compile(r"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b"),
-    re.compile(r"(?<!\w)\+\d[\d ()-]{7,}\d(?!\w)"),
-    re.compile(r"(?<!\d)\d{10,15}(?!\d)"),
-)
-_URL_IN_TEXT_PATTERN = re.compile(r"(?i)https?://[^\s<>()\]]+")
-_SENSITIVE_TEXT_PATTERNS = (*_IDENTITY_SECRET_PATTERNS, _URL_IN_TEXT_PATTERN)
 _MARKDOWN_SPECIAL = re.compile(r"([\\`*_{}\[\]()#+!|>\-])")
 
 
@@ -253,32 +237,8 @@ def _private_key(value: object) -> bool:
     return normalized in _PRIVATE_KEYS or normalized.endswith(_SECRET_KEY_SUFFIXES)
 
 
-def _redact_sensitive_text(value: str) -> str:
-    redacted = value
-    for pattern in _SENSITIVE_TEXT_PATTERNS:
-        redacted = pattern.sub("[REDACTED]", redacted)
-    return redacted
-
-
-def _safe_public_source_url(value: object) -> str:
-    candidate = safe_source_url(value, fallback="")
-    if not candidate:
-        return ""
-    if any(pattern.search(candidate) for pattern in _IDENTITY_SECRET_PATTERNS):
-        return ""
-    parsed = urlparse(candidate)
-    host = (parsed.hostname or "").rstrip(".").casefold()
-    if host in {"localhost", "localhost.localdomain"} or host.endswith(
-        (".localhost", ".local", ".internal")
-    ):
-        return ""
-    try:
-        address = ipaddress.ip_address(host)
-    except ValueError:
-        return candidate
-    if not address.is_global:
-        return ""
-    return candidate
+_redact_sensitive_text = redact_public_text
+_safe_public_source_url = safe_public_source_url
 
 
 def _json_value(value: object) -> object:

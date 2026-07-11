@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
+from threading import Event
 from uuid import uuid4
 
 import pytest
@@ -14,6 +16,10 @@ from app.services.agent_sessions import (
     STANDARD_WRITE_CAPABILITIES,
     SessionStateError,
     hash_session_secret,
+)
+from app.workers.scan_pipeline import (
+    SCAN_WRITE_LOCK,
+    acquire_database_scan_write_lock_with_retry,
 )
 
 RAW_SECRET = "durable-agent-action-secret-with-at-least-thirty-two-bytes"
@@ -234,3 +240,64 @@ def test_success_audit_failure_rolls_back_domain_write(client, monkeypatch) -> N
         actions = list(db.scalars(select(AgentAction).order_by(AgentAction.event_sequence)))
     assert projects == []
     assert [event.event_status for event in actions] == ["reserved", "failed"]
+
+
+def test_long_mutation_does_not_hold_process_lock_after_releasing_database(client) -> None:
+    del client
+    with SessionLocal() as db:
+        session = _approved_session()
+        db.add(session)
+        db.commit()
+        session_id = session.id
+
+    mutation_started = Event()
+    release_mutation = Event()
+    concurrent_write_finished = Event()
+
+    def mutation(db):
+        db.rollback()
+        mutation_started.set()
+        assert release_mutation.wait(timeout=2)
+        acquire_database_scan_write_lock_with_retry(db)
+        project = ResearchProject(
+            name="Long mutation",
+            source_type="fixture",
+            query="workflow",
+            limit=10,
+            cadence="manual",
+            labels_json=[],
+            enabled=True,
+            version=1,
+        )
+        db.add(project)
+        db.flush()
+        return {"project_id": project.id, "version": 1}
+
+    def execute_long_mutation():
+        return execute_audited_agent_action(
+            SessionLocal,
+            session_id=session_id,
+            raw_session_secret=RAW_SECRET,
+            tool_name="create_project",
+            idempotency_key="durable-long-mutation-0001",
+            request={"expected_version": 1, "source_type": "fixture"},
+            mutation=mutation,
+        )
+
+    def concurrent_write_probe() -> None:
+        with SCAN_WRITE_LOCK, SessionLocal() as db:
+            acquire_database_scan_write_lock_with_retry(db)
+            db.rollback()
+        concurrent_write_finished.set()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        action_future = pool.submit(execute_long_mutation)
+        assert mutation_started.wait(timeout=2)
+        probe_future = pool.submit(concurrent_write_probe)
+        probe_finished_before_release = concurrent_write_finished.wait(timeout=1)
+        release_mutation.set()
+        probe_future.result(timeout=2)
+        execution = action_future.result(timeout=2)
+
+    assert probe_finished_before_release is True
+    assert execution.outcome == "succeeded"

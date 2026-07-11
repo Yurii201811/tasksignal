@@ -43,6 +43,23 @@ def test_enhancement_uses_fixed_evidence_free_documents_and_authority_banner() -
     assert "[remote image removed]" in enhanced["enhanced/agent-brief.md"]
 
 
+def test_enhancement_redacts_provider_generated_credentials_and_identities() -> None:
+    response = response_payload()
+    response["agent-brief.md"] += (
+        "\napi_key=MODEL-OUTPUT-CREDENTIAL-SENTINEL "
+        "user@example.test "
+        "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJwcml2YXRlIn0.signaturevalue"
+    )
+
+    enhanced = parse_enhanced_documents(json.dumps(response))
+    content = enhanced["enhanced/agent-brief.md"]
+
+    assert "MODEL-OUTPUT-CREDENTIAL-SENTINEL" not in content
+    assert "user@example.test" not in content
+    assert "eyJhbGci" not in content
+    assert content.count("[REDACTED]") >= 3
+
+
 @pytest.mark.parametrize(
     "payload",
     [

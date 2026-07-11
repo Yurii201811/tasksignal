@@ -607,6 +607,7 @@ def reserve_scan_job(
     research_project_id: UUID | None,
     configured_source_id: UUID | None = None,
     expected_project_version: int | None = None,
+    scan_id: UUID | None = None,
 ) -> tuple[ScanJob, ResearchProjectRun | None]:
     for attempt in range(3):
         try:
@@ -643,12 +644,17 @@ def reserve_scan_job(
                     and source_record.discourse_state is not None
                     else None
                 )
+                job_values = {
+                    "source_id": source_record.id,
+                    "status": "queued",
+                    "query": query,
+                    "items_found": 0,
+                    "items_saved": 0,
+                }
+                if scan_id is not None:
+                    job_values["id"] = scan_id
                 job = ScanJob(
-                    source_id=source_record.id,
-                    status="queued",
-                    query=query,
-                    items_found=0,
-                    items_saved=0,
+                    **job_values,
                 )
                 db.add(job)
                 db.flush()
@@ -684,6 +690,8 @@ def process_scan(
     research_project: ResearchProject | None = None,
     source_id: UUID | None = None,
     expected_project_version: int | None = None,
+    scan_id: UUID | None = None,
+    before_persist: Callable[[Session], None] | None = None,
 ) -> ScanJob:
     source_type = canonical_source(source)
     requested_limit = max(1, min(limit, 100))
@@ -699,6 +707,7 @@ def process_scan(
         research_project_id=research_project_id,
         configured_source_id=configured_source_id,
         expected_project_version=expected_project_version,
+        scan_id=scan_id,
     )
     research_run_sequence = research_run.sequence if research_run is not None else None
 
@@ -749,6 +758,8 @@ def process_scan(
         with SCAN_WRITE_LOCK:
             try:
                 acquire_database_scan_write_lock_with_retry(db)
+                if before_persist is not None:
+                    before_persist(db)
                 result = process_fetched_items(db, fetched, scan_id=job.id)
                 job.status = "completed"
                 job.finished_at = datetime.now(UTC)

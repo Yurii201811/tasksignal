@@ -9,21 +9,25 @@ from sqlalchemy.orm import Session
 
 from app.models.all_models import AgentSession
 from app.services.agent_actions.service import (
+    IDEMPOTENCY_REPLAY,
     ActionClaim,
     AgentActionServiceError,
+    InvalidActionTransition,
+    ReservedAgentActionDenied,
     _authorize_agent_action_session,
     _authorize_and_reserve_agent_action,
+    _core_terminal_event,
     complete_agent_action,
     deny_agent_action,
     fail_agent_action,
+    summarize_result,
 )
 from app.services.agent_sessions import AgentSessionError
 from app.workers.scan_pipeline import (
-    SCAN_WRITE_LOCK,
     acquire_database_scan_write_lock_with_retry,
 )
 
-TerminalStatus = Literal["failed", "denied"]
+TerminalStatus = Literal["failed", "denied", "in_progress"]
 FailureMapper = Callable[
     [Exception],
     tuple[TerminalStatus, str, Mapping[str, Any] | Any],
@@ -68,7 +72,7 @@ def _record_terminal(
     result: Mapping[str, Any] | Any,
     error_code: str | None,
 ) -> None:
-    with SCAN_WRITE_LOCK, session_factory() as audit_db:
+    with session_factory() as audit_db:
         acquire_database_scan_write_lock_with_retry(audit_db)
         if status == "succeeded":
             complete_agent_action(audit_db, claim=claim, result=result)
@@ -112,8 +116,13 @@ def execute_audited_agent_action(
     the attempt, while a committed write is always replayable from its success event.
     """
 
-    with SCAN_WRITE_LOCK, session_factory() as audit_db:
+    reserved_denial: ReservedAgentActionDenied | None = None
+    with session_factory() as audit_db:
         try:
+            # Reserve under one short database-level write transaction. The lock is
+            # released before domain/provider I/O, so it elects deterministic owners
+            # without starving the independent heartbeat connection.
+            acquire_database_scan_write_lock_with_retry(audit_db)
             claim = _authorize_and_reserve_agent_action(
                 audit_db,
                 session_id=session_id,
@@ -123,10 +132,28 @@ def execute_audited_agent_action(
                 request=request,
                 correlation_id=correlation_id,
             )
+        except ReservedAgentActionDenied as exc:
+            audit_db.commit()
+            reserved_denial = exc
         except Exception:
             _commit_materialized_expiration_or_rollback(audit_db)
             raise
-        audit_db.commit()
+        else:
+            audit_db.commit()
+
+    if reserved_denial is not None:
+        error = reserved_denial.error
+        error_code = (
+            error.code if isinstance(error, AgentSessionError) else "session_capability_error"
+        )
+        _record_terminal(
+            session_factory,
+            claim=reserved_denial.claim,
+            status="denied",
+            result={},
+            error_code=error_code,
+        )
+        raise error
 
     if claim.outcome != "reserved":
         return AgentActionExecution(
@@ -144,7 +171,7 @@ def execute_audited_agent_action(
         )
 
     try:
-        with SCAN_WRITE_LOCK, session_factory() as domain_db:
+        with session_factory() as domain_db:
             try:
                 _authorize_agent_action_session(
                     domain_db,
@@ -158,7 +185,23 @@ def execute_audited_agent_action(
                 raise
             try:
                 result = mutation(domain_db)
-                complete_agent_action(domain_db, claim=claim, result=result)
+                try:
+                    complete_agent_action(domain_db, claim=claim, result=result)
+                except InvalidActionTransition:
+                    domain_db.rollback()
+                    terminal = _core_terminal_event(domain_db, claim.operation_id)
+                    if terminal is None or terminal.event_status != "succeeded":
+                        raise
+                    return AgentActionExecution(
+                        outcome="replay",
+                        operation_id=claim.operation_id,
+                        correlation_id=claim.correlation_id,
+                        result=summarize_result(
+                            terminal.tool_name,
+                            terminal.result_summary_json,
+                        ),
+                        error_code=IDEMPOTENCY_REPLAY,
+                    )
                 domain_db.commit()
             except Exception:
                 domain_db.rollback()
@@ -166,6 +209,14 @@ def execute_audited_agent_action(
     except Exception as exc:
         mapper = failure_mapper or _default_failure
         terminal_status, error_code, safe_result = mapper(exc)
+        if terminal_status == "in_progress":
+            return AgentActionExecution(
+                outcome="in_progress",
+                operation_id=claim.operation_id,
+                correlation_id=claim.correlation_id,
+                result=safe_result,
+                error_code=error_code,
+            )
         _record_terminal(
             session_factory,
             claim=claim,

@@ -28,13 +28,13 @@ from app.schemas.api import (
     SemanticSearchOut,
     SemanticSearchRequest,
 )
+from app.services.build_packets import redact_public_text, safe_public_source_url
 from app.services.embeddings.service import EmbeddingService, cosine_similarity
 from app.services.evidence_review.service import (
     calculate_evidence_readiness,
     get_review_snapshots,
 )
 from app.services.evidence_review.types import EvidenceReviewSnapshot, ReviewState
-from app.services.ingestion.normalization import safe_source_url
 
 
 class SemanticEmbedder(Protocol):
@@ -59,7 +59,7 @@ def _sorted_uuids(values: Iterable[UUID]) -> list[UUID]:
 
 
 def _safe_text(value: str, limit: int) -> str:
-    normalized = " ".join(value.split())
+    normalized = " ".join(redact_public_text(value).split())
     if len(normalized) <= limit:
         return normalized
     return f"{normalized[: limit - 3].rstrip()}..."
@@ -147,10 +147,7 @@ def semantic_search(
         observations_by_item[item_id].append(
             EvidenceObservation(
                 source=observed_source or item.source,
-                source_url=safe_source_url(
-                    observed_url or item.url,
-                    fallback="",
-                ),
+                source_url=safe_public_source_url(observed_url or item.url),
                 scan_id=scan_id,
                 run_id=run_id,
                 project_id=project_id,
@@ -233,7 +230,7 @@ def semantic_search(
                 source_url=(
                     display_observation.source_url
                     if display_observation
-                    else safe_source_url(item.url, fallback="")
+                    else safe_public_source_url(item.url)
                 ),
                 match_score=score,
                 signal_type=signal.signal_type if signal is not None else None,

@@ -65,6 +65,15 @@ class UnsupportedAgentAction(AgentActionServiceError):
     code = UNSUPPORTED_AGENT_ACTION
 
 
+class ReservedAgentActionDenied(RuntimeError):
+    """Authenticated authorization denial after an audit reservation exists."""
+
+    def __init__(self, claim: ActionClaim, error: Exception) -> None:
+        super().__init__("reserved_agent_action_denied")
+        self.claim = claim
+        self.error = error
+
+
 @dataclass(frozen=True)
 class ActionClaim:
     operation_id: UUID
@@ -496,6 +505,7 @@ def _authorize_agent_action_session(
     tool_name: str,
     request: Mapping[str, Any] | Any,
     now: datetime | None = None,
+    require_configured_ai: bool = True,
 ) -> Any:
     """Authenticate and authorize one MCP write while locking its session.
 
@@ -539,7 +549,7 @@ def _authorize_agent_action_session(
         use_configured_ai = request_data.get("use_configured_ai", False)
         if not isinstance(use_configured_ai, bool):
             raise InvalidAgentRequest("use_configured_ai must be a boolean.")
-        if use_configured_ai:
+        if use_configured_ai and require_configured_ai:
             require_capability(session, CONFIGURED_AI_CAPABILITY, now=timestamp)
     _validate_expected_version(tool_name, request_data)
     return session
@@ -566,9 +576,10 @@ def _authorize_and_reserve_agent_action(
         tool_name=tool_name,
         request=request,
         now=timestamp,
+        require_configured_ai=False,
     )
 
-    return _reserve_agent_action(
+    claim = _reserve_agent_action(
         db,
         session_id=session.id,
         capability=tool_name,
@@ -578,6 +589,24 @@ def _authorize_and_reserve_agent_action(
         correlation_id=correlation_id,
         now=timestamp,
     )
+    if claim.outcome == "reserved" and tool_name == "create_build_packet":
+        request_data = _request_data(request)
+        if request_data.get("use_configured_ai", False):
+            from app.services.agent_sessions.service import (
+                CONFIGURED_AI_CAPABILITY,
+                AgentSessionError,
+                require_capability,
+            )
+
+            try:
+                require_capability(
+                    session,
+                    CONFIGURED_AI_CAPABILITY,
+                    now=timestamp,
+                )
+            except AgentSessionError as exc:
+                raise ReservedAgentActionDenied(claim, exc) from exc
+    return claim
 
 
 def _reserve_agent_action(

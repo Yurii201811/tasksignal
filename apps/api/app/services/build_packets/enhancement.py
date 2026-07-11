@@ -6,6 +6,8 @@ import re
 from collections.abc import Mapping
 from copy import deepcopy
 
+from app.services.public_safety import redact_public_text
+
 ENHANCEMENT_TEMPLATE_VERSION = "enhancement-v1"
 ENHANCEABLE_FILENAMES = (
     "agent-brief.md",
@@ -69,6 +71,7 @@ def parse_enhanced_documents(raw: str) -> dict[str, str]:
         normalized = _MARKDOWN_IMAGE.sub("[remote image removed]", normalized)
         normalized = _EXTERNAL_URL.sub("[external URL removed]", normalized)
         normalized = normalized.replace("<", "&lt;").replace(">", "&gt;")
+        normalized = redact_public_text(normalized)
         rendered = f"{AUTHORITATIVE_BANNER}\n\n{normalized}"
         byte_count = len(rendered.encode("utf-8"))
         if byte_count > MAX_ENHANCED_FILE_BYTES:

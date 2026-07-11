@@ -11,6 +11,7 @@ from app.services.agent_actions.service import (
     CREATE_PROJECT_EXPECTED_VERSION,
     InvalidAgentRequest,
     InvalidExpectedVersion,
+    ReservedAgentActionDenied,
 )
 from app.services.agent_actions.service import (
     _authorize_and_reserve_agent_action as authorize_and_reserve_agent_action,
@@ -144,7 +145,7 @@ def test_ai_packet_request_cannot_bypass_separate_capability(db_session) -> None
     session = _persist_session(db_session)
     thread_id = uuid4()
 
-    with pytest.raises(SessionCapabilityError, match=CONFIGURED_AI_CAPABILITY):
+    with pytest.raises(ReservedAgentActionDenied) as denied:
         authorize_and_reserve_agent_action(
             db_session,
             session_id=session.id,
@@ -158,6 +159,11 @@ def test_ai_packet_request_cannot_bypass_separate_capability(db_session) -> None
             },
             now=NOW,
         )
+    assert denied.value.claim.outcome == "reserved"
+    assert denied.value.claim.event.capability == "create_build_packet"
+    assert isinstance(denied.value.error, SessionCapabilityError)
+    assert CONFIGURED_AI_CAPABILITY in str(denied.value.error)
+    assert denied.value.claim.event.request_summary_json["use_configured_ai"] is True
 
     deterministic = authorize_and_reserve_agent_action(
         db_session,
@@ -174,7 +180,7 @@ def test_ai_packet_request_cannot_bypass_separate_capability(db_session) -> None
     )
 
     assert deterministic.outcome == "reserved"
-    assert _action_count(db_session) == 1
+    assert _action_count(db_session) == 2
 
 
 @pytest.mark.parametrize("malformed", [1, 0, "true", None, []])
