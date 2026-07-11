@@ -1,7 +1,19 @@
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, Text
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    Text,
+    UniqueConstraint,
+    false,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.config import settings
@@ -52,6 +64,16 @@ class ScanJob(Base):
     outcome_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     source: Mapped[Source | None] = relationship()
+    research_run: Mapped["ResearchProjectRun | None"] = relationship(
+        back_populates="scan",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    observed_items: Mapped[list["ScanItem"]] = relationship(
+        back_populates="scan",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
     @property
     def source_type(self) -> str | None:
@@ -86,6 +108,12 @@ class ResearchProject(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
 
     last_scan: Mapped[ScanJob | None] = relationship()
+    runs: Mapped[list["ResearchProjectRun"]] = relationship(
+        back_populates="project",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="ResearchProjectRun.sequence",
+    )
 
     @property
     def last_scan_status(self) -> str | None:
@@ -94,6 +122,46 @@ class ResearchProject(Base):
     @property
     def labels(self) -> list[str]:
         return self.labels_json
+
+
+class ResearchProjectRun(Base):
+    __tablename__ = "research_project_runs"
+    __table_args__ = (
+        CheckConstraint("sequence > 0", name="ck_research_project_runs_sequence_positive"),
+        CheckConstraint(
+            "requested_limit BETWEEN 1 AND 100",
+            name="ck_research_project_runs_requested_limit",
+        ),
+        UniqueConstraint(
+            "project_id",
+            "sequence",
+            name="uq_research_project_runs_project_sequence",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("research_projects.id", ondelete="CASCADE"),
+        index=True,
+    )
+    scan_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("scan_jobs.id", ondelete="CASCADE"),
+        unique=True,
+        index=True,
+    )
+    sequence: Mapped[int] = mapped_column(Integer)
+    source_type: Mapped[str] = mapped_column(Text)
+    query: Mapped[str] = mapped_column(Text)
+    requested_limit: Mapped[int] = mapped_column(Integer)
+    lineage_complete: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        server_default=false(),
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+    project: Mapped[ResearchProject] = relationship(back_populates="runs")
+    scan: Mapped[ScanJob] = relationship(back_populates="research_run")
 
 
 class LocalWorkspaceSettings(Base):
@@ -148,6 +216,33 @@ class NormalizedItem(Base):
 
     signal: Mapped["ItemSignal"] = relationship(back_populates="item", cascade="all,delete")
     embedding: Mapped["ItemEmbedding"] = relationship(back_populates="item", cascade="all,delete")
+    scan_observations: Mapped[list["ScanItem"]] = relationship(
+        back_populates="item",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+
+class ScanItem(Base):
+    __tablename__ = "scan_items"
+    __table_args__ = (Index("ix_scan_items_item_scan", "item_id", "scan_id"),)
+
+    scan_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("scan_jobs.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    item_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("normalized_items.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    created_in_scan: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        server_default=false(),
+    )
+
+    scan: Mapped[ScanJob] = relationship(back_populates="observed_items")
+    item: Mapped[NormalizedItem] = relationship(back_populates="scan_observations")
 
 
 class ItemSignal(Base):
@@ -183,6 +278,11 @@ class Cluster(Base):
     __tablename__ = "clusters"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    scan_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("scan_jobs.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     title: Mapped[str] = mapped_column(Text)
     summary: Mapped[str] = mapped_column(Text)
     centroid_embedding: Mapped[list[float] | None] = mapped_column(EmbeddingColumn, nullable=True)
@@ -203,6 +303,11 @@ class Opportunity(Base):
     __tablename__ = "opportunities"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    scan_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("scan_jobs.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     cluster_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("clusters.id"), index=True)
     title: Mapped[str] = mapped_column(Text)
     problem_statement: Mapped[str] = mapped_column(Text)
