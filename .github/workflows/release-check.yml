@@ -1,25 +1,114 @@
 name: Release readiness
 
 on:
-  pull_request:
   push:
     branches: ["main"]
+    tags: ["v*"]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: release-readiness-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_VERSION: "0.9.26"
+  PIP_AUDIT_VERSION: "2.10.1"
+  TWINE_VERSION: "6.2.0"
+  DATABASE_URL: sqlite:////tmp/tasksignal-release-${{ github.run_id }}-${{ github.run_attempt }}.db
+  AUTO_CREATE_TABLES: "true"
+  LLM_PROVIDER: none
+
 jobs:
-  release-check:
+  release-evidence:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      - name: Run release-readiness checks
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: apps/api/uv.lock
+
+      - name: Prove clean checkout and release metadata
+        run: |
+          mkdir -p /tmp/tasksignal-release-evidence
+          python3 scripts/release_check.py \
+            --require-clean \
+            --require-ci-run-url \
+            | tee /tmp/tasksignal-release-evidence/release-check.txt
+
+      - name: Install locked development dependencies
+        run: |
+          uv sync --project apps/api --extra dev --locked
+          npm --prefix apps/web ci
+
+      - name: Run full repository verification
+        run: make verify
+
+      - name: Audit frontend dependencies
         run: |
           mkdir -p release-artifacts
-          python3 scripts/release_check.py | tee release-artifacts/release-check.txt
-      - name: Upload release-readiness report
+          npm --prefix apps/web audit --audit-level=moderate --json \
+            | tee release-artifacts/npm-audit.json
+
+      - name: Audit locked base and MCP Python dependencies
+        run: |
+          uv export --quiet --project apps/api --locked --no-dev --extra mcp \
+            --no-emit-project --no-header --no-annotate \
+            --output-file /tmp/tasksignal-release-requirements.txt
+          uvx --from pip-audit==${PIP_AUDIT_VERSION} pip-audit \
+            --requirement /tmp/tasksignal-release-requirements.txt \
+            --progress-spinner off --strict --require-hashes --disable-pip \
+            --format json \
+            --output release-artifacts/python-audit.json
+
+      - name: Generate and verify fixture-backed proof manifest
+        run: |
+          apps/api/.venv/bin/python -u scripts/first_run_smoke.py \
+            --proof-dir release-artifacts/first-run-proof-bundle
+          apps/api/.venv/bin/python -u scripts/first_run_smoke.py \
+            --verify-proof-dir release-artifacts/first-run-proof-bundle
+
+      - name: Build, check, and install distribution artifacts
+        run: |
+          uv build --project apps/api --out-dir release-artifacts/dist
+          uvx --from twine==${TWINE_VERSION} twine check release-artifacts/dist/*
+          python scripts/smoke_built_wheel.py \
+            --wheel release-artifacts/dist/*.whl
+
+      - name: Generate a locked CycloneDX SBOM
+        run: |
+          uv export --quiet --project apps/api --locked --no-dev --extra mcp \
+            --no-emit-project --format cyclonedx1.5 \
+            --preview-features sbom-export \
+            --output-file release-artifacts/tasksignal.cdx.json
+
+      - name: Finalize and verify release-evidence checksums
+        run: |
+          cp /tmp/tasksignal-release-evidence/release-check.txt \
+            release-artifacts/release-check.txt
+          cd release-artifacts
+          find . -type f ! -name SHA256SUMS -print0 \
+            | LC_ALL=C sort -z \
+            | xargs -0 sha256sum > SHA256SUMS
+          sha256sum --check SHA256SUMS
+
+      - name: Upload immutable release-readiness evidence
         uses: actions/upload-artifact@v7
         with:
-          name: release-readiness-report
-          path: release-artifacts/release-check.txt
+          name: release-readiness-${{ github.sha }}
+          path: release-artifacts/
+          if-no-files-found: error
+          retention-days: 30

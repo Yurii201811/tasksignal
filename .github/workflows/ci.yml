@@ -3,10 +3,24 @@ name: CI
 on:
   push:
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_VERSION: "0.9.26"
+  PIP_AUDIT_VERSION: "2.10.1"
+  TWINE_VERSION: "6.2.0"
 
 jobs:
   backend:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -14,19 +28,22 @@ jobs:
           python-version: "3.12"
       - uses: astral-sh/setup-uv@v7
         with:
-          version: "0.9.26"
+          version: ${{ env.UV_VERSION }}
           enable-cache: true
           cache-dependency-glob: apps/api/uv.lock
+      - name: Check release metadata and repository hygiene
+        run: python3 scripts/release_check.py
       - run: uv sync --project apps/api --extra dev --locked
-      - run: uv run --project apps/api --extra dev --locked ruff check apps/api/app apps/api/tests
+      - run: uv run --project apps/api --extra dev --locked ruff check apps/api/app apps/api/tests scripts
       - run: uv run --project apps/api --extra dev --locked pytest apps/api/tests
         env:
-          DATABASE_URL: sqlite:///./test_tasksignal.db
+          DATABASE_URL: sqlite:////tmp/tasksignal-ci-${{ github.run_id }}-${{ github.run_attempt }}.db
           AUTO_CREATE_TABLES: "true"
           LLM_PROVIDER: none
 
   frontend:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: apps/web
@@ -41,3 +58,92 @@ jobs:
       - run: npm audit --audit-level=moderate
       - run: npm run build
       - run: npm test
+
+  python-dependency-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: apps/api/uv.lock
+      - name: Export locked base and MCP dependencies
+        run: >-
+          uv export --quiet --project apps/api --locked --no-dev --extra mcp
+          --no-emit-project --no-header --no-annotate
+          --output-file /tmp/tasksignal-audit-requirements.txt
+      - name: Audit locked Python dependencies
+        run: >-
+          uvx --from pip-audit==${PIP_AUDIT_VERSION} pip-audit
+          --requirement /tmp/tasksignal-audit-requirements.txt
+          --progress-spinner off --strict --require-hashes --disable-pip
+
+  package-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: apps/api/uv.lock
+      - name: Build wheel and source distribution
+        run: uv build --project apps/api --out-dir dist
+      - name: Check distribution metadata
+        run: uvx --from twine==${TWINE_VERSION} twine check dist/*
+      - name: Record distribution hashes
+        run: |
+          cd dist
+          sha256sum *.whl *.tar.gz > SHA256SUMS
+          sha256sum --check SHA256SUMS
+      - uses: actions/upload-artifact@v7
+        with:
+          name: tasksignal-python-distributions
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
+
+  package-smoke-linux:
+    needs: package-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: actions/download-artifact@v8
+        with:
+          name: tasksignal-python-distributions
+          path: dist
+      - name: Install and smoke-test base wheel and MCP extra
+        run: python scripts/smoke_built_wheel.py --wheel dist/*.whl
+
+  package-smoke-macos:
+    needs: package-build
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - uses: actions/download-artifact@v8
+        with:
+          name: tasksignal-python-distributions
+          path: dist
+      - name: Verify macOS paths, permissions, base wheel, and MCP extra
+        run: python scripts/smoke_built_wheel.py --wheel dist/*.whl
