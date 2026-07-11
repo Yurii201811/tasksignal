@@ -58,15 +58,6 @@ def digest(prefix: bytes, value: Any) -> str:
     return hashlib.sha256(prefix + b"\0" + canonical_json(value)).hexdigest()
 
 
-def split_embedding_identity(model_name: str | None) -> tuple[str | None, str | None]:
-    if not model_name or ":" not in model_name:
-        return None, None
-    model, _separator, backend = model_name.rpartition(":")
-    if not model or not backend:
-        return None, None
-    return model, backend
-
-
 def backfill_opportunity_threads() -> None:
     bind = op.get_bind()
     metadata = sa.MetaData()
@@ -76,7 +67,6 @@ def backfill_opportunity_threads() -> None:
     runs = sa.Table("research_project_runs", metadata, autoload_with=bind)
     cluster_items = sa.Table("cluster_items", metadata, autoload_with=bind)
     normalized_items = sa.Table("normalized_items", metadata, autoload_with=bind)
-    item_embeddings = sa.Table("item_embeddings", metadata, autoload_with=bind)
 
     def generated_uuid() -> uuid.UUID | str:
         value = uuid.uuid4()
@@ -89,37 +79,32 @@ def backfill_opportunity_threads() -> None:
         project_id = None
         lineage_status = "untracked"
         if row["scan_id"] is not None:
-            linked_run = bind.execute(
-                sa.select(runs.c.id, runs.c.project_id, runs.c.lineage_complete).where(
-                    runs.c.scan_id == row["scan_id"]
+            linked_run = (
+                bind.execute(
+                    sa.select(runs.c.id, runs.c.project_id, runs.c.lineage_complete).where(
+                        runs.c.scan_id == row["scan_id"]
+                    )
                 )
-            ).mappings().one_or_none()
+                .mappings()
+                .one_or_none()
+            )
             if linked_run is not None and linked_run["lineage_complete"]:
                 run_id = linked_run["id"]
                 project_id = linked_run["project_id"]
                 lineage_status = "complete"
 
         evidence_rows = bind.execute(
-            sa.select(normalized_items.c.text_hash, item_embeddings.c.model_name)
+            sa.select(normalized_items.c.text_hash)
             .select_from(
                 cluster_items.join(
                     normalized_items,
                     normalized_items.c.id == cluster_items.c.item_id,
-                ).outerjoin(
-                    item_embeddings,
-                    item_embeddings.c.item_id == normalized_items.c.id,
                 )
             )
             .where(cluster_items.c.cluster_id == row["cluster_id"])
         ).all()
         evidence_hashes = sorted({entry.text_hash for entry in evidence_rows})
         evidence_hash = digest(b"tasksignal:evidence-set:v1", evidence_hashes)
-        stored_models = {entry.model_name for entry in evidence_rows if entry.model_name}
-        embedding_model, embedding_backend = (
-            split_embedding_identity(next(iter(stored_models)))
-            if len(stored_models) == 1
-            else (None, None)
-        )
         content_payload = {
             "competition_notes": row["competition_notes"],
             "current_workaround": row["current_workaround"],
@@ -167,8 +152,8 @@ def backfill_opportunity_threads() -> None:
                 centroid_similarity=None,
                 evidence_jaccard=None,
                 title_jaccard=None,
-                embedding_model=embedding_model,
-                embedding_backend=embedding_backend,
+                embedding_model=None,
+                embedding_backend=None,
             )
         )
         bind.execute(
@@ -284,9 +269,7 @@ def upgrade() -> None:
             "actor_type IN ('system', 'human', 'agent')",
             name="ck_opportunity_decision_events_actor",
         ),
-        sa.ForeignKeyConstraint(
-            ["thread_id"], ["opportunity_threads.id"], ondelete="RESTRICT"
-        ),
+        sa.ForeignKeyConstraint(["thread_id"], ["opportunity_threads.id"], ondelete="RESTRICT"),
         sa.ForeignKeyConstraint(["snapshot_id"], ["opportunities.id"], ondelete="SET NULL"),
         sa.ForeignKeyConstraint(
             ["related_thread_id"], ["opportunity_threads.id"], ondelete="SET NULL"
@@ -329,9 +312,7 @@ def upgrade() -> None:
         batch_op.create_index("ix_opportunities_thread_id", ["thread_id"])
         batch_op.create_index("ix_opportunities_run_id", ["run_id"])
         batch_op.create_index("ix_opportunities_evidence_hash", ["evidence_hash"])
-        batch_op.create_index(
-            "ix_opportunities_thread_created", ["thread_id", "created_at", "id"]
-        )
+        batch_op.create_index("ix_opportunities_thread_created", ["thread_id", "created_at", "id"])
         batch_op.create_index("ix_opportunities_run_thread", ["run_id", "thread_id"])
         batch_op.create_check_constraint(
             "ck_opportunities_match_method",

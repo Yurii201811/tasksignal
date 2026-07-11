@@ -333,6 +333,8 @@ class OpportunityOut(BaseModel):
     title_jaccard: float | None = None
     embedding_model: str | None = None
     embedding_backend: str | None = None
+    detached: bool = False
+    detached_from_thread_id: UUID | None = None
     title: str
     problem_statement: str
     target_user: str
@@ -363,7 +365,11 @@ class OpportunitySnapshotOut(OpportunityOut):
 class OpportunityDecisionUpdate(BaseModel):
     review_state: ReviewState
     review_note: str | None = Field(default=None, max_length=1000)
-    expected_version: int | None = Field(default=None, ge=1)
+    expected_version: int = Field(ge=1)
+
+
+class DetachSnapshotRequest(BaseModel):
+    expected_version: int = Field(ge=1)
 
 
 class OpportunityDecisionEventOut(BaseModel):

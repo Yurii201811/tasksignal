@@ -92,6 +92,12 @@ def test_thread_list_detail_decision_history_and_legacy_review_adapter(
     assert thread["current_snapshot"]["match_method"] == "exact_evidence"
     assert thread["current_snapshot"]["match_confidence"] == 1.0
 
+    missing_version = client.patch(
+        f"/api/v1/opportunity-threads/{thread['id']}/decision",
+        json={"review_state": "rejected"},
+    )
+    assert missing_version.status_code == 422
+
     update = client.patch(
         f"/api/v1/opportunity-threads/{thread['id']}/decision",
         json={
@@ -113,6 +119,11 @@ def test_thread_list_detail_decision_history_and_legacy_review_adapter(
         json={"review_state": "rejected", "expected_version": 1},
     )
     assert conflict.status_code == 409
+    after_conflict = client.get(f"/api/v1/opportunity-threads/{thread['id']}").json()
+    assert after_conflict["review_state"] == "promising"
+    assert after_conflict["review_note"] == "Validate with two builders."
+    assert after_conflict["version"] == 2
+    assert len(after_conflict["decision_history"]) == 1
     no_op = client.patch(
         f"/api/v1/opportunity-threads/{thread['id']}/decision",
         json={
@@ -136,20 +147,58 @@ def test_thread_list_detail_decision_history_and_legacy_review_adapter(
     assert detail["version"] == 3
 
 
+def test_concurrent_decisions_with_the_same_version_commit_once(
+    client,
+    monkeypatch,
+) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    install_batches(monkeypatch, [[evidence("a"), evidence("b")]])
+    project = create_project(client)
+    run_project(client, project["id"])
+    thread = client.get(f"/api/v1/opportunity-threads?project_id={project['id']}").json()[0]
+
+    barrier = Barrier(2)
+    original = routes.set_thread_decision
+
+    def synchronized_decision(*args, **kwargs):
+        barrier.wait()
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(routes, "set_thread_decision", synchronized_decision)
+
+    def update_once(review_state: str):
+        return client.patch(
+            f"/api/v1/opportunity-threads/{thread['id']}/decision",
+            json={
+                "review_state": review_state,
+                "expected_version": thread["version"],
+            },
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        responses = list(executor.map(update_once, ["promising", "needs_more_evidence"]))
+
+    assert sorted(response.status_code for response in responses) == [200, 409]
+    saved = client.get(f"/api/v1/opportunity-threads/{thread['id']}").json()
+    assert saved["version"] == thread["version"] + 1
+    assert saved["review_state"] in {"promising", "needs_more_evidence"}
+    assert len(saved["decision_history"]) == 1
+
+
 def test_human_detach_recovers_future_exact_matching(client, monkeypatch) -> None:
     batch = [evidence("a"), evidence("b")]
     install_batches(monkeypatch, [batch, batch, batch])
     project = create_project(client)
     run_project(client, project["id"])
     run_project(client, project["id"])
-    source = client.get(
-        f"/api/v1/opportunity-threads?project_id={project['id']}"
-    ).json()[0]
+    source = client.get(f"/api/v1/opportunity-threads?project_id={project['id']}").json()[0]
     detached_snapshot = source["current_snapshot"]
 
     response = client.post(
-        f"/api/v1/opportunity-threads/{source['id']}/snapshots/"
-        f"{detached_snapshot['id']}/detach"
+        f"/api/v1/opportunity-threads/{source['id']}/snapshots/{detached_snapshot['id']}/detach",
+        json={"expected_version": source["version"]},
     )
 
     assert response.status_code == 200, response.text
@@ -157,17 +206,23 @@ def test_human_detach_recovers_future_exact_matching(client, monkeypatch) -> Non
     assert detached["source_thread"]["snapshot_count"] == 1
     assert detached["new_thread"]["snapshot_count"] == 1
     assert detached["new_thread"]["review_state"] == "new"
-    assert detached["new_thread"]["current_snapshot"]["match_method"] == "manual_detach"
+    moved_snapshot = detached["new_thread"]["current_snapshot"]
+    assert moved_snapshot["match_method"] == detached_snapshot["match_method"]
+    assert moved_snapshot["match_confidence"] == detached_snapshot["match_confidence"]
+    assert moved_snapshot["detached"] is True
+    assert moved_snapshot["detached_from_thread_id"] == source["id"]
+    assert moved_snapshot["evidence_hash"] == detached_snapshot["evidence_hash"]
+    correction = detached["source_thread"]["decision_history"][-1]
+    assert correction["actor_type"] == "human"
+    assert correction["details_json"]["original_thread_id"] == source["id"]
+    assert correction["details_json"]["original_match_method"] == detached_snapshot["match_method"]
     assert (
-        detached["new_thread"]["current_snapshot"]["evidence_hash"]
-        == detached_snapshot["evidence_hash"]
+        correction["details_json"]["original_match_confidence"]
+        == detached_snapshot["match_confidence"]
     )
-    assert detached["source_thread"]["decision_history"][-1]["actor_type"] == "human"
 
     run_project(client, project["id"])
-    threads = client.get(
-        f"/api/v1/opportunity-threads?project_id={project['id']}"
-    ).json()
+    threads = client.get(f"/api/v1/opportunity-threads?project_id={project['id']}").json()
     by_id = {thread["id"]: thread for thread in threads}
     source_after = by_id[source["id"]]
     corrected_after = by_id[detached["new_thread"]["id"]]
@@ -176,21 +231,49 @@ def test_human_detach_recovers_future_exact_matching(client, monkeypatch) -> Non
     assert corrected_after["current_snapshot"]["match_method"] == "exact_evidence"
 
 
+def test_detach_requires_version_and_stale_conflict_is_side_effect_free(
+    client,
+    monkeypatch,
+) -> None:
+    batch = [evidence("a"), evidence("b")]
+    install_batches(monkeypatch, [batch, batch])
+    project = create_project(client)
+    run_project(client, project["id"])
+    run_project(client, project["id"])
+    thread = client.get(f"/api/v1/opportunity-threads?project_id={project['id']}").json()[0]
+    snapshot_id = thread["current_snapshot"]["id"]
+    endpoint = f"/api/v1/opportunity-threads/{thread['id']}/snapshots/{snapshot_id}/detach"
+
+    missing_version = client.post(endpoint)
+    assert missing_version.status_code == 422
+    stale = client.post(
+        endpoint,
+        json={"expected_version": thread["version"] + 1},
+    )
+    assert stale.status_code == 409
+
+    unchanged = client.get(f"/api/v1/opportunity-threads/{thread['id']}").json()
+    assert unchanged["version"] == thread["version"]
+    assert unchanged["snapshot_count"] == thread["snapshot_count"]
+    assert unchanged["current_snapshot"]["id"] == snapshot_id
+    assert not any(snapshot["detached"] for snapshot in unchanged["snapshots"])
+
+
 def test_detach_rejects_unmatched_or_unknown_snapshots(client, monkeypatch) -> None:
     install_batches(monkeypatch, [[evidence("a"), evidence("b")]])
     project = create_project(client)
     run_project(client, project["id"])
-    thread = client.get(
-        f"/api/v1/opportunity-threads?project_id={project['id']}"
-    ).json()[0]
+    thread = client.get(f"/api/v1/opportunity-threads?project_id={project['id']}").json()[0]
 
     unmatched = client.post(
         f"/api/v1/opportunity-threads/{thread['id']}/snapshots/"
-        f"{thread['current_snapshot']['id']}/detach"
+        f"{thread['current_snapshot']['id']}/detach",
+        json={"expected_version": thread["version"]},
     )
     missing = client.post(
         f"/api/v1/opportunity-threads/{thread['id']}/snapshots/"
-        "00000000-0000-0000-0000-000000000000/detach"
+        "00000000-0000-0000-0000-000000000000/detach",
+        json={"expected_version": thread["version"]},
     )
 
     assert unmatched.status_code == 409
@@ -205,9 +288,7 @@ def test_run_delta_reports_thread_changes_without_unavailable_warning(client, mo
     project = create_project(client)
     for _index in range(3):
         run_project(client, project["id"])
-    runs = client.get(
-        f"/api/v1/research-projects/{project['id']}/runs"
-    ).json()
+    runs = client.get(f"/api/v1/research-projects/{project['id']}/runs").json()
     zero, identical, initial = runs
 
     first_delta = client.get(
@@ -243,9 +324,7 @@ def test_thread_delta_tracks_weighted_update_absence_and_return(client, monkeypa
     project = create_project(client)
     for _index in range(4):
         run_project(client, project["id"])
-    runs = client.get(
-        f"/api/v1/research-projects/{project['id']}/runs"
-    ).json()
+    runs = client.get(f"/api/v1/research-projects/{project['id']}/runs").json()
     returned, absent, changed, _initial = runs
 
     changed_delta = client.get(
@@ -278,9 +357,7 @@ def test_regenerate_and_enhance_apply_create_new_immutable_snapshots(client, mon
     install_batches(monkeypatch, [batch])
     project = create_project(client)
     run_project(client, project["id"])
-    thread = client.get(
-        f"/api/v1/opportunity-threads?project_id={project['id']}"
-    ).json()[0]
+    thread = client.get(f"/api/v1/opportunity-threads?project_id={project['id']}").json()[0]
     original = thread["current_snapshot"]
 
     regenerated = client.post(f"/api/v1/opportunities/{original['id']}/regenerate")
@@ -307,3 +384,48 @@ def test_regenerate_and_enhance_apply_create_new_immutable_snapshots(client, mon
     assert detail["snapshot_count"] == 3
     assert detail["current_snapshot"]["match_method"] == "enhanced"
     assert detail["current_snapshot"]["generated_prompt"].endswith("Enhanced.")
+
+
+def test_legacy_prompt_artifacts_resolve_the_latest_snapshot_consistently(
+    client,
+    monkeypatch,
+) -> None:
+    batch = [evidence("a"), evidence("b")]
+    install_batches(monkeypatch, [batch])
+    project = create_project(client)
+    run_project(client, project["id"])
+    thread = client.get(f"/api/v1/opportunity-threads?project_id={project['id']}").json()[0]
+    original = thread["current_snapshot"]
+
+    monkeypatch.setattr(routes.settings, "operator_scan_token", "test-token")
+    monkeypatch.setattr(
+        routes,
+        "enhance_prompt",
+        lambda prompt: ("openai", "test-model", f"{prompt}\n\nEnhanced current snapshot."),
+    )
+    enhancement = client.post(
+        f"/api/v1/opportunities/{original['id']}/enhance?apply=true",
+        headers={"X-Operator-Scan-Token": "test-token"},
+    )
+    assert enhancement.status_code == 200
+
+    prompt = client.get(f"/api/v1/opportunities/{original['id']}/prompt")
+    exported = client.get(f"/api/v1/opportunities/{original['id']}/export.md")
+    evidence_bundle = client.get(f"/api/v1/opportunities/{original['id']}/evidence.md")
+    task_pack = client.get(f"/api/v1/opportunities/{original['id']}/task-pack.json").json()
+    task_pack_markdown = client.get(f"/api/v1/opportunities/{original['id']}/task-pack.md")
+    current = client.get(f"/api/v1/opportunity-threads/{thread['id']}").json()["current_snapshot"]
+
+    expected = f"{original['generated_prompt']}\n\nEnhanced current snapshot."
+    assert prompt.json() == {"prompt": expected}
+    assert exported.text == expected
+    assert f'filename="{current["id"]}.md"' in exported.headers["content-disposition"]
+    assert f"/api/opportunities/{current['id']}/prompt" in evidence_bundle.text
+    assert f'filename="evidence-{current["id"]}.md"' in evidence_bundle.headers[
+        "content-disposition"
+    ]
+    assert task_pack["codex_prompt"] == expected
+    assert expected in task_pack_markdown.text
+    assert f'filename="tasksignal-task-pack-{current["id"]}.md"' in task_pack_markdown.headers[
+        "content-disposition"
+    ]

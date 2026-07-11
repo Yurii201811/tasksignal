@@ -136,6 +136,35 @@ class DetachNotAllowed(ValueError):
     pass
 
 
+def lock_thread_version(
+    db: Session,
+    *,
+    thread: OpportunityThread,
+    expected_version: int | None,
+) -> int:
+    """Atomically validate a thread version and hold its row until commit."""
+    expected = thread.version if expected_version is None else expected_version
+    result = db.execute(
+        update(OpportunityThread)
+        .where(
+            OpportunityThread.id == thread.id,
+            OpportunityThread.version == expected,
+        )
+        .values(version=expected)
+        .execution_options(synchronize_session=False)
+    )
+    if result.rowcount != 1:
+        current = db.scalar(
+            select(OpportunityThread.version).where(OpportunityThread.id == thread.id)
+        )
+        current_label = "missing" if current is None else str(current)
+        raise ThreadVersionConflict(
+            f"Thread version conflict: expected {expected}, current {current_label}."
+        )
+    db.refresh(thread)
+    return expected
+
+
 def score_candidate(
     current: SnapshotFingerprint,
     candidate: CandidateFingerprint,
@@ -324,9 +353,7 @@ def attach_generated_snapshot(
     embedding_backend: str,
 ) -> Opportunity:
     research_run = (
-        db.scalar(
-            select(ResearchProjectRun).where(ResearchProjectRun.scan_id == scan_id)
-        )
+        db.scalar(select(ResearchProjectRun).where(ResearchProjectRun.scan_id == scan_id))
         if scan_id is not None
         else None
     )
@@ -410,10 +437,11 @@ def set_thread_decision(
     expected_version: int | None,
     actor_type: str = "human",
 ) -> OpportunityThread:
-    if expected_version is not None and expected_version != thread.version:
-        raise ThreadVersionConflict(
-            f"Thread version conflict: expected {expected_version}, current {thread.version}."
-        )
+    version_before = lock_thread_version(
+        db,
+        thread=thread,
+        expected_version=expected_version,
+    )
     normalized_note = review_note.strip() if review_note else None
     if thread.review_state == review_state and thread.review_note == normalized_note:
         return thread
@@ -429,7 +457,7 @@ def set_thread_decision(
         next_state=review_state,
         previous_note=thread.review_note,
         next_note=normalized_note,
-        details_json={"version_before": thread.version},
+        details_json={"version_before": version_before},
         created_at=now,
     )
     db.add(event)
@@ -437,7 +465,7 @@ def set_thread_decision(
     thread.review_note = normalized_note
     thread.decision_updated_at = now
     thread.updated_at = now
-    thread.version += 1
+    thread.version = version_before + 1
     db.execute(
         update(Opportunity)
         .where(Opportunity.thread_id == thread.id)
@@ -506,9 +534,15 @@ def detach_snapshot(
     *,
     thread: OpportunityThread,
     snapshot: Opportunity,
+    expected_version: int,
 ) -> OpportunityThread:
     if snapshot.thread_id != thread.id:
         raise DetachNotAllowed("Snapshot does not belong to this thread.")
+    version_before = lock_thread_version(
+        db,
+        thread=thread,
+        expected_version=expected_version,
+    )
     if snapshot.match_method not in {"exact_evidence", "weighted_similarity"}:
         raise DetachNotAllowed("Only automatically matched snapshots can be detached.")
     existing_snapshots = list(
@@ -541,19 +575,23 @@ def detach_snapshot(
         thread.current_snapshot_id = remaining[0].id
         db.flush()
 
+    original_match = {
+        "reason": "human_match_correction",
+        "original_thread_id": str(thread.id),
+        "original_match_method": snapshot.match_method,
+        "original_match_confidence": snapshot.match_confidence,
+        "original_match_margin": snapshot.match_margin,
+        "original_centroid_similarity": snapshot.centroid_similarity,
+        "original_evidence_jaccard": snapshot.evidence_jaccard,
+        "original_title_jaccard": snapshot.title_jaccard,
+    }
     snapshot.thread_id = new_thread.id
-    snapshot.match_method = "manual_detach"
-    snapshot.match_confidence = 1.0
-    snapshot.match_margin = None
-    snapshot.centroid_similarity = None
-    snapshot.evidence_jaccard = None
-    snapshot.title_jaccard = None
     snapshot.review_state = "new"
     snapshot.review_note = None
     snapshot.decision_updated_at = None
     new_thread.current_snapshot_id = snapshot.id
     thread.updated_at = now
-    thread.version += 1
+    thread.version = version_before + 1
 
     db.add_all(
         [
@@ -567,7 +605,7 @@ def detach_snapshot(
                 next_state=thread.review_state,
                 previous_note=thread.review_note,
                 next_note=thread.review_note,
-                details_json={"reason": "human_match_correction"},
+                details_json=original_match,
                 created_at=now,
             ),
             OpportunityDecisionEvent(
@@ -580,7 +618,7 @@ def detach_snapshot(
                 next_state="new",
                 previous_note=None,
                 next_note=None,
-                details_json={"reason": "human_match_correction"},
+                details_json=original_match,
                 created_at=now,
             ),
         ]

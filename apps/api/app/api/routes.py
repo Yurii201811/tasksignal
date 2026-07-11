@@ -31,6 +31,7 @@ from app.models.all_models import (
 )
 from app.schemas.api import (
     DetachSnapshotOut,
+    DetachSnapshotRequest,
     DueRunOut,
     EnhancementOut,
     EvaluationOut,
@@ -93,6 +94,8 @@ from app.services.scoring.service import score_opportunity
 from app.workers.demo_pipeline import ensure_sources, process_demo, stats
 from app.workers.scan_pipeline import (
     CONNECTOR_FACTORIES,
+    SCAN_WRITE_LOCK,
+    acquire_database_scan_write_lock_with_retry,
     canonical_source,
     connector_for_source,
     process_scan,
@@ -609,28 +612,21 @@ def items_to_out(
     rows: list[tuple[NormalizedItem, ItemSignal | None]],
 ) -> list[ItemOut]:
     snapshots = get_review_snapshots(db, [item.id for item, _signal in rows])
-    return [
-        item_to_out(item, signal, snapshots.get(item.id))
-        for item, signal in rows
-    ]
+    return [item_to_out(item, signal, snapshots.get(item.id)) for item, signal in rows]
 
 
 def opportunity_to_out(db: Session, opportunity: Opportunity) -> OpportunityOut:
     rows = cluster_signal_rows(db, opportunity.cluster_id)
     items = [item for item, _signal in rows]
     snapshots = get_review_snapshots(db, [item.id for item in items])
-    evidence = [
-        item_to_out(item, signal, snapshots.get(item.id))
-        for item, signal in rows
-    ]
+    evidence = [item_to_out(item, signal, snapshots.get(item.id)) for item, signal in rows]
     top_source = max(
         {item.source for item in items},
         key=lambda source: sum(item.source == source for item in items),
         default="fixture",
     )
     values = {
-        column.name: getattr(opportunity, column.name)
-        for column in Opportunity.__table__.columns
+        column.name: getattr(opportunity, column.name) for column in Opportunity.__table__.columns
     }
     thread = db.get(OpportunityThread, opportunity.thread_id)
     if thread is not None:
@@ -639,8 +635,22 @@ def opportunity_to_out(db: Session, opportunity: Opportunity) -> OpportunityOut:
             review_note=thread.review_note,
             decision_updated_at=as_utc(thread.decision_updated_at),
         )
+    detach_event = db.scalar(
+        select(OpportunityDecisionEvent)
+        .where(
+            OpportunityDecisionEvent.event_type == "snapshot_detached",
+            OpportunityDecisionEvent.snapshot_id == opportunity.id,
+        )
+        .order_by(
+            OpportunityDecisionEvent.created_at.desc(),
+            OpportunityDecisionEvent.id.desc(),
+        )
+        .limit(1)
+    )
     return OpportunityOut(
         **values,
+        detached=detach_event is not None,
+        detached_from_thread_id=(detach_event.thread_id if detach_event is not None else None),
         evidence_items=evidence,
         signal_count=len(evidence),
         top_source=top_source,
@@ -660,9 +670,7 @@ def opportunity_thread_summary_to_out(
     thread: OpportunityThread,
 ) -> OpportunityThreadSummaryOut:
     snapshot_count = db.scalar(
-        select(func.count())
-        .select_from(Opportunity)
-        .where(Opportunity.thread_id == thread.id)
+        select(func.count()).select_from(Opportunity).where(Opportunity.thread_id == thread.id)
     )
     current = (
         db.get(Opportunity, thread.current_snapshot_id)
@@ -1255,8 +1263,7 @@ def update_research_project(
             raise HTTPException(
                 status_code=400,
                 detail=(
-                    f"Unsupported source '{payload.source_type}'. "
-                    f"Supported sources: {supported}."
+                    f"Unsupported source '{payload.source_type}'. Supported sources: {supported}."
                 ),
             )
         project.source_type = source_type
@@ -1489,10 +1496,7 @@ def list_opportunity_threads(
         query = query.where(OpportunityThread.project_id == project_id)
     if review_state is not None:
         query = query.where(OpportunityThread.review_state == review_state.value)
-    return [
-        opportunity_thread_summary_to_out(db, thread)
-        for thread in db.scalars(query).all()
-    ]
+    return [opportunity_thread_summary_to_out(db, thread) for thread in db.scalars(query).all()]
 
 
 @router.get(
@@ -1531,6 +1535,7 @@ def update_opportunity_thread_decision(
             actor_type="human",
         )
     except ThreadVersionConflict as exc:
+        db.rollback()
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     commit_review_write(db, "Could not save the opportunity-thread decision.")
     return opportunity_thread_to_out(db, thread)
@@ -1543,19 +1548,35 @@ def update_opportunity_thread_decision(
 def detach_opportunity_snapshot(
     thread_id: UUID,
     snapshot_id: UUID,
+    payload: DetachSnapshotRequest,
     db: Session = Depends(get_db),
 ) -> DetachSnapshotOut:
-    thread = db.get(OpportunityThread, thread_id)
-    if thread is None:
-        raise HTTPException(status_code=404, detail="Opportunity thread not found")
-    snapshot = db.get(Opportunity, snapshot_id)
-    if snapshot is None:
-        raise HTTPException(status_code=404, detail="Opportunity snapshot not found")
-    try:
-        new_thread = detach_thread_snapshot(db, thread=thread, snapshot=snapshot)
-    except DetachNotAllowed as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    commit_review_write(db, "Could not detach the opportunity snapshot.")
+    with SCAN_WRITE_LOCK:
+        acquire_database_scan_write_lock_with_retry(db)
+        thread = db.scalar(
+            select(OpportunityThread)
+            .where(OpportunityThread.id == thread_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if thread is None:
+            db.rollback()
+            raise HTTPException(status_code=404, detail="Opportunity thread not found")
+        snapshot = db.get(Opportunity, snapshot_id)
+        if snapshot is None:
+            db.rollback()
+            raise HTTPException(status_code=404, detail="Opportunity snapshot not found")
+        try:
+            new_thread = detach_thread_snapshot(
+                db,
+                thread=thread,
+                snapshot=snapshot,
+                expected_version=payload.expected_version,
+            )
+        except (DetachNotAllowed, ThreadVersionConflict) as exc:
+            db.rollback()
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        commit_review_write(db, "Could not detach the opportunity snapshot.")
     return DetachSnapshotOut(
         source_thread=opportunity_thread_to_out(db, thread),
         new_thread=opportunity_thread_to_out(db, new_thread),
@@ -1567,10 +1588,14 @@ def list_opportunities(
     review_state: ReviewState | None = None,
     db: Session = Depends(get_db),
 ) -> list[OpportunityOut]:
-    query = select(Opportunity).join(
-        OpportunityThread,
-        OpportunityThread.id == Opportunity.thread_id,
-    ).order_by(Opportunity.opportunity_score.desc())
+    query = (
+        select(Opportunity)
+        .join(
+            OpportunityThread,
+            OpportunityThread.id == Opportunity.thread_id,
+        )
+        .order_by(Opportunity.opportunity_score.desc())
+    )
     if review_state is not None:
         query = query.where(OpportunityThread.review_state == review_state.value)
     return [opportunity_to_out(db, item) for item in db.scalars(query).all()]
@@ -1599,14 +1624,18 @@ def update_opportunity_review(
     thread = db.get(OpportunityThread, opportunity.thread_id)
     if thread is None:
         raise HTTPException(status_code=409, detail="Opportunity has no decision thread")
-    set_thread_decision(
-        db,
-        thread=thread,
-        review_state=payload.review_state.value,
-        review_note=payload.review_note,
-        expected_version=None,
-        actor_type="human",
-    )
+    try:
+        set_thread_decision(
+            db,
+            thread=thread,
+            review_state=payload.review_state.value,
+            review_note=payload.review_note,
+            expected_version=None,
+            actor_type="human",
+        )
+    except ThreadVersionConflict as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     commit_review_write(db, "Could not save the opportunity decision.")
     return opportunity_to_out(db, opportunity)
 
@@ -1708,13 +1737,16 @@ def get_prompt(opportunity_id: UUID, db: Session = Depends(get_db)) -> dict:
     opportunity = db.get(Opportunity, opportunity_id)
     if opportunity is None:
         raise HTTPException(status_code=404, detail="Opportunity not found")
+    current = current_thread_snapshot(db, opportunity)
+    return {"prompt": current.generated_prompt}
+
+
+def current_thread_snapshot(db: Session, opportunity: Opportunity) -> Opportunity:
+    """Resolve compatibility artifacts to a thread's latest immutable snapshot."""
     thread = db.get(OpportunityThread, opportunity.thread_id)
-    current = (
-        db.get(Opportunity, thread.current_snapshot_id)
-        if thread is not None and thread.current_snapshot_id is not None
-        else opportunity
-    )
-    return {"prompt": current.generated_prompt if current is not None else opportunity.generated_prompt}
+    if thread is None or thread.current_snapshot_id is None:
+        return opportunity
+    return db.get(Opportunity, thread.current_snapshot_id) or opportunity
 
 
 @router.get("/opportunities/{opportunity_id}/export.md")
@@ -1722,10 +1754,11 @@ def export_prompt(opportunity_id: UUID, db: Session = Depends(get_db)) -> Respon
     opportunity = db.get(Opportunity, opportunity_id)
     if opportunity is None:
         raise HTTPException(status_code=404, detail="Opportunity not found")
+    current = current_thread_snapshot(db, opportunity)
     return Response(
-        opportunity.generated_prompt,
+        current.generated_prompt,
         media_type="text/markdown",
-        headers={"Content-Disposition": f'attachment; filename="{opportunity_id}.md"'},
+        headers={"Content-Disposition": f'attachment; filename="{current.id}.md"'},
     )
 
 
@@ -1734,11 +1767,12 @@ def export_evidence_bundle(opportunity_id: UUID, db: Session = Depends(get_db)) 
     opportunity = db.get(Opportunity, opportunity_id)
     if opportunity is None:
         raise HTTPException(status_code=404, detail="Opportunity not found")
-    bundle = evidence_bundle_markdown(opportunity_to_out(db, opportunity))
+    current = current_thread_snapshot(db, opportunity)
+    bundle = evidence_bundle_markdown(opportunity_to_out(db, current))
     return Response(
         bundle,
         media_type="text/markdown",
-        headers={"Content-Disposition": f'attachment; filename="evidence-{opportunity_id}.md"'},
+        headers={"Content-Disposition": f'attachment; filename="evidence-{current.id}.md"'},
     )
 
 
@@ -1747,7 +1781,8 @@ def get_task_pack(opportunity_id: UUID, db: Session = Depends(get_db)) -> TaskPa
     opportunity = db.get(Opportunity, opportunity_id)
     if opportunity is None:
         raise HTTPException(status_code=404, detail="Opportunity not found")
-    return task_pack_json(opportunity_to_out(db, opportunity))
+    current = current_thread_snapshot(db, opportunity)
+    return task_pack_json(opportunity_to_out(db, current))
 
 
 @router.get("/opportunities/{opportunity_id}/task-pack.md")
@@ -1755,12 +1790,13 @@ def export_task_pack(opportunity_id: UUID, db: Session = Depends(get_db)) -> Res
     opportunity = db.get(Opportunity, opportunity_id)
     if opportunity is None:
         raise HTTPException(status_code=404, detail="Opportunity not found")
-    pack = task_pack_markdown(opportunity_to_out(db, opportunity))
+    current = current_thread_snapshot(db, opportunity)
+    pack = task_pack_markdown(opportunity_to_out(db, current))
     return Response(
         pack,
         media_type="text/markdown",
         headers={
-            "Content-Disposition": f'attachment; filename="tasksignal-task-pack-{opportunity_id}.md"'
+            "Content-Disposition": f'attachment; filename="tasksignal-task-pack-{current.id}.md"'
         },
     )
 
