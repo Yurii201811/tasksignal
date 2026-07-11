@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import importlib.util
 import json
 import os
@@ -19,8 +20,10 @@ import warnings
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from uuid import UUID, uuid4
 from urllib.error import URLError
 from urllib.request import urlopen
+from zipfile import BadZipFile, ZipFile
 
 os.environ.setdefault("DISABLE_SQLALCHEMY_CEXT_RUNTIME", "1")
 
@@ -35,11 +38,27 @@ TASK_PACK_CHECKER_PATH = (
     / "scripts"
     / "check_task_pack.py"
 )
+BUILD_PACKET_FILES = {
+    "README.md",
+    "MANIFEST.json",
+    "opportunity.json",
+    "evidence.md",
+    "task-pack.md",
+    "product-requirements.md",
+    "validation-plan.md",
+    "github-issue.md",
+    "implementation-plan.md",
+    "agent-brief.md",
+}
+PROOF_BUNDLE_SCHEMA_VERSION = "tasksignal.first-run-proof/v1"
 PROOF_BUNDLE_ARTIFACTS = [
     "README.md",
     "first-run-proof.md",
     "first-run-summary.json",
     "top-opportunity-task-pack.md",
+    "top-opportunity-build-packet.zip",
+    "top-opportunity-build-packet-manifest.json",
+    "top-opportunity-build-packet-verification.json",
 ]
 PROOF_BUNDLE_MANIFEST = "MANIFEST.json"
 PROOF_BUNDLE_FILES = [*PROOF_BUNDLE_ARTIFACTS, PROOF_BUNDLE_MANIFEST]
@@ -89,6 +108,7 @@ def api_env(database_path: Path) -> dict[str, str]:
             "AUTHOR_HASH_SALT": "first-run-smoke-local-only",
             "DATABASE_URL": f"sqlite:///{database_path}",
             "LLM_PROVIDER": "none",
+            "OPERATOR_SCAN_TOKEN": "first-run-smoke-operator-only",
             "PUBLIC_SCAN_SOURCES": "fixture,hackernews",
         }
     )
@@ -222,14 +242,241 @@ def assert_decision_export_context(
 
 
 def client_json(
-    client, method: str, path: str, payload: dict | None = None
+    client,
+    method: str,
+    path: str,
+    payload: dict | None = None,
+    headers: dict[str, str] | None = None,
 ) -> dict | list:
-    response = client.request(method, path, json=payload)
+    response = client.request(method, path, json=payload, headers=headers)
     if response.status_code >= 400:
         raise SmokeError(
             f"{method} {path} failed with HTTP {response.status_code}: {response.text}"
         )
     return response.json()
+
+
+def assert_identical_run_delta(
+    delta: object,
+    *,
+    observed_items: int,
+    signal_items: int,
+    opportunity_threads: int,
+) -> None:
+    assert_condition(isinstance(delta, dict), "Run delta response was not an object.")
+    if not isinstance(delta, dict):  # pragma: no cover - narrowed above.
+        return
+    expected_evidence = {
+        "new": 0,
+        "seen_before": observed_items,
+        "updated": 0,
+        "unchanged": observed_items,
+        "not_observed_this_run": 0,
+    }
+    expected_opportunities = {
+        "new": 0,
+        "updated": 0,
+        "unchanged": opportunity_threads,
+        "not_observed_this_run": 0,
+    }
+    expected_signals = {
+        **expected_evidence,
+        "seen_before": signal_items,
+        "unchanged": signal_items,
+    }
+    assert_condition(
+        delta.get("evidence_changes") == expected_evidence,
+        "Identical project run did not report the precise zero-new evidence delta: "
+        f"{delta.get('evidence_changes')!r}.",
+    )
+    assert_condition(
+        delta.get("signal_changes") == expected_signals,
+        "Identical project run did not report the precise zero-new signal delta: "
+        f"{delta.get('signal_changes')!r}.",
+    )
+    assert_condition(
+        delta.get("opportunity_changes") == expected_opportunities,
+        "Identical project run reported a false new or changed opportunity thread: "
+        f"{delta.get('opportunity_changes')!r}.",
+    )
+    serialized = json.dumps(delta, sort_keys=True).lower()
+    assert_condition(
+        "deleted" not in serialized and "resolved" not in serialized,
+        "Run delta used deletion or resolution language for absent evidence.",
+    )
+
+
+def packet_manifest_content(packet: dict[str, object]) -> str:
+    artifact = next(
+        (
+            entry
+            for entry in packet.get("artifacts", [])
+            if isinstance(entry, dict) and entry.get("path") == "MANIFEST.json"
+        ),
+        None,
+    )
+    assert_condition(isinstance(artifact, dict), "Build packet omitted MANIFEST.json.")
+    if not isinstance(artifact, dict):  # pragma: no cover - narrowed above.
+        return ""
+    return str(artifact.get("content", ""))
+
+
+def inspect_build_packet(
+    packet: object,
+    archive_bytes: bytes,
+    verification: object,
+    *,
+    forbidden_markers: set[str],
+) -> dict[str, object]:
+    assert_condition(
+        isinstance(packet, dict), "Build packet response was not an object."
+    )
+    assert_condition(
+        isinstance(verification, dict),
+        "Build packet verification response was not an object.",
+    )
+    if not isinstance(packet, dict) or not isinstance(verification, dict):
+        return {}  # pragma: no cover - narrowed above.
+
+    artifacts = packet.get("artifacts")
+    assert_condition(
+        isinstance(artifacts, list), "Build packet artifacts were not a list."
+    )
+    if not isinstance(artifacts, list):  # pragma: no cover - narrowed above.
+        return {}
+    by_path = {
+        str(entry.get("path")): entry for entry in artifacts if isinstance(entry, dict)
+    }
+    assert_condition(
+        set(by_path) == BUILD_PACKET_FILES,
+        "Build packet did not contain exactly the required 10 files.",
+    )
+    for path, entry in by_path.items():
+        content = str(entry.get("content", ""))
+        content_bytes = content.encode("utf-8")
+        assert_condition(content_bytes, f"Build packet artifact is empty: {path}.")
+        assert_condition(
+            entry.get("byte_count") == len(content_bytes),
+            f"Build packet byte count mismatch: {path}.",
+        )
+        assert_condition(
+            entry.get("sha256") == hashlib.sha256(content_bytes).hexdigest(),
+            f"Build packet SHA-256 mismatch: {path}.",
+        )
+
+    manifest_content = str(by_path["MANIFEST.json"].get("content", ""))
+    try:
+        manifest = json.loads(manifest_content)
+    except json.JSONDecodeError as exc:
+        raise SmokeError(f"Build packet MANIFEST.json was invalid: {exc}") from exc
+    assert_condition(
+        manifest == packet.get("manifest"), "Packet manifest payloads differ."
+    )
+    assert_condition(
+        manifest.get("file_count") == len(BUILD_PACKET_FILES),
+        "Build packet manifest did not record 10 files.",
+    )
+    assert_condition(
+        manifest.get("generation_mode") == "deterministic",
+        "Build packet was not generated deterministically.",
+    )
+    assert_condition(
+        manifest.get("deterministic_originals_authoritative") is True,
+        "Build packet did not mark deterministic originals authoritative.",
+    )
+    expected_metadata = {
+        "packet_id": str(packet.get("id")),
+        "project_id": str(packet.get("project_id")),
+        "run_id": str(packet.get("run_id")),
+        "thread_id": str(packet.get("thread_id")),
+        "snapshot_id": str(packet.get("snapshot_id")),
+        "schema_version": packet.get("schema_version"),
+        "tasksignal_version": packet.get("tasksignal_version"),
+        "template_version": packet.get("template_version"),
+        "generation_mode": packet.get("generation_mode"),
+    }
+    for key, expected in expected_metadata.items():
+        assert_condition(
+            manifest.get(key) == expected,
+            f"Build packet manifest metadata mismatch: {key}.",
+        )
+
+    manifest_files = manifest.get("files")
+    assert_condition(
+        isinstance(manifest_files, list),
+        "Build packet manifest files entry was not a list.",
+    )
+    if not isinstance(manifest_files, list):  # pragma: no cover - narrowed above.
+        return {}
+    manifested_paths = {
+        str(entry.get("path")) for entry in manifest_files if isinstance(entry, dict)
+    }
+    assert_condition(
+        manifested_paths == BUILD_PACKET_FILES - {"MANIFEST.json"},
+        "Build packet manifest inventory did not match authoritative artifacts.",
+    )
+    for entry in manifest_files:
+        assert_condition(
+            isinstance(entry, dict), "Invalid build packet manifest entry."
+        )
+        if not isinstance(entry, dict):  # pragma: no cover - narrowed above.
+            continue
+        artifact = by_path[str(entry.get("path"))]
+        assert_condition(
+            entry.get("bytes") == artifact.get("byte_count")
+            and entry.get("sha256") == artifact.get("sha256"),
+            f"Build packet manifest hash metadata mismatch: {entry.get('path')}.",
+        )
+    assert_condition(
+        packet.get("manifest_sha256")
+        == hashlib.sha256(manifest_content.encode("utf-8")).hexdigest()
+        == by_path["MANIFEST.json"].get("sha256"),
+        "Build packet MANIFEST.json hash mismatch.",
+    )
+
+    assert_condition(
+        verification.get("valid") is True, "Server packet verification failed."
+    )
+    for field in ("errors", "missing_files", "unexpected_files", "mismatched_files"):
+        assert_condition(
+            verification.get(field) == [],
+            f"Server packet verification reported {field}.",
+        )
+
+    with ZipFile(io.BytesIO(archive_bytes)) as archive:
+        names = archive.namelist()
+        assert_condition(
+            names == sorted(BUILD_PACKET_FILES),
+            "Downloaded packet archive inventory was not deterministic and complete.",
+        )
+        for name in names:
+            assert_condition(
+                archive.read(name)
+                == str(by_path[name].get("content", "")).encode("utf-8"),
+                f"Downloaded packet artifact differed from its immutable record: {name}.",
+            )
+        assert_condition(
+            all(info.date_time == (1980, 1, 1, 0, 0, 0) for info in archive.infolist()),
+            "Downloaded packet archive timestamps were not deterministic.",
+        )
+
+    serialized = "\n".join(
+        str(by_path[name].get("content", "")) for name in sorted(by_path)
+    )
+    leaked_markers = sorted(
+        marker for marker in forbidden_markers if marker in serialized
+    )
+    assert_condition(
+        not leaked_markers,
+        f"Build packet leaked {len(leaked_markers)} private marker(s).",
+    )
+    return {
+        "artifact_count": len(by_path),
+        "manifested_original_count": len(manifested_paths),
+        "archive_bytes": len(archive_bytes),
+        "archive_sha256": hashlib.sha256(archive_bytes).hexdigest(),
+        "private_markers_checked": len(forbidden_markers),
+    }
 
 
 def check_result(checked: bool | None) -> str:
@@ -417,6 +664,82 @@ def proof_summary(
                     "local_notes_exported": False,
                 },
             },
+            "longitudinal_research_memory": {
+                "result": "passed",
+                "evidence": {
+                    "project_runs": result["project_runs"],
+                    "observed_items": result["identical_run_seen_before"],
+                    "new_evidence_on_identical_run": result[
+                        "identical_run_new_evidence"
+                    ],
+                    "unchanged_evidence_on_identical_run": result[
+                        "identical_run_unchanged"
+                    ],
+                    "threads_after_first_run": result["threads_after_first_run"],
+                    "threads_after_second_run": result["threads_after_second_run"],
+                    "automatically_matched_threads": result[
+                        "automatically_matched_threads"
+                    ],
+                    "false_new_threads": result["false_new_threads"],
+                    "match_method": "exact_evidence",
+                    "match_confidence": 1.0,
+                },
+            },
+            "actor_aware_evidence_review": {
+                "result": "passed",
+                "evidence": {
+                    "human_labels": result["human_labels"],
+                    "agent_labels": result["agent_labels"],
+                    "human_label_visible": result["human_label_visible"],
+                    "agent_label_visible": result["agent_label_visible"],
+                    "agent_session_provenance": result["agent_session_provenance"],
+                    "human_precision_before_agent_label": result[
+                        "human_precision_before_agent_label"
+                    ],
+                    "human_precision_after_agent_label": result[
+                        "human_precision_after_agent_label"
+                    ],
+                    "readiness_before_agent_label": result[
+                        "readiness_before_agent_label"
+                    ],
+                    "readiness_after_agent_label": result[
+                        "readiness_after_agent_label"
+                    ],
+                    "agent_self_grading_excluded": True,
+                },
+            },
+            "immutable_build_packet": {
+                "result": "passed",
+                "evidence": {
+                    "review_state": result["build_candidate_state"],
+                    "generation_mode": result["build_packet_generation_mode"],
+                    "artifact_count": result["build_packet_artifact_count"],
+                    "manifested_original_count": result[
+                        "build_packet_manifested_original_count"
+                    ],
+                    "archive_bytes": result["build_packet_archive_byte_count"],
+                    "archive_sha256": result["build_packet_archive_sha256"],
+                    "server_verified": result["build_packet_server_verified"],
+                    "repeat_download_identical": result[
+                        "build_packet_repeat_download_identical"
+                    ],
+                    "immutable_fetch_identical": result[
+                        "build_packet_immutable_fetch_identical"
+                    ],
+                },
+            },
+            "build_packet_privacy": {
+                "result": "passed",
+                "evidence": {
+                    "private_markers_checked": result[
+                        "build_packet_private_markers_checked"
+                    ],
+                    "local_notes_exported": False,
+                    "raw_identities_exported": False,
+                    "author_hashes_exported": False,
+                    "secret_values_exported": False,
+                },
+            },
             "dashboard_route_source": {
                 "result": check_result(dashboard_source_checked),
                 "evidence": check_evidence(
@@ -498,12 +821,47 @@ def proof_report_markdown(
         (
             "| Decision review workflow | passed | "
             f"state={result['decision_review_state']}, "
-            f"{result['evidence_reviews']} reviewed evidence item, "
+            f"{result['evidence_reviews']} reviewed evidence "
+            f"{'item' if result['evidence_reviews'] == 1 else 'items'}, "
             f"reviewed items={result['evaluation_reviewed_items_before']}"
             f"->{result['evaluation_reviewed_items']}, "
             f"coverage={result['evaluation_review_coverage_before']:.0%}"
             f"->{result['evaluation_review_coverage']:.0%}, "
             f"readiness={result['task_pack_readiness']}, local notes excluded |"
+        ),
+        (
+            "| Longitudinal research memory | passed | "
+            f"{result['project_runs']} runs, identical rerun: "
+            f"new={result['identical_run_new_evidence']}, "
+            f"seen before={result['identical_run_seen_before']}, "
+            f"updated=0, unchanged={result['identical_run_unchanged']}, "
+            "not observed=0; "
+            f"threads={result['threads_after_first_run']}"
+            f"->{result['threads_after_second_run']}, "
+            f"exact matches={result['automatically_matched_threads']}, "
+            f"false new threads={result['false_new_threads']} |"
+        ),
+        (
+            "| Actor-aware evidence review | passed | "
+            f"human labels={result['human_labels']}, agent labels={result['agent_labels']}, "
+            f"human precision={result['human_precision_before_agent_label']}"
+            f"->{result['human_precision_after_agent_label']}, "
+            f"readiness={result['readiness_before_agent_label']}"
+            f"->{result['readiness_after_agent_label']}; agent self-grading excluded |"
+        ),
+        (
+            "| Immutable build packet | passed | "
+            f"state={result['build_candidate_state']}, "
+            f"mode={result['build_packet_generation_mode']}, "
+            f"files={result['build_packet_artifact_count']}, "
+            f"archive bytes={result['build_packet_archive_byte_count']}, "
+            f"server verified={str(result['build_packet_server_verified']).lower()}, "
+            "repeat download identical |"
+        ),
+        (
+            "| Build-packet privacy | passed | "
+            f"{result['build_packet_private_markers_checked']} private markers checked; "
+            "local notes, raw identities, author hashes, and secret values excluded |"
         ),
         (
             "| Dashboard route source | "
@@ -561,8 +919,10 @@ def proof_bundle_manifest(
     artifact_names: list[str],
 ) -> dict[str, object]:
     return {
+        "schema_version": PROOF_BUNDLE_SCHEMA_VERSION,
         "generated_at": summary["generated_at"],
         "repository_revision": summary["repository_revision"],
+        "artifact_count": len(artifact_names),
         "files": [
             {
                 "path": name,
@@ -595,9 +955,19 @@ def proof_bundle_manifest_errors(path: Path) -> list[str]:
     if not isinstance(manifest, dict):
         return ["Proof bundle manifest must be a JSON object."]
 
+    if manifest.get("schema_version") != PROOF_BUNDLE_SCHEMA_VERSION:
+        errors.append(
+            "proof bundle manifest schema_version must be "
+            f"{PROOF_BUNDLE_SCHEMA_VERSION}"
+        )
+
     files = manifest.get("files")
     if not isinstance(files, list):
         return ["Proof bundle manifest must include a files list."]
+    if manifest.get("artifact_count") != len(PROOF_BUNDLE_ARTIFACTS):
+        errors.append(
+            f"proof bundle manifest artifact_count must be {len(PROOF_BUNDLE_ARTIFACTS)}"
+        )
 
     expected_artifacts = set(PROOF_BUNDLE_ARTIFACTS)
     seen_artifacts: set[str] = set()
@@ -664,6 +1034,91 @@ def proof_bundle_manifest_errors(path: Path) -> list[str]:
             "proof bundle contains unexpected file(s): " + ", ".join(unexpected_files)
         )
 
+    packet_archive_path = path / "top-opportunity-build-packet.zip"
+    packet_manifest_path = path / "top-opportunity-build-packet-manifest.json"
+    packet_verification_path = path / "top-opportunity-build-packet-verification.json"
+    try:
+        with ZipFile(packet_archive_path) as archive:
+            archive_names = archive.namelist()
+            if archive_names != sorted(BUILD_PACKET_FILES):
+                errors.append(
+                    "build packet archive inventory must contain exactly 10 files"
+                )
+            try:
+                archived_manifest = archive.read("MANIFEST.json")
+            except KeyError:
+                archived_manifest = b""
+            extracted_manifest = packet_manifest_path.read_bytes()
+            if archived_manifest != extracted_manifest:
+                errors.append(
+                    "extracted build packet manifest differs from the archive"
+                )
+            try:
+                packet_manifest = json.loads(archived_manifest)
+            except json.JSONDecodeError as exc:
+                errors.append(f"build packet manifest is invalid JSON: {exc}")
+                packet_manifest = {}
+            packet_files = packet_manifest.get("files")
+            if not isinstance(packet_files, list):
+                errors.append("build packet manifest must include a files list")
+            else:
+                manifested_packet_paths = {
+                    str(entry.get("path"))
+                    for entry in packet_files
+                    if isinstance(entry, dict)
+                }
+                if manifested_packet_paths != BUILD_PACKET_FILES - {"MANIFEST.json"}:
+                    errors.append(
+                        "build packet manifest inventory does not match the archive"
+                    )
+                for entry in packet_files:
+                    if not isinstance(entry, dict):
+                        errors.append(
+                            "build packet manifest file entry must be an object"
+                        )
+                        continue
+                    artifact_name = str(entry.get("path"))
+                    try:
+                        content = archive.read(artifact_name)
+                    except KeyError:
+                        errors.append(
+                            f"manifested build packet file is missing: {artifact_name}"
+                        )
+                        continue
+                    if entry.get("bytes") != len(content):
+                        errors.append(
+                            f"build packet byte count mismatch for {artifact_name}"
+                        )
+                    if entry.get("sha256") != hashlib.sha256(content).hexdigest():
+                        errors.append(
+                            f"build packet sha256 mismatch for {artifact_name}"
+                        )
+    except (BadZipFile, OSError, ValueError) as exc:
+        errors.append(f"build packet archive is invalid: {exc}")
+
+    try:
+        packet_verification = json.loads(
+            packet_verification_path.read_text(encoding="utf-8")
+        )
+    except (OSError, json.JSONDecodeError) as exc:
+        errors.append(f"build packet verification evidence is invalid: {exc}")
+    else:
+        if (
+            not isinstance(packet_verification, dict)
+            or packet_verification.get("valid") is not True
+        ):
+            errors.append("build packet server verification did not report valid=true")
+        elif any(
+            packet_verification.get(field) != []
+            for field in (
+                "errors",
+                "missing_files",
+                "unexpected_files",
+                "mismatched_files",
+            )
+        ):
+            errors.append("build packet server verification reported integrity errors")
+
     return errors
 
 
@@ -690,6 +1145,18 @@ def proof_bundle_readme(summary: dict[str, object]) -> str:
             (
                 "- `top-opportunity-task-pack.md`: exact task pack exported for the top fixture "
                 "opportunity and validated against the repo-local Codex skill contract."
+            ),
+            (
+                "- `top-opportunity-build-packet.zip`: deterministic immutable 10-file build "
+                "packet downloaded twice with identical bytes."
+            ),
+            (
+                "- `top-opportunity-build-packet-manifest.json`: the packet's exact immutable "
+                "manifest, including byte counts and SHA-256 hashes."
+            ),
+            (
+                "- `top-opportunity-build-packet-verification.json`: the successful server-side "
+                "packet verification response."
             ),
             "- `MANIFEST.json`: file sizes and SHA-256 hashes for the generated artifacts.",
             "",
@@ -746,6 +1213,26 @@ def write_proof_bundle(
         path / "top-opportunity-task-pack.md",
         f"{str(result['task_pack_markdown']).rstrip()}\n",
     )
+    archive_bytes = result.get("build_packet_archive_bytes")
+    assert_condition(
+        isinstance(archive_bytes, bytes),
+        "Build packet archive bytes are missing from the proof result.",
+    )
+    if isinstance(archive_bytes, bytes):
+        (path / "top-opportunity-build-packet.zip").write_bytes(archive_bytes)
+    write_proof_report(
+        path / "top-opportunity-build-packet-manifest.json",
+        f"{str(result['build_packet_manifest_content']).rstrip()}\n",
+    )
+    (path / "top-opportunity-build-packet-verification.json").write_text(
+        json.dumps(
+            result["build_packet_verification"],
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     (path / "MANIFEST.json").write_text(
         json.dumps(
             proof_bundle_manifest(path, summary, artifact_names),
@@ -766,15 +1253,67 @@ def run_api_checks(database_path: Path) -> dict[str, object]:
         message="Using `httpx` with `starlette.testclient` is deprecated.*",
     )
     from fastapi.testclient import TestClient
+    from sqlalchemy import select
 
+    from app.db.session import SessionLocal
     from app.main import app
+    from app.models.all_models import NormalizedItem, RawItem
+    from app.services.agent_sessions import (
+        STANDARD_WRITE_CAPABILITIES,
+        hash_session_secret,
+    )
+    from app.services.evidence_review.service import append_evidence_label
+    from app.services.evidence_review.types import EvidenceReviewLabel
 
     with TestClient(app) as client:
         health = client_json(client, "GET", "/health")
-        api_readiness = client_json(client, "GET", "/api/readiness")
-        summary = client_json(client, "POST", "/api/process/demo")
+        api_readiness = client_json(client, "GET", "/api/v1/readiness")
+        project = client_json(
+            client,
+            "POST",
+            "/api/v1/research-projects",
+            {
+                "name": "First-run fixture workbench",
+                "description": "Credential-free v1 evidence-to-build proof.",
+                "source_type": "fixture",
+                "query": "",
+                "limit": 100,
+                "cadence": "manual",
+                "labels": ["first-run", "fixture"],
+                "enabled": True,
+            },
+        )
+        assert_condition(
+            isinstance(project, dict), "Project response was not an object."
+        )
+        if not isinstance(project, dict):  # pragma: no cover - narrowed above.
+            raise SmokeError("Project response was not an object.")
+        first_run = client_json(
+            client,
+            "POST",
+            f"/api/v1/research-projects/{project['id']}/run",
+        )
+        first_threads = client_json(
+            client,
+            "GET",
+            f"/api/v1/opportunity-threads?project_id={project['id']}",
+        )
+        identical_run = client_json(
+            client,
+            "POST",
+            f"/api/v1/research-projects/{project['id']}/run",
+        )
+        project_runs = client_json(
+            client,
+            "GET",
+            f"/api/v1/research-projects/{project['id']}/runs",
+        )
+        second_threads = client_json(
+            client,
+            "GET",
+            f"/api/v1/opportunity-threads?project_id={project['id']}",
+        )
         stats = client_json(client, "GET", "/api/stats")
-        opportunities = client_json(client, "GET", "/api/opportunities")
 
         assert_condition(isinstance(health, dict), "Health response was not an object.")
         assert_condition(
@@ -789,19 +1328,84 @@ def run_api_checks(database_path: Path) -> dict[str, object]:
         )
 
         assert_condition(
-            isinstance(summary, dict), "Demo summary response was not an object."
+            isinstance(first_run, dict) and first_run.get("status") == "completed",
+            "First fixture project run did not complete.",
         )
         assert_condition(
-            summary.get("raw_items_loaded", 0) >= 17,
-            "Demo loaded too few raw items.",
+            isinstance(identical_run, dict)
+            and identical_run.get("status") == "completed",
+            "Identical fixture project rerun did not complete.",
         )
         assert_condition(
-            summary.get("signals_detected", 0) >= 15,
-            "Demo detected too few signals.",
+            isinstance(first_run, dict) and first_run.get("items_found", 0) >= 17,
+            "Fixture project loaded too few raw items.",
         )
         assert_condition(
-            summary.get("opportunities_created", 0) >= 5,
-            "Demo generated too few opportunities.",
+            isinstance(first_run, dict) and first_run.get("signals_detected", 0) >= 15,
+            "Fixture project detected too few signals.",
+        )
+        assert_condition(
+            isinstance(first_run, dict)
+            and first_run.get("opportunities_created", 0) >= 5,
+            "Fixture project generated too few opportunities.",
+        )
+        assert_condition(
+            isinstance(first_threads, list) and len(first_threads) >= 5,
+            "First fixture run generated too few opportunity threads.",
+        )
+        assert_condition(
+            isinstance(second_threads, list)
+            and isinstance(first_threads, list)
+            and len(second_threads) == len(first_threads),
+            "Identical fixture rerun created a false new opportunity thread.",
+        )
+        assert_condition(
+            isinstance(project_runs, list) and len(project_runs) == 2,
+            "Project run history did not contain exactly two fixture runs.",
+        )
+        if not all(
+            isinstance(value, list)
+            for value in (first_threads, second_threads, project_runs)
+        ):
+            raise SmokeError("V1 run/thread responses were not lists.")
+        if not isinstance(identical_run, dict) or not isinstance(first_run, dict):
+            raise SmokeError("V1 scan responses were not objects.")
+
+        latest_run, original_run = project_runs
+        assert_condition(
+            latest_run.get("scan_id") == identical_run.get("id")
+            and original_run.get("scan_id") == first_run.get("id"),
+            "Project run history did not preserve scan linkage.",
+        )
+        identical_delta = client_json(
+            client,
+            "GET",
+            f"/api/v1/research-projects/{project['id']}/runs/{latest_run['id']}/delta",
+        )
+        assert_condition(
+            isinstance(identical_delta, dict)
+            and identical_delta.get("previous_run_id") == original_run.get("id"),
+            "Identical project run delta did not link to the first run.",
+        )
+        assert_identical_run_delta(
+            identical_delta,
+            observed_items=int(identical_run["items_found"]),
+            signal_items=int(identical_run["signals_detected"]),
+            opportunity_threads=len(second_threads),
+        )
+
+        automatically_matched = [
+            thread
+            for thread in second_threads
+            if isinstance(thread, dict)
+            and thread.get("snapshot_count") == 2
+            and isinstance(thread.get("current_snapshot"), dict)
+            and thread["current_snapshot"].get("match_method") == "exact_evidence"
+            and thread["current_snapshot"].get("match_confidence") == 1.0
+        ]
+        assert_condition(
+            len(automatically_matched) == len(second_threads),
+            "Identical fixture rerun did not exact-match every opportunity thread.",
         )
 
         assert_condition(isinstance(stats, dict), "Stats response was not an object.")
@@ -810,18 +1414,26 @@ def run_api_checks(database_path: Path) -> dict[str, object]:
             stats.get("opportunities", 0) >= 5, "Stats show too few opportunities."
         )
 
-        assert_condition(
-            isinstance(opportunities, list),
-            "Opportunities response was not a list.",
+        first_thread = max(
+            second_threads,
+            key=lambda thread: (
+                float(thread["current_snapshot"].get("opportunity_score", 0))
+                if isinstance(thread, dict)
+                and isinstance(thread.get("current_snapshot"), dict)
+                else 0.0
+            ),
         )
         assert_condition(
-            len(opportunities) >= 5, "Opportunity list contains too few items."
+            isinstance(first_thread, dict)
+            and first_thread.get("id")
+            and isinstance(first_thread.get("current_snapshot"), dict),
+            "Top opportunity thread is missing its current snapshot.",
         )
-        first_opportunity = opportunities[0]
-        assert_condition(
-            isinstance(first_opportunity, dict) and first_opportunity.get("id"),
-            "Top opportunity is missing an id.",
-        )
+        if not isinstance(first_thread, dict) or not isinstance(
+            first_thread.get("current_snapshot"), dict
+        ):
+            raise SmokeError("Top opportunity thread is invalid.")
+        first_opportunity = first_thread["current_snapshot"]
         evidence_items = first_opportunity.get("evidence_items")
         assert_condition(
             isinstance(evidence_items, list) and evidence_items,
@@ -834,39 +1446,169 @@ def run_api_checks(database_path: Path) -> dict[str, object]:
         )
         opportunity_note = "SMOKE-LOCAL-OPPORTUNITY-NOTE-EXCLUDE"
         evidence_note = "SMOKE-LOCAL-EVIDENCE-NOTE-EXCLUDE"
+        credential_marker = "SMOKE-CREDENTIAL-VALUE-EXCLUDE-8D3W"
+        baseline_evaluation = client_json(client, "GET", "/api/v1/evaluation")
+        human_review_count = max(1, (len(evidence_items) + 1) // 2)
+        human_labels: list[dict] = []
+        for index, item in enumerate(evidence_items[:human_review_count]):
+            assert_condition(
+                isinstance(item, dict) and item.get("id"), "Evidence item is invalid."
+            )
+            label = client_json(
+                client,
+                "POST",
+                "/api/v1/labels",
+                {
+                    "item_id": item["id"],
+                    "label": "true_signal",
+                    "user_note": evidence_note if index == 0 else None,
+                    "expected_version": 0,
+                },
+            )
+            assert_condition(
+                isinstance(label, dict)
+                and label.get("actor_type") == "human"
+                and label.get("label") == "true_signal"
+                and label.get("version") == 1,
+                "Human evidence label did not persist with actor provenance.",
+            )
+            if isinstance(label, dict):
+                human_labels.append(label)
+
+        human_evaluation = client_json(client, "GET", "/api/v1/evaluation")
+        assert_evaluation_review_progress(baseline_evaluation, human_evaluation)
+        thread_before_agent = client_json(
+            client,
+            "GET",
+            f"/api/v1/opportunity-threads/{first_thread['id']}",
+        )
+        assert_condition(
+            isinstance(thread_before_agent, dict),
+            "Opportunity thread detail was not an object.",
+        )
+        if not isinstance(thread_before_agent, dict):
+            raise SmokeError("Opportunity thread detail was not an object.")
+        readiness_before_agent = thread_before_agent["current_snapshot"][
+            "evidence_readiness"
+        ]
+
+        agent_process_secret = "first-run-smoke-agent-process-only"
+        registered_session = client_json(
+            client,
+            "POST",
+            "/api/v1/agent-sessions",
+            {
+                "process_instance_id": str(uuid4()),
+                "client_name": "TaskSignal first-run proof",
+                "client_version": "v1",
+                "transport": "stdio",
+                "secret_hash": hash_session_secret(agent_process_secret),
+                "requested_capabilities": sorted(STANDARD_WRITE_CAPABILITIES),
+            },
+        )
+        assert_condition(
+            isinstance(registered_session, dict)
+            and registered_session.get("status") == "pending",
+            "Agent proof session did not register as pending.",
+        )
+        if not isinstance(registered_session, dict):
+            raise SmokeError("Agent proof session response was not an object.")
+        approved_session = client_json(
+            client,
+            "POST",
+            f"/api/v1/agent-sessions/{registered_session['id']}/approve",
+            {
+                "expected_version": registered_session["version"],
+                "use_configured_ai": False,
+            },
+            {"X-Operator-Scan-Token": os.environ["OPERATOR_SCAN_TOKEN"]},
+        )
+        assert_condition(
+            isinstance(approved_session, dict)
+            and approved_session.get("status") == "approved",
+            "Agent proof session was not explicitly approved.",
+        )
+
+        with SessionLocal() as db:
+            agent_label = append_evidence_label(
+                db,
+                item_id=UUID(str(evidence_item["id"])),
+                label=EvidenceReviewLabel.FALSE_POSITIVE,
+                user_note=credential_marker,
+                actor_type="agent",
+                agent_session_id=UUID(str(registered_session["id"])),
+                expected_version=1,
+            )
+            db.commit()
+            agent_label_id = str(agent_label.id)
+
+        agent_evaluation = client_json(client, "GET", "/api/v1/evaluation")
+        reviewed_item = client_json(
+            client,
+            "GET",
+            f"/api/v1/items/{evidence_item['id']}",
+        )
+        thread_after_agent = client_json(
+            client,
+            "GET",
+            f"/api/v1/opportunity-threads/{first_thread['id']}",
+        )
+        assert_condition(
+            isinstance(reviewed_item, dict)
+            and reviewed_item.get("review_label") == "true_signal"
+            and reviewed_item.get("agent_review_label") == "false_positive"
+            and reviewed_item.get("agent_session_id") == registered_session["id"],
+            "Human and agent evidence labels were not separately visible.",
+        )
+        assert_condition(
+            isinstance(human_evaluation, dict)
+            and isinstance(agent_evaluation, dict)
+            and {
+                key: agent_evaluation.get(key)
+                for key in (
+                    "reviewed_items",
+                    "review_coverage",
+                    "label_counts",
+                    "precision_on_reviewed_positives",
+                )
+            }
+            == {
+                key: human_evaluation.get(key)
+                for key in (
+                    "reviewed_items",
+                    "review_coverage",
+                    "label_counts",
+                    "precision_on_reviewed_positives",
+                )
+            },
+            "Agent label changed human readiness/precision evaluation.",
+        )
+        assert_condition(
+            isinstance(thread_after_agent, dict)
+            and thread_after_agent["current_snapshot"]["evidence_readiness"]
+            == readiness_before_agent,
+            "Agent label changed human evidence readiness.",
+        )
+
         reviewed_opportunity = client_json(
             client,
             "PATCH",
-            f"/api/opportunities/{first_opportunity['id']}/review",
-            {"review_state": "promising", "review_note": opportunity_note},
-        )
-        baseline_evaluation = client_json(client, "GET", "/api/evaluation")
-        evidence_review = client_json(
-            client,
-            "POST",
-            "/api/labels",
+            f"/api/v1/opportunity-threads/{first_thread['id']}/decision",
             {
-                "item_id": evidence_item["id"],
-                "label": "true_signal",
-                "user_note": evidence_note,
+                "review_state": "promising",
+                "review_note": opportunity_note,
+                "expected_version": first_thread["version"],
             },
         )
-        evaluation = client_json(client, "GET", "/api/evaluation")
         assert_condition(
             isinstance(reviewed_opportunity, dict)
             and reviewed_opportunity.get("review_state") == "promising",
             "Opportunity decision did not persist.",
         )
-        assert_condition(
-            isinstance(evidence_review, dict)
-            and evidence_review.get("label") == "true_signal",
-            "Evidence review did not persist.",
-        )
-        assert_evaluation_review_progress(baseline_evaluation, evaluation)
         task_pack = client_json(
             client,
             "GET",
-            f"/api/opportunities/{first_opportunity['id']}/task-pack.json",
+            f"/api/v1/opportunities/{first_opportunity['id']}/task-pack.json",
         )
         assert_condition(
             isinstance(task_pack, dict), "Task-pack response was not an object."
@@ -884,7 +1626,7 @@ def run_api_checks(database_path: Path) -> dict[str, object]:
             str(task_pack["markdown"])
         )
         evidence_response = client.get(
-            f"/api/opportunities/{first_opportunity['id']}/evidence.md"
+            f"/api/v1/opportunities/{first_opportunity['id']}/evidence.md"
         )
         assert_condition(
             evidence_response.status_code == 200,
@@ -893,18 +1635,149 @@ def run_api_checks(database_path: Path) -> dict[str, object]:
         export_text = json.dumps(task_pack, sort_keys=True) + evidence_response.text
         readiness = assert_decision_export_context(task_pack, evidence_response.text)
         assert_condition(
-            opportunity_note not in export_text and evidence_note not in export_text,
+            opportunity_note not in export_text
+            and evidence_note not in export_text
+            and credential_marker not in export_text,
             "Local review notes leaked into an export.",
+        )
+
+        build_candidate = client_json(
+            client,
+            "PATCH",
+            f"/api/v1/opportunity-threads/{first_thread['id']}/decision",
+            {
+                "review_state": "build_candidate",
+                "review_note": opportunity_note,
+                "expected_version": reviewed_opportunity["version"],
+            },
+        )
+        assert_condition(
+            isinstance(build_candidate, dict)
+            and build_candidate.get("review_state") == "build_candidate"
+            and build_candidate["current_snapshot"]["evidence_readiness"]["level"]
+            in {"medium", "strong"},
+            "Eligible opportunity thread was not promoted to build_candidate.",
+        )
+        if not isinstance(build_candidate, dict):
+            raise SmokeError("Build-candidate response was not an object.")
+        packet = client_json(
+            client,
+            "POST",
+            f"/api/v1/opportunity-threads/{first_thread['id']}/build-packets",
+            {
+                "use_configured_ai": False,
+                "expected_version": build_candidate["version"],
+            },
+        )
+        assert_condition(
+            isinstance(packet, dict), "Build packet response was not an object."
+        )
+        if not isinstance(packet, dict):
+            raise SmokeError("Build packet response was not an object.")
+
+        fetched_packet = client_json(
+            client,
+            "GET",
+            f"/api/v1/build-packets/{packet['id']}",
+        )
+        listed_packets = client_json(
+            client,
+            "GET",
+            f"/api/v1/opportunity-threads/{first_thread['id']}/build-packets",
+        )
+        packet_verification = client_json(
+            client,
+            "GET",
+            f"/api/v1/build-packets/{packet['id']}/verify",
+        )
+        first_download = client.get(f"/api/v1/build-packets/{packet['id']}/download")
+        second_download = client.get(f"/api/v1/build-packets/{packet['id']}/download")
+        assert_condition(
+            first_download.status_code == 200
+            and second_download.status_code == 200
+            and first_download.headers.get("content-type") == "application/zip",
+            "Build packet download failed.",
+        )
+        assert_condition(
+            first_download.content == second_download.content,
+            "Repeated immutable build-packet downloads differed.",
+        )
+        assert_condition(
+            fetched_packet == packet,
+            "Immutable build packet changed between create and fetch.",
+        )
+        assert_condition(
+            isinstance(listed_packets, list)
+            and len(listed_packets) == 1
+            and listed_packets[0].get("artifact_count") == len(BUILD_PACKET_FILES),
+            "Build packet list did not expose the immutable 10-file snapshot.",
+        )
+
+        selected_item_ids = {
+            UUID(str(item["id"]))
+            for item in evidence_items
+            if isinstance(item, dict) and item.get("id")
+        }
+        identity_markers: set[str] = set()
+        author_hashes: set[str] = set()
+        selected_identities = {
+            (str(item.get("source")), str(item.get("external_id")))
+            for item in evidence_items
+            if isinstance(item, dict)
+        }
+        with SessionLocal() as db:
+            normalized_rows = db.scalars(
+                select(NormalizedItem).where(NormalizedItem.id.in_(selected_item_ids))
+            ).all()
+            author_hashes = {
+                row.author_hash for row in normalized_rows if row.author_hash
+            }
+            for raw in db.scalars(select(RawItem)).all():
+                if (raw.source, raw.external_id) not in selected_identities:
+                    continue
+                payload = raw.raw_json if isinstance(raw.raw_json, dict) else {}
+                for key in ("author", "by", "username"):
+                    value = payload.get(key)
+                    if isinstance(value, str) and value:
+                        identity_markers.add(value)
+                user = payload.get("user")
+                if isinstance(user, dict) and isinstance(user.get("login"), str):
+                    identity_markers.add(user["login"])
+                owner = payload.get("owner")
+                if isinstance(owner, dict) and isinstance(
+                    owner.get("display_name"), str
+                ):
+                    identity_markers.add(owner["display_name"])
+
+        forbidden_markers = {
+            opportunity_note,
+            evidence_note,
+            credential_marker,
+            *identity_markers,
+            *author_hashes,
+        }
+        legacy_export_leaks = sorted(
+            marker for marker in forbidden_markers if marker in export_text
+        )
+        assert_condition(
+            not legacy_export_leaks,
+            f"Task-pack export leaked {len(legacy_export_leaks)} private marker(s).",
+        )
+        packet_evidence = inspect_build_packet(
+            packet,
+            first_download.content,
+            packet_verification,
+            forbidden_markers=forbidden_markers,
         )
 
         return {
             "health_status": health["status"],
             "readiness_status": api_readiness["status"],
-            "raw_items_loaded": summary["raw_items_loaded"],
-            "normalized_items_created": summary["normalized_items_created"],
-            "signals_detected": summary["signals_detected"],
-            "clusters_created": summary["clusters_created"],
-            "opportunities_created": summary["opportunities_created"],
+            "raw_items_loaded": first_run["items_found"],
+            "normalized_items_created": first_run["items_saved"],
+            "signals_detected": first_run["signals_detected"],
+            "clusters_created": first_run["clusters_created"],
+            "opportunities_created": first_run["opportunities_created"],
             "total_items": stats["total_items"],
             "stats_opportunities": stats["opportunities"],
             "source_breakdown": stats["source_breakdown"],
@@ -914,12 +1787,58 @@ def run_api_checks(database_path: Path) -> dict[str, object]:
             "task_pack_markdown": task_pack["markdown"],
             "task_pack_required_sections": task_pack_required_sections,
             "decision_review_state": reviewed_opportunity["review_state"],
-            "evidence_reviews": 1,
+            "evidence_reviews": len(human_labels),
             "evaluation_reviewed_items_before": baseline_evaluation["reviewed_items"],
-            "evaluation_reviewed_items": evaluation["reviewed_items"],
+            "evaluation_reviewed_items": human_evaluation["reviewed_items"],
             "evaluation_review_coverage_before": baseline_evaluation["review_coverage"],
-            "evaluation_review_coverage": evaluation["review_coverage"],
+            "evaluation_review_coverage": human_evaluation["review_coverage"],
             "task_pack_readiness": readiness["level"],
+            "project_runs": len(project_runs),
+            "identical_run_new_evidence": identical_delta["evidence_changes"]["new"],
+            "identical_run_seen_before": identical_delta["evidence_changes"][
+                "seen_before"
+            ],
+            "identical_run_unchanged": identical_delta["evidence_changes"]["unchanged"],
+            "threads_after_first_run": len(first_threads),
+            "threads_after_second_run": len(second_threads),
+            "automatically_matched_threads": len(automatically_matched),
+            "false_new_threads": len(second_threads) - len(first_threads),
+            "human_labels": len(human_labels),
+            "agent_labels": 1,
+            "human_label_visible": reviewed_item["review_label"] == "true_signal",
+            "agent_label_visible": reviewed_item["agent_review_label"]
+            == "false_positive",
+            "agent_session_provenance": reviewed_item["agent_session_id"]
+            == registered_session["id"]
+            and bool(agent_label_id),
+            "human_precision_before_agent_label": human_evaluation[
+                "precision_on_reviewed_positives"
+            ],
+            "human_precision_after_agent_label": agent_evaluation[
+                "precision_on_reviewed_positives"
+            ],
+            "readiness_before_agent_label": readiness_before_agent["level"],
+            "readiness_after_agent_label": thread_after_agent["current_snapshot"][
+                "evidence_readiness"
+            ]["level"],
+            "build_candidate_state": build_candidate["review_state"],
+            "build_packet_generation_mode": packet["generation_mode"],
+            "build_packet_artifact_count": packet_evidence["artifact_count"],
+            "build_packet_manifested_original_count": packet_evidence[
+                "manifested_original_count"
+            ],
+            "build_packet_archive_byte_count": packet_evidence["archive_bytes"],
+            "build_packet_archive_sha256": packet_evidence["archive_sha256"],
+            "build_packet_server_verified": packet_verification["valid"],
+            "build_packet_repeat_download_identical": first_download.content
+            == second_download.content,
+            "build_packet_immutable_fetch_identical": fetched_packet == packet,
+            "build_packet_private_markers_checked": packet_evidence[
+                "private_markers_checked"
+            ],
+            "build_packet_archive_bytes": first_download.content,
+            "build_packet_manifest_content": packet_manifest_content(packet),
+            "build_packet_verification": packet_verification,
             "llm_provider": os.environ["LLM_PROVIDER"],
             "public_scan_sources": os.environ["PUBLIC_SCAN_SOURCES"],
         }
@@ -1026,8 +1945,32 @@ def main() -> int:
         print(
             "[OK] Decision workflow: "
             f"{result['decision_review_state']}, "
-            f"{result['evidence_reviews']} evidence review, "
+            f"{result['evidence_reviews']} evidence "
+            f"{'review' if result['evidence_reviews'] == 1 else 'reviews'}, "
             "local notes excluded",
+            flush=True,
+        )
+        print(
+            "[OK] Identical project rerun: "
+            f"new={result['identical_run_new_evidence']}, "
+            f"seen-before={result['identical_run_seen_before']}, "
+            f"unchanged={result['identical_run_unchanged']}; "
+            f"{result['automatically_matched_threads']} exact thread matches, "
+            f"{result['false_new_threads']} false new threads",
+            flush=True,
+        )
+        print(
+            "[OK] Actor-aware labels: "
+            f"{result['human_labels']} human, {result['agent_labels']} agent; "
+            "human precision and readiness unchanged by agent self-label",
+            flush=True,
+        )
+        print(
+            "[OK] Immutable build packet: "
+            f"{result['build_packet_artifact_count']} files, "
+            f"{result['build_packet_archive_byte_count']} archive bytes, "
+            f"{result['build_packet_private_markers_checked']} private markers excluded, "
+            "server verified",
             flush=True,
         )
 

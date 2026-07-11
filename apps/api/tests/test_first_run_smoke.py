@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import hashlib
 import importlib.util
+import io
 import json
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
+from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
 import pytest
 
@@ -20,7 +22,34 @@ sys.modules[SPEC.name] = first_run_smoke
 SPEC.loader.exec_module(first_run_smoke)
 
 
+def packet_proof_fixture() -> tuple[bytes, str]:
+    originals = {
+        name: f"# Fixture {name}\n".encode()
+        for name in first_run_smoke.BUILD_PACKET_FILES - {"MANIFEST.json"}
+    }
+    manifest = {
+        "file_count": 10,
+        "files": [
+            {
+                "path": name,
+                "bytes": len(content),
+                "sha256": hashlib.sha256(content).hexdigest(),
+            }
+            for name, content in sorted(originals.items())
+        ],
+    }
+    manifest_content = (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode()
+    buffer = io.BytesIO()
+    with ZipFile(buffer, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in sorted({**originals, "MANIFEST.json": manifest_content}.items()):
+            info = ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+            info.compress_type = ZIP_DEFLATED
+            archive.writestr(info, content)
+    return buffer.getvalue(), manifest_content.decode()
+
+
 def smoke_result() -> dict[str, object]:
+    packet_archive, packet_manifest = packet_proof_fixture()
     return {
         "health_status": "ok",
         "readiness_status": "ready",
@@ -47,6 +76,42 @@ def smoke_result() -> dict[str, object]:
         "evaluation_review_coverage_before": 0.0,
         "evaluation_review_coverage": 0.2,
         "task_pack_readiness": "medium",
+        "project_runs": 2,
+        "identical_run_new_evidence": 0,
+        "identical_run_seen_before": 18,
+        "identical_run_unchanged": 18,
+        "threads_after_first_run": 5,
+        "threads_after_second_run": 5,
+        "automatically_matched_threads": 5,
+        "false_new_threads": 0,
+        "human_labels": 1,
+        "agent_labels": 1,
+        "human_label_visible": True,
+        "agent_label_visible": True,
+        "agent_session_provenance": True,
+        "human_precision_before_agent_label": 1.0,
+        "human_precision_after_agent_label": 1.0,
+        "readiness_before_agent_label": "medium",
+        "readiness_after_agent_label": "medium",
+        "build_candidate_state": "build_candidate",
+        "build_packet_generation_mode": "deterministic",
+        "build_packet_artifact_count": 10,
+        "build_packet_manifested_original_count": 9,
+        "build_packet_archive_byte_count": len(packet_archive),
+        "build_packet_archive_sha256": hashlib.sha256(packet_archive).hexdigest(),
+        "build_packet_server_verified": True,
+        "build_packet_repeat_download_identical": True,
+        "build_packet_immutable_fetch_identical": True,
+        "build_packet_private_markers_checked": 7,
+        "build_packet_archive_bytes": packet_archive,
+        "build_packet_manifest_content": packet_manifest,
+        "build_packet_verification": {
+            "valid": True,
+            "errors": [],
+            "missing_files": [],
+            "unexpected_files": [],
+            "mismatched_files": [],
+        },
         "llm_provider": "none",
         "public_scan_sources": "fixture,hackernews",
     }
@@ -72,6 +137,7 @@ def test_api_env_forces_clean_sqlite_runtime(tmp_path, monkeypatch) -> None:
     assert env["DATABASE_URL"] == f"sqlite:///{database_path}"
     assert env["AUTO_CREATE_TABLES"] == "true"
     assert env["LLM_PROVIDER"] == "none"
+    assert env["OPERATOR_SCAN_TOKEN"] == "first-run-smoke-operator-only"
     assert env["PUBLIC_SCAN_SOURCES"] == "fixture,hackernews"
     assert env["AUTHOR_HASH_SALT"] == "first-run-smoke-local-only"
 
@@ -112,6 +178,52 @@ def test_api_smoke_rejects_generic_evaluation_increase_without_true_signal() -> 
     else:  # pragma: no cover - keeps the regression failure actionable.
         raise AssertionError(
             "Expected smoke to reject an evaluation whose true_signal count did not increase"
+        )
+
+
+def test_identical_run_delta_requires_precise_zero_new_and_no_false_thread() -> None:
+    delta = {
+        "evidence_changes": {
+            "new": 0,
+            "seen_before": 18,
+            "updated": 0,
+            "unchanged": 18,
+            "not_observed_this_run": 0,
+        },
+        "signal_changes": {
+            "new": 0,
+            "seen_before": 18,
+            "updated": 0,
+            "unchanged": 18,
+            "not_observed_this_run": 0,
+        },
+        "opportunity_changes": {
+            "new": 0,
+            "updated": 0,
+            "unchanged": 5,
+            "not_observed_this_run": 0,
+        },
+    }
+
+    first_run_smoke.assert_identical_run_delta(
+        delta,
+        observed_items=18,
+        signal_items=18,
+        opportunity_threads=5,
+    )
+
+    delta["opportunity_changes"] = {
+        "new": 1,
+        "updated": 0,
+        "unchanged": 5,
+        "not_observed_this_run": 0,
+    }
+    with pytest.raises(first_run_smoke.SmokeError, match="false new"):
+        first_run_smoke.assert_identical_run_delta(
+            delta,
+            observed_items=18,
+            signal_items=18,
+            opportunity_threads=5,
         )
 
 
@@ -430,6 +542,14 @@ def test_proof_report_mentions_decision_workflow_without_local_notes() -> None:
     assert "1 reviewed evidence item" in report
     assert "reviewed items=0->1" in report
     assert "local notes excluded" in report
+    assert "Longitudinal research memory | passed" in report
+    assert "new=0, seen before=18" in report
+    assert "exact matches=5, false new threads=0" in report
+    assert "Actor-aware evidence review | passed" in report
+    assert "agent self-grading excluded" in report
+    assert "Immutable build packet | passed" in report
+    assert "files=10" in report
+    assert "Build-packet privacy | passed" in report
 
 
 def test_proof_summary_records_checks_and_runtime_boundaries() -> None:
@@ -471,6 +591,45 @@ def test_proof_summary_records_decision_review_workflow() -> None:
         "review_coverage": 0.2,
         "task_pack_readiness": "medium",
         "local_notes_exported": False,
+    }
+
+
+def test_proof_summary_records_v1_evidence_to_build_contract() -> None:
+    summary = smoke_summary()
+
+    memory = summary["checks"]["longitudinal_research_memory"]
+    assert memory["result"] == "passed"
+    assert memory["evidence"] == {
+        "project_runs": 2,
+        "observed_items": 18,
+        "new_evidence_on_identical_run": 0,
+        "unchanged_evidence_on_identical_run": 18,
+        "threads_after_first_run": 5,
+        "threads_after_second_run": 5,
+        "automatically_matched_threads": 5,
+        "false_new_threads": 0,
+        "match_method": "exact_evidence",
+        "match_confidence": 1.0,
+    }
+    actor = summary["checks"]["actor_aware_evidence_review"]["evidence"]
+    assert actor["human_labels"] == 1
+    assert actor["agent_labels"] == 1
+    assert actor["human_precision_before_agent_label"] == 1.0
+    assert actor["human_precision_after_agent_label"] == 1.0
+    assert actor["agent_self_grading_excluded"] is True
+    packet = summary["checks"]["immutable_build_packet"]["evidence"]
+    assert packet["review_state"] == "build_candidate"
+    assert packet["generation_mode"] == "deterministic"
+    assert packet["artifact_count"] == 10
+    assert packet["manifested_original_count"] == 9
+    assert packet["server_verified"] is True
+    privacy = summary["checks"]["build_packet_privacy"]["evidence"]
+    assert privacy == {
+        "private_markers_checked": 7,
+        "local_notes_exported": False,
+        "raw_identities_exported": False,
+        "author_hashes_exported": False,
+        "secret_values_exported": False,
     }
 
 
@@ -537,14 +696,27 @@ def test_write_proof_bundle_creates_review_package(tmp_path) -> None:
         "first-run-proof.md",
         "first-run-summary.json",
         "top-opportunity-task-pack.md",
+        "top-opportunity-build-packet.zip",
+        "top-opportunity-build-packet-manifest.json",
+        "top-opportunity-build-packet-verification.json",
     }
+    assert manifest["schema_version"] == "tasksignal.first-run-proof/v1"
+    assert manifest["artifact_count"] == 7
     proof_entry = manifest_files["first-run-proof.md"]
     assert proof_entry["bytes"] == len(b"# proof\n")
     assert proof_entry["sha256"] == hashlib.sha256(b"# proof\n").hexdigest()
     readme = (bundle_dir / "README.md").read_text(encoding="utf-8")
     assert "validated against the repo-local Codex skill contract" in readme
+    assert "deterministic immutable 10-file build packet" in readme
     assert "MANIFEST.json" in readme
     assert "smoke.db" not in readme
+    assert (bundle_dir / "top-opportunity-build-packet.zip").read_bytes() == (
+        packet_proof_fixture()[0]
+    )
+    packet_verification = json.loads(
+        (bundle_dir / "top-opportunity-build-packet-verification.json").read_text()
+    )
+    assert packet_verification["valid"] is True
 
 
 def test_write_proof_bundle_rejects_unexpected_stale_file(tmp_path) -> None:
@@ -643,6 +815,32 @@ def test_verify_proof_bundle_manifest_rejects_tampered_artifact(tmp_path) -> Non
         assert "sha256 mismatch for first-run-proof.md" in message
     else:  # pragma: no cover - keeps the assertion message useful.
         raise AssertionError("Expected tampered proof bundle artifact to fail verification")
+
+
+def test_verify_proof_bundle_manifest_rejects_semantically_tampered_packet_manifest(
+    tmp_path,
+) -> None:
+    bundle_dir = tmp_path / "proof-bundle"
+    first_run_smoke.write_proof_bundle(
+        bundle_dir,
+        "# proof\n",
+        smoke_summary(),
+        smoke_result(),
+    )
+    packet_manifest_path = bundle_dir / "top-opportunity-build-packet-manifest.json"
+    packet_manifest_path.write_text('{"files": []}\n', encoding="utf-8")
+    outer_path = bundle_dir / "MANIFEST.json"
+    outer = json.loads(outer_path.read_text())
+    entry = next(
+        row for row in outer["files"] if row["path"] == "top-opportunity-build-packet-manifest.json"
+    )
+    content = packet_manifest_path.read_bytes()
+    entry["bytes"] = len(content)
+    entry["sha256"] = hashlib.sha256(content).hexdigest()
+    outer_path.write_text(json.dumps(outer, indent=2, sort_keys=True) + "\n")
+
+    with pytest.raises(first_run_smoke.SmokeError, match="differs from the archive"):
+        first_run_smoke.verify_proof_bundle_manifest(bundle_dir)
 
 
 def test_verify_proof_bundle_manifest_rejects_unmanifested_file(tmp_path) -> None:
