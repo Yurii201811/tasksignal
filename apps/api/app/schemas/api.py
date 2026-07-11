@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -109,6 +110,18 @@ class ResearchProjectCreate(BaseModel):
     enabled: bool = True
 
 
+class ResearchProjectUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    description: str | None = Field(default=None, max_length=500)
+    source_type: str | None = Field(default=None, max_length=60)
+    query: str | None = Field(default=None, max_length=300)
+    limit: int | None = Field(default=None, ge=1, le=100)
+    cadence: str | None = Field(default=None, max_length=60)
+    schedule_interval_hours: int | None = Field(default=None, ge=1, le=24 * 31)
+    labels: list[str] | None = Field(default=None, max_length=12)
+    enabled: bool | None = None
+
+
 class ResearchProjectOut(BaseModel):
     id: UUID
     name: str
@@ -128,6 +141,60 @@ class ResearchProjectOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     model_config = ConfigDict(from_attributes=True)
+
+
+class ResearchRunOut(BaseModel):
+    id: UUID
+    project_id: UUID
+    scan_id: UUID
+    sequence: int | None
+    source_type: str | None
+    query: str | None
+    requested_limit: int | None
+    lineage_status: Literal["complete", "incomplete", "untracked"]
+    scan_status: str
+    started_at: datetime
+    finished_at: datetime | None
+    items_found: int
+    items_saved: int
+    signals_detected: int
+    clusters_created: int
+    opportunities_created: int
+    created_at: datetime
+
+
+class RunDeltaCountsOut(BaseModel):
+    new: int = Field(description="Evidence records first stored by this scan.")
+    seen_before: int = Field(description="Evidence records stored before this scan.")
+    updated: int = Field(
+        description="Stable source identities whose content changed since the prior complete run."
+    )
+    unchanged: int = Field(
+        description="Stable source identities unchanged since the prior complete run."
+    )
+    not_observed_this_run: int = Field(
+        description="Prior stable identities absent from this run; this never implies deletion."
+    )
+    model_config = ConfigDict(from_attributes=True)
+
+
+class GeneratedSnapshotsOut(BaseModel):
+    clusters: int
+    opportunities: int
+    model_config = ConfigDict(from_attributes=True)
+
+
+class RunDeltaOut(BaseModel):
+    project_id: UUID
+    run_id: UUID
+    scan_id: UUID
+    sequence: int
+    previous_run_id: UUID | None
+    evidence_changes: RunDeltaCountsOut
+    signal_changes: RunDeltaCountsOut
+    generated_snapshots: GeneratedSnapshotsOut
+    opportunity_changes: None = None
+    warnings: list[str] = Field(default_factory=list)
 
 
 class DueRunOut(BaseModel):

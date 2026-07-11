@@ -78,7 +78,8 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    app.include_router(router)
+    app.include_router(router, prefix="/api/v1")
+    app.include_router(router, prefix="/api", include_in_schema=False)
 
     @app.get("/health")
     def health() -> dict:

@@ -6,7 +6,8 @@ from datetime import UTC, datetime
 from threading import RLock
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.all_models import (
@@ -40,6 +41,7 @@ from app.services.ingestion.connectors import (
 )
 from app.services.ingestion.normalization import normalize
 from app.services.ingestion.types import RawFetchedItem
+from app.services.research_projects.service import mark_latest_project_run
 from app.services.scoring.service import score_opportunity
 
 ConnectorFactory = Callable[[], BaseConnector]
@@ -68,11 +70,11 @@ CONNECTOR_FACTORIES: dict[str, ConnectorFactory] = {
     "stackexchange": StackExchangeConnector,
 }
 
-# TaskSignal v1 is deliberately single-process/local-first. Serializing the short
-# database write phases makes concurrent local scans deterministic on SQLite while
-# leaving connector I/O outside the lock. Database constraints remain the final
-# guard for deployments that run more than one API process.
+# Connector I/O remains concurrent. The process lock avoids needless local
+# contention, while a transaction-scoped database lock below protects separate
+# API workers and SQLite processes.
 SCAN_WRITE_LOCK = RLock()
+POSTGRES_SCAN_ADVISORY_LOCK_ID = 6071229765013788494
 
 
 @dataclass(frozen=True)
@@ -88,6 +90,19 @@ class ScanPipelineResult:
 class SavedFetchedItems:
     observed_item_ids: list[UUID]
     created_item_ids: list[UUID]
+
+
+def acquire_database_scan_write_lock(db: Session) -> None:
+    dialect = db.get_bind().dialect.name
+    if dialect == "sqlite":
+        if not db.in_transaction():
+            db.execute(text("BEGIN IMMEDIATE"))
+        return
+    if dialect == "postgresql":
+        db.execute(
+            text("SELECT pg_advisory_xact_lock(:lock_id)"),
+            {"lock_id": POSTGRES_SCAN_ADVISORY_LOCK_ID},
+        )
 
 
 def scan_outcome_message(result: ScanPipelineResult) -> str:
@@ -255,25 +270,38 @@ def embed_signals(
     db: Session,
     signal_rows: list[tuple[NormalizedItem, ItemSignal]],
 ) -> dict[UUID, list[float]]:
+    embedder = EmbeddingService()
+    embedding_model = f"{embedder.model_name}:{embedder.backend}"
     item_ids = [item.id for item, _signal in signal_rows]
     stored = db.scalars(
         select(ItemEmbedding).where(ItemEmbedding.item_id.in_(item_ids))
     ).all()
-    embeddings_by_item = {row.item_id: list(row.embedding) for row in stored}
+    stored_by_item: dict[UUID, ItemEmbedding] = {}
+    embeddings_by_item: dict[UUID, list[float]] = {}
+    for row in stored:
+        stored_by_item.setdefault(row.item_id, row)
+        if row.model_name == embedding_model:
+            stored_by_item[row.item_id] = row
+            embeddings_by_item[row.item_id] = list(row.embedding)
+
     missing_rows = [row for row in signal_rows if row[0].id not in embeddings_by_item]
     if missing_rows:
-        embedder = EmbeddingService()
         texts = [f"{item.title}. {item.body}" for item, _signal in missing_rows]
         vectors = embedder.embed_texts(texts)
         for (item, _signal), vector in zip(missing_rows, vectors, strict=True):
             embeddings_by_item[item.id] = vector
-            db.add(
-                ItemEmbedding(
-                    item_id=item.id,
-                    embedding=vector,
-                    model_name=f"{embedder.model_name}:{embedder.backend}",
+            stored_embedding = stored_by_item.get(item.id)
+            if stored_embedding is None:
+                db.add(
+                    ItemEmbedding(
+                        item_id=item.id,
+                        embedding=vector,
+                        model_name=embedding_model,
+                    )
                 )
-            )
+            else:
+                stored_embedding.embedding = vector
+                stored_embedding.model_name = embedding_model
     db.flush()
     return embeddings_by_item
 
@@ -415,6 +443,7 @@ def run_scan_pipeline(
 ) -> ScanPipelineResult:
     fetched = connector.fetch(query=query, limit=limit)
     with SCAN_WRITE_LOCK:
+        acquire_database_scan_write_lock(db)
         return process_fetched_items(db, fetched, scan_id=scan_id)
 
 
@@ -444,6 +473,61 @@ def create_research_project_run(
     return run
 
 
+def reserve_scan_job(
+    db: Session,
+    *,
+    source_type: str,
+    query: str,
+    requested_limit: int,
+    research_project_id: UUID | None,
+) -> tuple[ScanJob, ResearchProjectRun | None]:
+    for attempt in range(3):
+        try:
+            with SCAN_WRITE_LOCK:
+                db.commit()
+                acquire_database_scan_write_lock(db)
+                locked_project = None
+                if research_project_id is not None:
+                    locked_project = db.scalar(
+                        select(ResearchProject)
+                        .where(ResearchProject.id == research_project_id)
+                        .with_for_update()
+                        .execution_options(populate_existing=True)
+                    )
+                    if locked_project is None:
+                        raise ValueError("Research project no longer exists")
+
+                source_record = ensure_source(db, source_type)
+                job = ScanJob(
+                    source_id=source_record.id,
+                    status="queued",
+                    query=query,
+                    items_found=0,
+                    items_saved=0,
+                )
+                db.add(job)
+                db.flush()
+                research_run = None
+                if locked_project is not None:
+                    research_run = create_research_project_run(
+                        db,
+                        project=locked_project,
+                        scan=job,
+                        source_type=source_type,
+                        query=query,
+                        requested_limit=requested_limit,
+                    )
+                    locked_project.run_count += 1
+                    locked_project.updated_at = datetime.now(UTC)
+                db.commit()
+                return job, research_run
+        except IntegrityError:
+            db.rollback()
+            if attempt == 2:
+                raise
+    raise RuntimeError("Unable to reserve scan job")  # pragma: no cover
+
+
 def process_scan(
     db: Session,
     source: str,
@@ -457,29 +541,15 @@ def process_scan(
         connector = connector_for_source(source_type)
 
     requested_limit = max(1, min(limit, 100))
-    with SCAN_WRITE_LOCK:
-        source_record = ensure_source(db, source_type)
-        job = ScanJob(
-            source_id=source_record.id,
-            status="queued",
-            query=query,
-            items_found=0,
-            items_saved=0,
-        )
-        db.add(job)
-        db.flush()
-        research_run = None
-        if research_project is not None:
-            research_run = create_research_project_run(
-                db,
-                project=research_project,
-                scan=job,
-                source_type=source_type,
-                query=query,
-                requested_limit=requested_limit,
-            )
-        db.commit()
-        db.refresh(job)
+    research_project_id = research_project.id if research_project is not None else None
+    job, research_run = reserve_scan_job(
+        db,
+        source_type=source_type,
+        query=query,
+        requested_limit=requested_limit,
+        research_project_id=research_project_id,
+    )
+    research_run_sequence = research_run.sequence if research_run is not None else None
 
     try:
         with SCAN_WRITE_LOCK:
@@ -490,6 +560,7 @@ def process_scan(
         fetched = connector.fetch(query=query, limit=requested_limit)
         with SCAN_WRITE_LOCK:
             try:
+                acquire_database_scan_write_lock(db)
                 result = process_fetched_items(db, fetched, scan_id=job.id)
                 job.status = "completed"
                 job.finished_at = datetime.now(UTC)
@@ -502,8 +573,14 @@ def process_scan(
                 job.error_message = None
                 if research_run is not None:
                     research_run.lineage_complete = True
+                    mark_latest_project_run(
+                        db,
+                        project_id=research_run.project_id,
+                        run_sequence=research_run.sequence,
+                        scan_id=job.id,
+                        finished_at=job.finished_at,
+                    )
                 db.commit()
-                db.refresh(job)
             except Exception:
                 db.rollback()
                 raise
@@ -511,6 +588,7 @@ def process_scan(
     except Exception as exc:
         with SCAN_WRITE_LOCK:
             db.rollback()
+            acquire_database_scan_write_lock(db)
             failed_job = db.get(ScanJob, job.id)
             if failed_job is None:
                 raise
@@ -520,6 +598,13 @@ def process_scan(
             failed_job.outcome_message = (
                 "The scan failed before a complete outcome could be computed."
             )
+            if research_project_id is not None and research_run_sequence is not None:
+                mark_latest_project_run(
+                    db,
+                    project_id=research_project_id,
+                    run_sequence=research_run_sequence,
+                    scan_id=failed_job.id,
+                    finished_at=failed_job.finished_at,
+                )
             db.commit()
-            db.refresh(failed_job)
         return failed_job

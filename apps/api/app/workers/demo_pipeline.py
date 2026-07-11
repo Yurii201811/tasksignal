@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import Counter
 from datetime import UTC, datetime
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 from app.models.all_models import (
@@ -15,27 +15,46 @@ from app.models.all_models import (
     NormalizedItem,
     Opportunity,
     RawItem,
+    ResearchProject,
+    ResearchProjectRun,
+    ScanItem,
     ScanJob,
     Source,
 )
 from app.services.ingestion.connectors import FixtureConnector
-from app.workers.scan_pipeline import SCAN_WRITE_LOCK, process_fetched_items, scan_outcome_message
+from app.workers.scan_pipeline import (
+    SCAN_WRITE_LOCK,
+    acquire_database_scan_write_lock,
+    process_fetched_items,
+    scan_outcome_message,
+)
 
 
 def reset_demo_data(db: Session) -> None:
-    for model in [
-        Label,
-        Opportunity,
-        ClusterItem,
-        Cluster,
-        ItemEmbedding,
-        ItemSignal,
-        NormalizedItem,
-        RawItem,
-        ScanJob,
-    ]:
-        db.execute(delete(model))
-    db.commit()
+    with SCAN_WRITE_LOCK:
+        acquire_database_scan_write_lock(db)
+        db.execute(
+            update(ResearchProject).values(
+                last_scan_id=None,
+                last_run_at=None,
+                run_count=0,
+            )
+        )
+        for model in [
+            Label,
+            Opportunity,
+            ClusterItem,
+            Cluster,
+            ScanItem,
+            ResearchProjectRun,
+            ItemEmbedding,
+            ItemSignal,
+            NormalizedItem,
+            RawItem,
+            ScanJob,
+        ]:
+            db.execute(delete(model))
+        db.commit()
 
 
 def ensure_sources(db: Session) -> None:
@@ -69,6 +88,7 @@ def process_demo(db: Session, reset: bool = False) -> dict[str, int]:
     connector = FixtureConnector()
     fetched = connector.fetch(limit=300)
     with SCAN_WRITE_LOCK:
+        acquire_database_scan_write_lock(db)
         result = process_fetched_items(db, fetched, scan_id=job.id)
 
         job.status = "completed"

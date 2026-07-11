@@ -12,10 +12,12 @@ from app.models.all_models import (
     ResearchProject,
     ResearchProjectRun,
     ScanItem,
+    ScanJob,
 )
 from app.services.ingestion.connectors import BaseConnector
 from app.services.ingestion.types import RawFetchedItem, utc_now
 from app.workers import scan_pipeline
+from app.workers.demo_pipeline import reset_demo_data
 from app.workers.scan_pipeline import process_scan
 
 
@@ -272,7 +274,10 @@ def test_late_pipeline_failure_rolls_back_partial_lineage(db_session, monkeypatc
     assert db_session.scalar(select(func.count()).select_from(Opportunity)) == 0
 
 
-def test_concurrent_local_project_runs_receive_unique_complete_sequences(db_session) -> None:
+def test_concurrent_database_project_runs_receive_unique_complete_sequences(
+    db_session,
+    monkeypatch,
+) -> None:
     project = create_project(db_session)
     project_id = project.id
     bind = db_session.get_bind()
@@ -282,6 +287,15 @@ def test_concurrent_local_project_runs_receive_unique_complete_sequences(db_sess
     from threading import Barrier
 
     barrier = Barrier(2)
+
+    class NoProcessLock:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    monkeypatch.setattr(scan_pipeline, "SCAN_WRITE_LOCK", NoProcessLock())
 
     def run_once() -> str:
         with Session(bind) as session:
@@ -314,3 +328,104 @@ def test_concurrent_local_project_runs_receive_unique_complete_sequences(db_sess
         assert session.scalar(select(func.count()).select_from(NormalizedItem)) == 1
         assert session.scalar(select(func.count()).select_from(ItemSignal)) == 1
         assert session.scalar(select(func.count()).select_from(ItemEmbedding)) == 1
+
+
+def test_committed_completion_is_not_reclassified_by_post_commit_refresh(
+    db_session,
+    monkeypatch,
+) -> None:
+    project = create_project(db_session)
+    original_refresh = db_session.refresh
+
+    def reject_completed_refresh(instance, *args, **kwargs):
+        if isinstance(instance, ScanJob) and instance.status == "completed":
+            raise RuntimeError("simulated refresh transport failure")
+        return original_refresh(instance, *args, **kwargs)
+
+    monkeypatch.setattr(db_session, "refresh", reject_completed_refresh)
+    scan = process_scan(
+        db_session,
+        source=project.source_type,
+        query=project.query,
+        limit=project.limit,
+        connector=StaticConnector([signal_item("refresh-a"), signal_item("refresh-b")]),
+        research_project=project,
+    )
+
+    run = db_session.scalar(
+        select(ResearchProjectRun).where(ResearchProjectRun.scan_id == scan.id)
+    )
+    assert scan.status == "completed"
+    assert run is not None and run.lineage_complete is True
+    assert db_session.scalar(
+        select(func.count()).select_from(ScanItem).where(ScanItem.scan_id == scan.id)
+    ) == 2
+
+
+def test_embedding_model_drift_reembeds_every_observed_signal_homogeneously(
+    db_session,
+    monkeypatch,
+) -> None:
+    project = create_project(db_session)
+    current = {"model": "model-a", "backend": "backend-a"}
+    calls: list[tuple[str, int]] = []
+
+    class SwitchingEmbeddingService:
+        def __init__(self) -> None:
+            self.model_name = current["model"]
+            self.backend = current["backend"]
+
+        def embed_texts(self, texts: list[str]) -> list[list[float]]:
+            calls.append((f"{self.model_name}:{self.backend}", len(texts)))
+            marker = 1.0 if self.model_name == "model-a" else 2.0
+            return [[marker] + [0.0] * 383 for _text in texts]
+
+    monkeypatch.setattr(scan_pipeline, "EmbeddingService", SwitchingEmbeddingService)
+    seen = signal_item("model-seen")
+    process_scan(
+        db_session,
+        source=project.source_type,
+        query=project.query,
+        limit=project.limit,
+        connector=StaticConnector([seen]),
+        research_project=project,
+    )
+    current.update(model="model-b", backend="backend-b")
+    process_scan(
+        db_session,
+        source=project.source_type,
+        query=project.query,
+        limit=project.limit,
+        connector=StaticConnector([seen, signal_item("model-new")]),
+        research_project=project,
+    )
+
+    embeddings = db_session.scalars(select(ItemEmbedding)).all()
+    assert len(embeddings) == 2
+    assert {embedding.model_name for embedding in embeddings} == {"model-b:backend-b"}
+    assert {embedding.embedding[0] for embedding in embeddings} == {2.0}
+    assert calls == [("model-a:backend-a", 1), ("model-b:backend-b", 2)]
+
+
+def test_demo_reset_clears_v1_lineage_and_project_scan_metadata(db_session) -> None:
+    project = create_project(db_session)
+    process_scan(
+        db_session,
+        source=project.source_type,
+        query=project.query,
+        limit=project.limit,
+        connector=StaticConnector([signal_item("reset-a"), signal_item("reset-b")]),
+        research_project=project,
+    )
+    assert db_session.scalar(select(func.count()).select_from(ScanItem)) == 2
+    assert db_session.scalar(select(func.count()).select_from(ResearchProjectRun)) == 1
+
+    reset_demo_data(db_session)
+
+    db_session.refresh(project)
+    assert db_session.scalar(select(func.count()).select_from(ScanItem)) == 0
+    assert db_session.scalar(select(func.count()).select_from(ResearchProjectRun)) == 0
+    assert db_session.scalar(select(func.count()).select_from(ScanJob)) == 0
+    assert project.last_scan_id is None
+    assert project.last_run_at is None
+    assert project.run_count == 0

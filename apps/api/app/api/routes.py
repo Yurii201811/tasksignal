@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from secrets import compare_digest
 from uuid import UUID
 
@@ -23,6 +23,7 @@ from app.models.all_models import (
     NormalizedItem,
     Opportunity,
     ResearchProject,
+    ResearchProjectRun,
     ScanJob,
     Source,
 )
@@ -43,6 +44,9 @@ from app.schemas.api import (
     ReadinessOut,
     ResearchProjectCreate,
     ResearchProjectOut,
+    ResearchProjectUpdate,
+    ResearchRunOut,
+    RunDeltaOut,
     ScanCreate,
     ScanOut,
     SearchRequest,
@@ -62,6 +66,13 @@ from app.services.generation.enhancement import EnhancementUnavailable, enhance_
 from app.services.generation.service import generate_opportunity
 from app.services.ingestion.connectors import connector_display_name, connector_failure_message
 from app.services.ingestion.normalization import safe_source_url
+from app.services.research_memory.service import (
+    IncompleteRunError,
+    calculate_run_delta,
+    get_project_run,
+    list_project_runs,
+)
+from app.services.research_projects.service import next_run_at_from
 from app.services.scoring.service import score_opportunity
 from app.workers.demo_pipeline import ensure_sources, process_demo, stats
 from app.workers.scan_pipeline import (
@@ -71,7 +82,7 @@ from app.workers.scan_pipeline import (
     process_scan,
 )
 
-router = APIRouter(prefix="/api")
+router = APIRouter()
 
 PUBLIC_SCAN_API_SOURCES = {"fixture", "hackernews"}
 OPERATOR_SCAN_SOURCES = {"github", "reddit", "stackexchange"}
@@ -88,13 +99,6 @@ SOURCE_CONFIG_SECRET_KEY_PARTS = {
     "secret",
     "token",
 }
-CADENCE_INTERVAL_HOURS = {
-    "manual": None,
-    "hourly": 1,
-    "daily": 24,
-    "weekly": 24 * 7,
-}
-
 DECISION_CHECK_LABELS = {
     "enough_evidence": "Enough evidence",
     "source_diversity": "Source diversity",
@@ -375,6 +379,54 @@ def research_project_to_out(project: ResearchProject) -> ResearchProjectOut:
     return ResearchProjectOut.model_validate(project)
 
 
+def research_run_to_out(run: ResearchProjectRun) -> ResearchRunOut:
+    scan = run.scan
+    return ResearchRunOut(
+        id=run.id,
+        project_id=run.project_id,
+        scan_id=run.scan_id,
+        sequence=run.sequence,
+        source_type=run.source_type,
+        query=run.query,
+        requested_limit=run.requested_limit,
+        lineage_status="complete" if run.lineage_complete else "incomplete",
+        scan_status=scan.status,
+        started_at=scan.started_at,
+        finished_at=scan.finished_at,
+        items_found=scan.items_found,
+        items_saved=scan.items_saved,
+        signals_detected=scan.signals_detected,
+        clusters_created=scan.clusters_created,
+        opportunities_created=scan.opportunities_created,
+        created_at=run.created_at,
+    )
+
+
+def untracked_research_run_to_out(
+    project: ResearchProject,
+    scan: ScanJob,
+) -> ResearchRunOut:
+    return ResearchRunOut(
+        id=scan.id,
+        project_id=project.id,
+        scan_id=scan.id,
+        sequence=None,
+        source_type=scan.source_type,
+        query=scan.query,
+        requested_limit=None,
+        lineage_status="untracked",
+        scan_status=scan.status,
+        started_at=scan.started_at,
+        finished_at=scan.finished_at,
+        items_found=scan.items_found,
+        items_saved=scan.items_saved,
+        signals_detected=scan.signals_detected,
+        clusters_created=scan.clusters_created,
+        opportunities_created=scan.opportunities_created,
+        created_at=scan.started_at,
+    )
+
+
 def source_to_out(source: Source) -> SourceOut:
     return SourceOut(
         id=source.id,
@@ -436,26 +488,6 @@ def get_or_create_local_workspace(db: Session) -> LocalWorkspaceSettings:
     return workspace
 
 
-def interval_hours_for_project(
-    cadence: str,
-    explicit_interval: int | None,
-) -> int | None:
-    if explicit_interval:
-        return max(1, min(24 * 31, explicit_interval))
-    return CADENCE_INTERVAL_HOURS.get(cadence.strip().lower())
-
-
-def next_run_at_from(
-    start: datetime,
-    cadence: str,
-    explicit_interval: int | None,
-) -> datetime | None:
-    interval = interval_hours_for_project(cadence, explicit_interval)
-    if interval is None:
-        return None
-    return start + timedelta(hours=interval)
-
-
 def due_project_query(now: datetime):
     return (
         select(ResearchProject)
@@ -466,18 +498,6 @@ def due_project_query(now: datetime):
         )
         .order_by(ResearchProject.next_run_at.asc())
     )
-
-
-def mark_project_ran(project: ResearchProject, scan: ScanJob, now: datetime) -> None:
-    project.last_scan_id = scan.id
-    project.last_run_at = now
-    project.next_run_at = next_run_at_from(
-        now,
-        project.cadence,
-        project.schedule_interval_hours,
-    )
-    project.run_count += 1
-    project.updated_at = now
 
 
 def readiness_payload(db: Session) -> ReadinessOut:
@@ -1099,6 +1119,89 @@ def create_research_project(
     return research_project_to_out(project)
 
 
+@router.patch("/research-projects/{project_id}", response_model=ResearchProjectOut)
+def update_research_project(
+    project_id: UUID,
+    payload: ResearchProjectUpdate,
+    db: Session = Depends(get_db),
+) -> ResearchProjectOut:
+    project = db.get(ResearchProject, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Research project not found")
+
+    supplied = payload.model_fields_set
+    required_fields = {
+        "name",
+        "source_type",
+        "query",
+        "limit",
+        "cadence",
+        "labels",
+        "enabled",
+    }
+    null_required = [
+        field for field in required_fields if field in supplied and getattr(payload, field) is None
+    ]
+    if null_required:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Fields cannot be null: {', '.join(sorted(null_required))}",
+        )
+
+    if "name" in supplied:
+        name = payload.name.strip() if payload.name else ""
+        if not name:
+            raise HTTPException(status_code=422, detail="Project name cannot be empty")
+        project.name = name
+    if "description" in supplied:
+        project.description = payload.description.strip() if payload.description else None
+    if "source_type" in supplied:
+        source_type = canonical_source(payload.source_type or "")
+        if source_type not in CONNECTOR_FACTORIES:
+            supported = ", ".join(sorted(CONNECTOR_FACTORIES))
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Unsupported source '{payload.source_type}'. "
+                    f"Supported sources: {supported}."
+                ),
+            )
+        project.source_type = source_type
+    if "query" in supplied:
+        project.query = (payload.query or "").strip()
+    if "limit" in supplied:
+        project.limit = payload.limit or project.limit
+    if "cadence" in supplied:
+        cadence = payload.cadence.strip() if payload.cadence else ""
+        if not cadence:
+            raise HTTPException(status_code=422, detail="Cadence cannot be empty")
+        project.cadence = cadence
+    if "schedule_interval_hours" in supplied:
+        project.schedule_interval_hours = payload.schedule_interval_hours
+    if "labels" in supplied:
+        labels = [label.strip() for label in (payload.labels or []) if label.strip()]
+        project.labels_json = list(dict.fromkeys(labels))[:12]
+    if "enabled" in supplied:
+        project.enabled = bool(payload.enabled)
+
+    now = datetime.now(UTC)
+    if supplied & {"cadence", "schedule_interval_hours", "enabled"}:
+        project.next_run_at = (
+            next_run_at_from(
+                now,
+                project.cadence,
+                project.schedule_interval_hours,
+            )
+            if project.enabled
+            else None
+        )
+    if supplied:
+        project.updated_at = now
+        db.commit()
+        db.refresh(project)
+    return research_project_to_out(project)
+
+
 @router.post("/research-projects/run-due", response_model=DueRunOut)
 def run_due_research_projects(
     x_operator_scan_token: str | None = Header(default=None),
@@ -1123,7 +1226,6 @@ def run_due_research_projects(
             limit=project.limit,
             research_project=project,
         )
-        mark_project_ran(project, scan, datetime.now(UTC))
         scans.append(scan)
 
     db.commit()
@@ -1141,6 +1243,66 @@ def get_research_project(
     if project is None:
         raise HTTPException(status_code=404, detail="Research project not found")
     return research_project_to_out(project)
+
+
+@router.get(
+    "/research-projects/{project_id}/runs",
+    response_model=list[ResearchRunOut],
+)
+def get_research_project_runs(
+    project_id: UUID,
+    db: Session = Depends(get_db),
+) -> list[ResearchRunOut]:
+    project = db.get(ResearchProject, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Research project not found")
+
+    runs = list_project_runs(db, project_id)
+    output = [research_run_to_out(run) for run in runs]
+    tracked_scan_ids = {run.scan_id for run in runs}
+    if project.last_scan_id and project.last_scan_id not in tracked_scan_ids:
+        legacy_scan = db.get(ScanJob, project.last_scan_id)
+        if legacy_scan is not None:
+            output.append(untracked_research_run_to_out(project, legacy_scan))
+    return output
+
+
+@router.get(
+    "/research-projects/{project_id}/runs/{run_id}/delta",
+    response_model=RunDeltaOut,
+)
+def get_research_project_run_delta(
+    project_id: UUID,
+    run_id: UUID,
+    db: Session = Depends(get_db),
+) -> RunDeltaOut:
+    project = db.get(ResearchProject, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Research project not found")
+    run = get_project_run(db, project_id, run_id)
+    if run is None:
+        if project.last_scan_id == run_id:
+            raise HTTPException(
+                status_code=409,
+                detail="Legacy run lineage is untracked and cannot be compared safely.",
+            )
+        raise HTTPException(status_code=404, detail="Research run not found")
+    try:
+        delta = calculate_run_delta(db, run)
+    except IncompleteRunError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return RunDeltaOut(
+        project_id=delta.project_id,
+        run_id=delta.run_id,
+        scan_id=delta.scan_id,
+        sequence=delta.sequence,
+        previous_run_id=delta.previous_run_id,
+        evidence_changes=delta.evidence_changes,
+        signal_changes=delta.signal_changes,
+        generated_snapshots=delta.generated_snapshots,
+        opportunity_changes=None,
+        warnings=["thread_matching_unavailable"],
+    )
 
 
 @router.post("/research-projects/{project_id}/run", response_model=ScanOut)
@@ -1163,9 +1325,6 @@ def run_research_project(
         limit=project.limit,
         research_project=project,
     )
-    mark_project_ran(project, scan, datetime.now(UTC))
-    db.commit()
-    db.refresh(scan)
     return scan
 
 
