@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -29,6 +35,7 @@ const pendingSession = {
     "set_opportunity_decision",
     "append_evidence_label",
     "create_build_packet",
+    "use_configured_ai",
   ],
   approved_capabilities: [],
   approval_source: null,
@@ -111,5 +118,82 @@ describe("AgentSessions", () => {
     expect(
       screen.getByText(/summaries are redacted by the API/i),
     ).toBeInTheDocument();
+  });
+
+  it("shows only capabilities actually granted to an approved session", async () => {
+    vi.mocked(api.agentSessions).mockResolvedValue([
+      {
+        ...pendingSession,
+        status: "approved",
+        effective_status: "approved",
+        approved_capabilities: pendingSession.requested_capabilities.filter(
+          (capability) => capability !== "use_configured_ai",
+        ),
+        approval_source: "ui",
+        approved_at: "2026-07-11T10:00:10Z",
+      },
+    ]);
+
+    renderFeature();
+
+    expect(
+      await screen.findByText("Approved capabilities"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("use configured ai")).not.toBeInTheDocument();
+    expect(screen.getByText("create build packet")).toBeInTheDocument();
+  });
+
+  it("refreshes the optimistic version after an approval conflict", async () => {
+    const refreshed = { ...pendingSession, version: 3 };
+    vi.mocked(api.agentSessions)
+      .mockResolvedValueOnce([pendingSession])
+      .mockResolvedValue([refreshed]);
+    vi.mocked(api.approveAgentSession)
+      .mockRejectedValueOnce(new Error('{"detail":"version conflict"}'))
+      .mockResolvedValue({
+        ...refreshed,
+        status: "approved",
+        effective_status: "approved",
+        version: 4,
+        approval_source: "ui",
+        approved_capabilities: refreshed.requested_capabilities.filter(
+          (capability) => capability !== "use_configured_ai",
+        ),
+        approved_at: "2026-07-11T10:00:20Z",
+      });
+    renderFeature();
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Approve session" }),
+    );
+    await waitFor(() => expect(api.agentSessions).toHaveBeenCalledTimes(2));
+    fireEvent.click(screen.getByRole("button", { name: "Approve session" }));
+
+    await waitFor(() =>
+      expect(api.approveAgentSession).toHaveBeenLastCalledWith(
+        "session-1",
+        3,
+        false,
+      ),
+    );
+  });
+
+  it("polls often enough to keep the heartbeat lease current", async () => {
+    vi.useFakeTimers();
+    try {
+      renderFeature();
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(api.agentSessions).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(15_000);
+      });
+
+      expect(api.agentSessions).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

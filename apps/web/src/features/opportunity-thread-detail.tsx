@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, GitBranch, Scissors, Save } from "lucide-react";
 import { api } from "@/lib/api";
@@ -43,6 +43,9 @@ export function OpportunityThreadDetail({ id }: { id: string }) {
   const queryClient = useQueryClient();
   const [reviewState, setReviewState] = useState<ReviewState>("new");
   const [reviewNote, setReviewNote] = useState("");
+  const [decisionDirty, setDecisionDirty] = useState(false);
+  const [detachedThreadId, setDetachedThreadId] = useState<string | null>(null);
+  const detachedThreadLinkRef = useRef<HTMLAnchorElement>(null);
   const thread = useQuery({
     queryKey: ["opportunity-thread", id],
     queryFn: () => api.opportunityThread(id),
@@ -55,8 +58,14 @@ export function OpportunityThreadDetail({ id }: { id: string }) {
         expected_version: thread.data?.version ?? 0,
       }),
     onSuccess: (next) => {
+      setDecisionDirty(false);
       queryClient.setQueryData(["opportunity-thread", id], next);
-      queryClient.invalidateQueries({ queryKey: ["opportunity-threads"] });
+      void queryClient.invalidateQueries({ queryKey: ["opportunity-threads"] });
+    },
+    onError: () => {
+      void queryClient.invalidateQueries({
+        queryKey: ["opportunity-thread", id],
+      });
     },
   });
   const detach = useMutation({
@@ -67,15 +76,25 @@ export function OpportunityThreadDetail({ id }: { id: string }) {
         ["opportunity-thread", id],
         result.source_thread,
       );
-      queryClient.invalidateQueries({ queryKey: ["opportunity-threads"] });
+      setDetachedThreadId(result.new_thread.id);
+      void queryClient.invalidateQueries({ queryKey: ["opportunity-threads"] });
+    },
+    onError: () => {
+      void queryClient.invalidateQueries({
+        queryKey: ["opportunity-thread", id],
+      });
     },
   });
 
   useEffect(() => {
-    if (!thread.data) return;
+    if (!thread.data || decisionDirty) return;
     setReviewState(thread.data.review_state);
     setReviewNote(thread.data.review_note ?? "");
-  }, [thread.data]);
+  }, [decisionDirty, thread.data]);
+
+  useEffect(() => {
+    if (detachedThreadId) detachedThreadLinkRef.current?.focus();
+  }, [detachedThreadId]);
 
   if (thread.isLoading) {
     return (
@@ -183,9 +202,10 @@ export function OpportunityThreadDetail({ id }: { id: string }) {
             <Select
               className="mt-2"
               value={reviewState}
-              onChange={(event) =>
-                setReviewState(event.target.value as ReviewState)
-              }
+              onChange={(event) => {
+                setReviewState(event.target.value as ReviewState);
+                setDecisionDirty(true);
+              }}
             >
               {REVIEW_STATE_OPTIONS.map((option) => (
                 <option key={option.value} value={option.value}>
@@ -201,7 +221,10 @@ export function OpportunityThreadDetail({ id }: { id: string }) {
             <Textarea
               className="mt-2"
               value={reviewNote}
-              onChange={(event) => setReviewNote(event.target.value)}
+              onChange={(event) => {
+                setReviewNote(event.target.value);
+                setDecisionDirty(true);
+              }}
               maxLength={1000}
             />
           </label>
@@ -230,7 +253,7 @@ export function OpportunityThreadDetail({ id }: { id: string }) {
             <h2 className="text-lg font-semibold text-ink">Snapshot history</h2>
             <p className="mt-1 text-sm leading-6 text-muted">
               Matching never rewrites a snapshot. A human may detach an
-              incorrect historical match.
+              incorrect current or historical automatic match.
             </p>
           </div>
           <Badge tone="blue">Human correction only</Badge>
@@ -238,6 +261,10 @@ export function OpportunityThreadDetail({ id }: { id: string }) {
         <div className="mt-4 divide-y divide-border">
           {data.snapshots.map((snapshot) => {
             const isCurrent = snapshot.id === data.current_snapshot?.id;
+            const canDetach =
+              data.snapshots.length > 1 &&
+              (snapshot.match_method === "exact_evidence" ||
+                snapshot.match_method === "weighted_similarity");
             return (
               <article
                 key={snapshot.id}
@@ -261,14 +288,20 @@ export function OpportunityThreadDetail({ id }: { id: string }) {
                     {snapshot.signal_count} signals
                   </p>
                 </div>
-                {!isCurrent && data.snapshots.length > 1 ? (
+                {canDetach ? (
                   <Button
+                    className="whitespace-normal text-balance"
                     variant="secondary"
                     loading={
                       detach.isPending && detach.variables === snapshot.id
                     }
                     disabled={detach.isPending}
-                    onClick={() => detach.mutate(snapshot.id)}
+                    onClick={() => {
+                      const confirmed = window.confirm(
+                        "Detach this automatically matched snapshot into a new thread? The source thread will keep its other snapshots.",
+                      );
+                      if (confirmed) detach.mutate(snapshot.id);
+                    }}
                   >
                     <Scissors size={16} aria-hidden /> Detach snapshot into a
                     new thread
@@ -288,6 +321,25 @@ export function OpportunityThreadDetail({ id }: { id: string }) {
           </StateMessage>
         ) : null}
       </Card>
+
+      {detachedThreadId ? (
+        <StateMessage
+          tone="success"
+          title="Snapshot detached into a new thread"
+          action={
+            <Link
+              ref={detachedThreadLinkRef}
+              href={`/threads/${detachedThreadId}`}
+              className="inline-flex min-h-11 items-center rounded-product border border-border-strong bg-surface px-4 py-2 text-sm font-semibold text-ink hover:bg-surface-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]"
+            >
+              Open detached thread
+            </Link>
+          }
+        >
+          The correction is recorded in both threads&apos; append-only decision
+          history.
+        </StateMessage>
+      ) : null}
 
       <BuildStudio thread={data} />
 

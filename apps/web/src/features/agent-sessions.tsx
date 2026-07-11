@@ -14,6 +14,8 @@ import {
   TableShell,
 } from "@/components/ui";
 
+const SESSION_REFRESH_INTERVAL_MS = 15_000;
+
 function errorMessage(error: unknown) {
   if (!(error instanceof Error)) return "The request failed.";
   try {
@@ -42,6 +44,8 @@ export function AgentSessions() {
   const sessions = useQuery({
     queryKey: ["agent-sessions"],
     queryFn: api.agentSessions,
+    refetchInterval: SESSION_REFRESH_INTERVAL_MS,
+    refetchIntervalInBackground: true,
   });
   const audit = useQuery({
     queryKey: ["agent-session-actions", auditSessionId],
@@ -55,14 +59,30 @@ export function AgentSessions() {
         session.version,
         configuredAiBySession[session.id] ?? false,
       ),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ["agent-sessions"] }),
+    onSuccess: (next) => {
+      queryClient.setQueryData<AgentSession[]>(["agent-sessions"], (current) =>
+        (current ?? []).map((session) =>
+          session.id === next.id ? next : session,
+        ),
+      );
+    },
+    onError: () => {
+      void queryClient.invalidateQueries({ queryKey: ["agent-sessions"] });
+    },
   });
   const revoke = useMutation({
     mutationFn: (session: AgentSession) =>
       api.revokeAgentSession(session.id, session.version),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ["agent-sessions"] }),
+    onSuccess: (next) => {
+      queryClient.setQueryData<AgentSession[]>(["agent-sessions"], (current) =>
+        (current ?? []).map((session) =>
+          session.id === next.id ? next : session,
+        ),
+      );
+    },
+    onError: () => {
+      void queryClient.invalidateQueries({ queryKey: ["agent-sessions"] });
+    },
   });
   const error = sessions.error ?? approve.error ?? revoke.error;
 
@@ -110,6 +130,12 @@ export function AgentSessions() {
         {(sessions.data ?? []).map((session) => {
           const pending = session.effective_status === "pending";
           const approved = session.effective_status === "approved";
+          const visibleCapabilities = pending
+            ? session.requested_capabilities
+            : session.approved_capabilities;
+          const capabilityLabel = pending
+            ? "Requested capabilities"
+            : "Approved capabilities";
           return (
             <Card key={session.id}>
               <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
@@ -136,13 +162,22 @@ export function AgentSessions() {
                     lease expires{" "}
                     {new Date(session.expires_at).toLocaleString()}
                   </p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {session.requested_capabilities.map((capability) => (
-                      <Badge key={capability}>
-                        {capability.replaceAll("_", " ")}
-                      </Badge>
-                    ))}
-                  </div>
+                  <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-muted">
+                    {capabilityLabel}
+                  </p>
+                  {visibleCapabilities.length > 0 ? (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {visibleCapabilities.map((capability) => (
+                        <Badge key={capability}>
+                          {capability.replaceAll("_", " ")}
+                        </Badge>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-2 text-sm text-muted">
+                      No capabilities were approved.
+                    </p>
+                  )}
                 </div>
 
                 <div className="flex max-w-md flex-col items-start gap-3 lg:items-end">

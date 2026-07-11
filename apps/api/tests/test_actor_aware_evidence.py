@@ -5,6 +5,7 @@ from uuid import uuid4
 
 from sqlalchemy import select
 
+from app.api.routes import opportunity_to_out
 from app.models.all_models import (
     AgentSession,
     ClusterItem,
@@ -85,6 +86,17 @@ def test_agent_labels_are_distinct_and_do_not_grade_human_precision(db_session) 
     human = get_review_snapshots(db_session, [item_id])[item_id]
     agent = get_agent_review_snapshots(db_session, [item_id])[item_id]
     summary = evaluation_summary(db_session)
+    opportunity = db_session.scalar(
+        select(Opportunity)
+        .join(ClusterItem, ClusterItem.cluster_id == Opportunity.cluster_id)
+        .where(ClusterItem.item_id == item_id)
+        .limit(1)
+    )
+    assert opportunity is not None
+    item_output = next(
+        item for item in opportunity_to_out(db_session, opportunity).evidence_items
+        if item.id == item_id
+    )
 
     assert human.review_label == "true_signal"
     assert human.actor_type == "human"
@@ -92,6 +104,8 @@ def test_agent_labels_are_distinct_and_do_not_grade_human_precision(db_session) 
     assert agent.review_label == "false_positive"
     assert agent.actor_type == "agent"
     assert agent.agent_session_id == session.id
+    assert item_output.review_version == 1
+    assert item_output.agent_review_version == 2
     assert summary.label_counts.true_signal == 1
     assert summary.label_counts.false_positive == 0
     assert summary.precision_on_reviewed_positives == 1.0

@@ -100,4 +100,38 @@ describe("Discourse source management", () => {
     );
     expect(screen.getByText(/public only.*no cookies/i)).toBeInTheDocument();
   });
+
+  it("requires fresh terms confirmation whenever the exact origin changes", async () => {
+    renderFeature();
+
+    const origin = await screen.findByLabelText("Exact HTTPS forum origin");
+    const terms = screen.getByRole("checkbox", {
+      name: /confirm.*public forum.*terms/i,
+    });
+    const authorize = screen.getByRole("button", {
+      name: "Authorize exact host",
+    });
+
+    fireEvent.change(origin, {
+      target: { value: "https://forum-a.example.com" },
+    });
+    fireEvent.click(terms);
+    expect(terms).toBeChecked();
+    expect(authorize).toBeEnabled();
+
+    fireEvent.change(origin, {
+      target: { value: "https://forum-b.example.com" },
+    });
+
+    expect(terms).not.toBeChecked();
+    expect(authorize).toBeDisabled();
+    fireEvent.click(terms);
+    fireEvent.click(authorize);
+    await waitFor(() =>
+      expect(api.authorizeDiscourseSource).toHaveBeenCalledWith(
+        "source-1",
+        "https://forum-b.example.com",
+      ),
+    );
+  });
 });

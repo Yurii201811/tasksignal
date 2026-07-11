@@ -109,7 +109,10 @@ function DiscourseSourceCard({ source }: { source: Source }) {
           placeholder="https://forum.example.com"
           value={origin}
           disabled={authorization.data?.authorized}
-          onChange={(event) => setOrigin(event.target.value)}
+          onChange={(event) => {
+            setOrigin(event.target.value);
+            setTermsConfirmed(false);
+          }}
         />
       </label>
       {!authorization.data?.authorized ? (

@@ -788,6 +788,7 @@ def item_to_out(
         review_label=review.review_label,
         review_note=review.review_note,
         reviewed_at=review.reviewed_at,
+        review_version=review.version,
         review_history_count=review.history_count,
         agent_review_label=agent_review.review_label,
         agent_reviewed_at=agent_review.reviewed_at,

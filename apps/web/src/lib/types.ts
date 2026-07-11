@@ -111,7 +111,13 @@ export type EvidenceItem = {
   review_label: EvidenceReviewLabel | null;
   review_note: string | null;
   reviewed_at: string | null;
+  review_version: number | null;
   review_history_count: number;
+  agent_review_label: EvidenceReviewLabel | null;
+  agent_reviewed_at: string | null;
+  agent_review_history_count: number;
+  agent_review_version: number | null;
+  agent_session_id: string | null;
 };
 
 export type ScoreBreakdown = {
@@ -352,6 +358,61 @@ export type OpportunityThread = OpportunityThreadSummary & {
 export type DetachSnapshotResult = {
   source_thread: OpportunityThread;
   new_thread: OpportunityThread;
+};
+
+export type EvidenceSearchObservation = {
+  source: string;
+  source_url: string;
+  scan_id: string;
+  run_id: string | null;
+  project_id: string | null;
+};
+
+export type EvidenceSearchHit = {
+  id: string;
+  source: string;
+  title: string;
+  excerpt: string;
+  source_url: string;
+  match_score: number;
+  signal_type: string | null;
+  review_label: EvidenceReviewLabel | null;
+  created_at: string;
+  untrusted_evidence: true;
+  provenance: {
+    evidence_hash: string;
+    scan_ids: string[];
+    run_ids: string[];
+    project_ids: string[];
+    observations: EvidenceSearchObservation[];
+  };
+};
+
+export type OpportunityThreadSearchHit = {
+  id: string;
+  project_id: string | null;
+  title: string;
+  summary: string;
+  match_score: number;
+  matched_evidence_ids: string[];
+  matched_evidence_count: number;
+  review_state: ReviewState;
+  lineage_status: "complete" | "untracked";
+  evidence_readiness: EvidenceReadiness;
+  provenance: {
+    snapshot_id: string;
+    run_id: string | null;
+    scan_id: string | null;
+    evidence_hash: string;
+    content_hash: string;
+    match_method: string;
+    match_confidence: number | null;
+  };
+};
+
+export type SemanticSearch = {
+  evidence_hits: EvidenceSearchHit[];
+  opportunity_threads: OpportunityThreadSearchHit[];
 };
 
 export type BuildPacketArtifact = {

@@ -11,7 +11,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { api } from "@/lib/api";
-import type { BuildPacket, OpportunityThread } from "@/lib/types";
+import type { BuildPacket, EvidenceItem, OpportunityThread } from "@/lib/types";
 import {
   Badge,
   Button,
@@ -29,6 +29,17 @@ function errorMessage(error: unknown) {
   } catch {
     return error.message;
   }
+}
+
+function unresolvedSensitiveRisk(item: EvidenceItem) {
+  if (item.review_label === "sensitive_risk") return "human" as const;
+  if (
+    item.agent_review_label === "sensitive_risk" &&
+    (item.agent_review_version ?? 0) > (item.review_version ?? 0)
+  ) {
+    return "agent" as const;
+  }
+  return null;
 }
 
 export function BuildStudio({ thread }: { thread: OpportunityThread }) {
@@ -56,6 +67,11 @@ export function BuildStudio({ thread }: { thread: OpportunityThread }) {
       queryClient.invalidateQueries({ queryKey: ["build-packets", thread.id] });
       return packet;
     },
+    onError: () => {
+      void queryClient.invalidateQueries({
+        queryKey: ["opportunity-thread", thread.id],
+      });
+    },
   });
   const verify = useMutation({ mutationFn: api.verifyBuildPacket });
   const downloadPacket = useMutation({ mutationFn: api.downloadBuildPacket });
@@ -66,11 +82,10 @@ export function BuildStudio({ thread }: { thread: OpportunityThread }) {
     (artifact) => artifact.path === selectedArtifact,
   );
   const current = thread.current_snapshot;
-  const hasSensitiveRisk = Boolean(
-    current?.evidence_items.some(
-      (item) => item.review_label === "sensitive_risk",
-    ),
-  );
+  const sensitiveRisk = current?.evidence_items
+    .map(unresolvedSensitiveRisk)
+    .find((risk) => risk !== null);
+  const hasSensitiveRisk = sensitiveRisk !== undefined;
   const eligible = Boolean(
     thread.review_state === "build_candidate" &&
     current &&
@@ -135,8 +150,23 @@ export function BuildStudio({ thread }: { thread: OpportunityThread }) {
 
       {!eligible ? (
         <StateMessage tone="warning" title="Packet generation is guarded">
-          Mark the thread as a build candidate, reach medium or strong evidence
-          readiness, and clear any current human-confirmed sensitive risk.
+          <ul className="list-disc space-y-1 pl-5">
+            {thread.review_state !== "build_candidate" ? (
+              <li>Mark the thread as a build candidate.</li>
+            ) : null}
+            {!current || current.evidence_readiness.level === "weak" ? (
+              <li>Reach medium or strong evidence readiness.</li>
+            ) : null}
+            {sensitiveRisk === "human" ? (
+              <li>Clear the current human-confirmed sensitive risk.</li>
+            ) : null}
+            {sensitiveRisk === "agent" ? (
+              <li>
+                Review and clear the newer agent-sensitive risk before packet
+                generation.
+              </li>
+            ) : null}
+          </ul>
         </StateMessage>
       ) : null}
       {create.error ? (
@@ -217,13 +247,18 @@ export function BuildStudio({ thread }: { thread: OpportunityThread }) {
             <div className="flex flex-wrap gap-2">
               <Button
                 variant="secondary"
-                loading={verify.isPending}
+                loading={
+                  verify.isPending && verify.variables === currentPacket.id
+                }
                 onClick={() => verify.mutate(currentPacket.id)}
               >
                 <ShieldCheck size={16} aria-hidden /> Verify packet
               </Button>
               <Button
-                loading={downloadPacket.isPending}
+                loading={
+                  downloadPacket.isPending &&
+                  downloadPacket.variables === currentPacket.id
+                }
                 onClick={() => downloadPacket.mutate(currentPacket.id)}
               >
                 <Download size={16} aria-hidden /> Download ZIP
@@ -231,7 +266,7 @@ export function BuildStudio({ thread }: { thread: OpportunityThread }) {
             </div>
           </div>
 
-          {verify.data ? (
+          {verify.data?.packet_id === currentPacket.id ? (
             <StateMessage
               className="mt-4"
               tone={verify.data.valid ? "success" : "danger"}
@@ -246,7 +281,7 @@ export function BuildStudio({ thread }: { thread: OpportunityThread }) {
                 : verify.data.errors.join(" ")}
             </StateMessage>
           ) : null}
-          {verify.error ? (
+          {verify.error && verify.variables === currentPacket.id ? (
             <StateMessage
               className="mt-4"
               tone="danger"
@@ -255,7 +290,8 @@ export function BuildStudio({ thread }: { thread: OpportunityThread }) {
               {errorMessage(verify.error)}
             </StateMessage>
           ) : null}
-          {downloadPacket.error ? (
+          {downloadPacket.error &&
+          downloadPacket.variables === currentPacket.id ? (
             <StateMessage
               className="mt-4"
               tone="danger"

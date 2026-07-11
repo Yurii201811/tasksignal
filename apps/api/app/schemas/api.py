@@ -281,6 +281,7 @@ class ItemOut(BaseModel):
     review_label: EvidenceReviewLabel | None = None
     review_note: str | None = None
     reviewed_at: datetime | None = None
+    review_version: int | None = None
     review_history_count: int = 0
     agent_review_label: EvidenceReviewLabel | None = None
     agent_reviewed_at: datetime | None = None

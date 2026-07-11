@@ -1,11 +1,23 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { OpportunityThreadDetail } from "../src/features/opportunity-thread-detail";
 import { OpportunityThreads } from "../src/features/opportunity-threads";
 import { api } from "../src/lib/api";
-import type { Opportunity, OpportunityThread } from "../src/lib/types";
+import type {
+  BuildPacket,
+  BuildPacketSummary,
+  EvidenceItem,
+  Opportunity,
+  OpportunityThread,
+} from "../src/lib/types";
 
 vi.mock("../src/lib/api", () => ({
   api: {
@@ -53,7 +65,7 @@ function snapshot(id: string, current = false): Opportunity {
     cluster_id: `cluster-${id}`,
     evidence_hash: "a".repeat(64),
     content_hash: "b".repeat(64),
-    match_method: current ? "centroid_composite" : "new_thread",
+    match_method: current ? "weighted_similarity" : "new_thread",
     match_confidence: current ? 0.86 : null,
     match_margin: current ? 0.12 : null,
     centroid_similarity: current ? 0.9 : null,
@@ -100,6 +112,77 @@ const thread: OpportunityThread = {
   updated_at: "2026-07-11T10:00:00Z",
 };
 
+function packet(id: string): BuildPacket {
+  return {
+    id,
+    project_id: "project-1",
+    run_id: "run-2",
+    thread_id: "thread-1",
+    snapshot_id: "snapshot-2",
+    lineage_status: "complete",
+    generation_mode: "deterministic",
+    schema_version: "1",
+    tasksignal_version: "1.0.0",
+    template_version: "1",
+    generated_at: "2026-07-11T12:00:00Z",
+    enhancement_status: "not_requested",
+    enhancement_provider: null,
+    enhancement_model: null,
+    enhancement_template_version: null,
+    artifacts: [
+      {
+        path: "README.md",
+        content: `# ${id}`,
+        byte_count: id.length + 2,
+        sha256: "c".repeat(64),
+      },
+    ],
+    manifest: {},
+    manifest_sha256: "d".repeat(64),
+    created_at: "2026-07-11T12:00:00Z",
+  };
+}
+
+function packetSummary(id: string): BuildPacketSummary {
+  const value = packet(id);
+  return {
+    ...value,
+    artifact_count: value.artifacts.length,
+    total_bytes: value.artifacts[0].byte_count,
+  };
+}
+
+function evidenceItem(overrides: Partial<EvidenceItem> = {}): EvidenceItem {
+  return {
+    id: "evidence-1",
+    source: "github",
+    external_id: "issue-1",
+    url: "https://github.com/example/repo/issues/1",
+    title: "Sensitive workflow",
+    body: "Public evidence",
+    score: 10,
+    comments_count: 2,
+    created_at: "2026-07-11T09:00:00Z",
+    tags: [],
+    signal_type: "pain_point",
+    pain_score: 0.8,
+    task_concreteness_score: 0.7,
+    buying_intent_score: 0.2,
+    evidence_spans: [],
+    review_label: "true_signal",
+    review_note: null,
+    reviewed_at: "2026-07-11T10:00:00Z",
+    review_version: 1,
+    review_history_count: 1,
+    agent_review_label: "sensitive_risk",
+    agent_reviewed_at: "2026-07-11T10:01:00Z",
+    agent_review_history_count: 1,
+    agent_review_version: 2,
+    agent_session_id: "session-1",
+    ...overrides,
+  };
+}
+
 function renderWithClient(ui: React.ReactElement) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -112,37 +195,11 @@ function renderWithClient(ui: React.ReactElement) {
 describe("Opportunity threads", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
     vi.mocked(api.opportunityThreads).mockResolvedValue([thread]);
     vi.mocked(api.opportunityThread).mockResolvedValue(thread);
     vi.mocked(api.buildPackets).mockResolvedValue([]);
-    vi.mocked(api.createBuildPacket).mockResolvedValue({
-      id: "packet-1",
-      project_id: "project-1",
-      run_id: "run-2",
-      thread_id: "thread-1",
-      snapshot_id: "snapshot-2",
-      lineage_status: "complete",
-      generation_mode: "deterministic",
-      schema_version: "1",
-      tasksignal_version: "1.0.0",
-      template_version: "1",
-      generated_at: "2026-07-11T12:00:00Z",
-      enhancement_status: "not_requested",
-      enhancement_provider: null,
-      enhancement_model: null,
-      enhancement_template_version: null,
-      artifacts: [
-        {
-          path: "README.md",
-          content: "# Packet",
-          byte_count: 8,
-          sha256: "c".repeat(64),
-        },
-      ],
-      manifest: {},
-      manifest_sha256: "d".repeat(64),
-      created_at: "2026-07-11T12:00:00Z",
-    });
+    vi.mocked(api.createBuildPacket).mockResolvedValue(packet("packet-1"));
     vi.mocked(api.verifyBuildPacket).mockResolvedValue({
       packet_id: "packet-1",
       valid: true,
@@ -174,7 +231,9 @@ describe("Opportunity threads", () => {
     renderWithClient(<OpportunityThreadDetail id="thread-1" />);
 
     expect(await screen.findByText("Build Studio")).toBeInTheDocument();
-    expect(screen.getAllByText("centroid composite").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("weighted similarity").length).toBeGreaterThan(
+      0,
+    );
     fireEvent.click(
       screen.getByRole("button", { name: "Generate deterministic packet" }),
     );
@@ -189,26 +248,127 @@ describe("Opportunity threads", () => {
     expect(await screen.findByText("Integrity verified")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Download ZIP" }));
     await waitFor(() => expect(api.downloadBuildPacket).toHaveBeenCalled());
-    expect(vi.mocked(api.downloadBuildPacket).mock.calls[0][0]).toBe("packet-1");
+    expect(vi.mocked(api.downloadBuildPacket).mock.calls[0][0]).toBe(
+      "packet-1",
+    );
   });
 
-  it("offers a human correction for a historical snapshot", async () => {
+  it("offers a confirmed human correction only for automatically matched snapshots", async () => {
     vi.mocked(api.detachOpportunitySnapshot).mockResolvedValue({
       source_thread: {
         ...thread,
-        snapshots: [thread.snapshots[0]],
+        current_snapshot: thread.snapshots[1],
+        snapshots: [thread.snapshots[1]],
         snapshot_count: 1,
         version: 4,
       },
       new_thread: {
         ...thread,
         id: "thread-2",
-        snapshots: [thread.snapshots[1]],
-        current_snapshot: thread.snapshots[1],
+        snapshots: [thread.snapshots[0]],
+        current_snapshot: thread.snapshots[0],
         snapshot_count: 1,
         version: 1,
       },
     });
+    renderWithClient(<OpportunityThreadDetail id="thread-1" />);
+
+    const initialSnapshot = (
+      await screen.findByText("CI diagnosis pain")
+    ).closest("article");
+    expect(initialSnapshot).not.toBeNull();
+    expect(
+      within(initialSnapshot as HTMLElement).queryByRole("button", {
+        name: "Detach snapshot into a new thread",
+      }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Detach snapshot into a new thread",
+      }),
+    );
+    expect(window.confirm).toHaveBeenCalled();
+    await waitFor(() =>
+      expect(api.detachOpportunitySnapshot).toHaveBeenCalledWith(
+        "thread-1",
+        "snapshot-2",
+        3,
+      ),
+    );
+    expect(
+      await screen.findByRole("link", { name: "Open detached thread" }),
+    ).toHaveFocus();
+  });
+
+  it("refreshes a stale decision version while preserving unsaved human input", async () => {
+    const refreshed = { ...thread, version: 4 };
+    vi.mocked(api.opportunityThread)
+      .mockResolvedValueOnce(thread)
+      .mockResolvedValue(refreshed);
+    vi.mocked(api.updateOpportunityThreadDecision)
+      .mockRejectedValueOnce(new Error('{"detail":"version conflict"}'))
+      .mockResolvedValue({
+        ...refreshed,
+        version: 5,
+        review_state: "promising",
+        review_note: "Keep this operator note",
+      });
+    renderWithClient(<OpportunityThreadDetail id="thread-1" />);
+
+    fireEvent.change(await screen.findByLabelText("Review state"), {
+      target: { value: "promising" },
+    });
+    fireEvent.change(screen.getByLabelText("Local review note"), {
+      target: { value: "Keep this operator note" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Save thread decision" }),
+    );
+
+    await waitFor(() => expect(api.opportunityThread).toHaveBeenCalledTimes(2));
+    expect(screen.getByLabelText("Local review note")).toHaveValue(
+      "Keep this operator note",
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Save thread decision" }),
+    );
+    await waitFor(() =>
+      expect(api.updateOpportunityThreadDecision).toHaveBeenLastCalledWith(
+        "thread-1",
+        {
+          review_state: "promising",
+          review_note: "Keep this operator note",
+          expected_version: 4,
+        },
+      ),
+    );
+  });
+
+  it("refreshes a stale detach version before retrying", async () => {
+    const refreshed = { ...thread, version: 4 };
+    const result = {
+      source_thread: {
+        ...refreshed,
+        current_snapshot: refreshed.snapshots[1],
+        snapshots: [refreshed.snapshots[1]],
+        snapshot_count: 1,
+        version: 5,
+      },
+      new_thread: {
+        ...thread,
+        id: "thread-2",
+        current_snapshot: refreshed.snapshots[0],
+        snapshots: [refreshed.snapshots[0]],
+        snapshot_count: 1,
+        version: 1,
+      },
+    };
+    vi.mocked(api.opportunityThread)
+      .mockResolvedValueOnce(thread)
+      .mockResolvedValue(refreshed);
+    vi.mocked(api.detachOpportunitySnapshot)
+      .mockRejectedValueOnce(new Error('{"detail":"version conflict"}'))
+      .mockResolvedValue(result);
     renderWithClient(<OpportunityThreadDetail id="thread-1" />);
 
     fireEvent.click(
@@ -216,12 +376,86 @@ describe("Opportunity threads", () => {
         name: "Detach snapshot into a new thread",
       }),
     );
+    await waitFor(() => expect(api.opportunityThread).toHaveBeenCalledTimes(2));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Detach snapshot into a new thread" }),
+    );
     await waitFor(() =>
-      expect(api.detachOpportunitySnapshot).toHaveBeenCalledWith(
+      expect(api.detachOpportunitySnapshot).toHaveBeenLastCalledWith(
         "thread-1",
-        "snapshot-1",
-        3,
+        "snapshot-2",
+        4,
       ),
+    );
+  });
+
+  it("blocks packet creation for an unresolved newer agent sensitive risk", async () => {
+    const riskySnapshot = {
+      ...thread.current_snapshot!,
+      evidence_items: [evidenceItem()],
+    };
+    vi.mocked(api.opportunityThread).mockResolvedValue({
+      ...thread,
+      current_snapshot: riskySnapshot,
+      snapshots: [riskySnapshot, thread.snapshots[1]],
+    });
+    renderWithClient(<OpportunityThreadDetail id="thread-1" />);
+
+    expect(await screen.findByText("Eligibility blocked")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Generate deterministic packet" }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Generate with configured AI" }),
+    ).toBeDisabled();
+    expect(screen.getByText(/newer agent-sensitive risk/i)).toBeInTheDocument();
+  });
+
+  it("does not carry a verification result to another packet", async () => {
+    vi.mocked(api.buildPackets).mockResolvedValue([
+      packetSummary("packet-1"),
+      packetSummary("packet-2"),
+    ]);
+    vi.mocked(api.buildPacket).mockImplementation(async (id) => packet(id));
+    renderWithClient(<OpportunityThreadDetail id="thread-1" />);
+
+    const viewButtons = await screen.findAllByRole("button", {
+      name: "View packet",
+    });
+    fireEvent.click(viewButtons[0]);
+    expect(await screen.findByText("Packet packet-1")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Verify packet" }));
+    expect(await screen.findByText("Integrity verified")).toBeInTheDocument();
+
+    fireEvent.click(viewButtons[1]);
+    expect(await screen.findByText("Packet packet-2")).toBeInTheDocument();
+    expect(screen.queryByText("Integrity verified")).not.toBeInTheDocument();
+  });
+
+  it("refreshes a stale packet version before retrying", async () => {
+    const refreshed = { ...thread, version: 4 };
+    vi.mocked(api.opportunityThread)
+      .mockResolvedValueOnce(thread)
+      .mockResolvedValue(refreshed);
+    vi.mocked(api.createBuildPacket)
+      .mockRejectedValueOnce(new Error('{"detail":"version conflict"}'))
+      .mockResolvedValue(packet("packet-2"));
+    renderWithClient(<OpportunityThreadDetail id="thread-1" />);
+
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Generate deterministic packet",
+      }),
+    );
+    await waitFor(() => expect(api.opportunityThread).toHaveBeenCalledTimes(2));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Generate deterministic packet" }),
+    );
+    await waitFor(() =>
+      expect(api.createBuildPacket).toHaveBeenLastCalledWith("thread-1", {
+        expected_version: 4,
+        use_configured_ai: false,
+      }),
     );
   });
 });

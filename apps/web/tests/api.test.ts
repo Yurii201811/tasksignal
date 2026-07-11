@@ -53,6 +53,23 @@ describe("decision workbench API", () => {
     ]);
   });
 
+  it("uses the canonical typed v1 search route", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      Response.json({ evidence_hits: [], opportunity_threads: [] }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.semanticSearch("recurring CI pain");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:8000/api/v1/search",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ query: "recurring CI pain", limit: 8 }),
+      }),
+    );
+  });
+
   it("sends thread filters to the canonical server endpoint", async () => {
     const fetchMock = vi.fn<typeof fetch>(async () => Response.json([]));
     vi.stubGlobal("fetch", fetchMock);

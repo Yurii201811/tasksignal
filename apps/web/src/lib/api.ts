@@ -26,6 +26,7 @@ import type {
   Readiness,
   Scan,
   ScanCreate,
+  SemanticSearch,
   Source,
   SourceAuthorization,
   SourceRuntimeState,
@@ -176,10 +177,7 @@ export const api = {
       body: JSON.stringify(payload),
     }),
   semanticSearch: (query: string) =>
-    request<{
-      items: { item: unknown; similarity: number }[];
-      opportunities: unknown[];
-    }>("/api/search/semantic", {
+    request<SemanticSearch>("/api/v1/search", {
       method: "POST",
       body: JSON.stringify({ query, limit: 8 }),
     }),
