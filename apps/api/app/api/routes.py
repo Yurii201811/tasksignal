@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from datetime import UTC, datetime
 from secrets import compare_digest
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
@@ -12,8 +14,10 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.version import TASKSIGNAL_VERSION
 from app.db.session import get_db
 from app.models.all_models import (
+    BuildPacket,
     Cluster,
     ClusterItem,
     DiscourseSourceState,
@@ -31,6 +35,11 @@ from app.models.all_models import (
     Source,
 )
 from app.schemas.api import (
+    BuildPacketArtifactOut,
+    BuildPacketCreate,
+    BuildPacketOut,
+    BuildPacketSummaryOut,
+    BuildPacketVerificationOut,
     DetachSnapshotOut,
     DetachSnapshotRequest,
     DueRunOut,
@@ -67,6 +76,22 @@ from app.schemas.api import (
     SourceRuntimeStateOut,
     TaskPackOut,
 )
+from app.services.build_packets import (
+    BUILD_PACKET_SCHEMA_VERSION,
+    BUILD_PACKET_TEMPLATE_VERSION,
+    MANIFEST_FILENAME,
+    BuildPacketMetadata,
+    build_packet_artifacts,
+    deterministic_zip_bytes,
+    verify_packet_artifacts,
+)
+from app.services.build_packets.enhancement import (
+    ENHANCEMENT_TEMPLATE_VERSION,
+    InvalidBuildPacketEnhancement,
+    build_enhancement_prompt,
+    manifest_with_enhancement,
+    parse_enhanced_documents,
+)
 from app.services.discourse_sources.service import (
     ImmutableDiscourseOrigin,
     InvalidDiscourseOrigin,
@@ -82,8 +107,17 @@ from app.services.evidence_review.service import (
     get_label_history,
     get_review_snapshots,
 )
-from app.services.evidence_review.types import EvidenceReviewSnapshot, ReviewState
-from app.services.generation.enhancement import EnhancementUnavailable, enhance_prompt
+from app.services.evidence_review.types import (
+    EvidenceReadinessLevel,
+    EvidenceReviewLabel,
+    EvidenceReviewSnapshot,
+    ReviewState,
+)
+from app.services.generation.enhancement import (
+    EnhancementUnavailable,
+    configured_provider,
+    enhance_prompt,
+)
 from app.services.generation.service import generate_opportunity
 from app.services.ingestion.connectors import connector_display_name, connector_failure_message
 from app.services.ingestion.normalization import safe_source_url
@@ -1909,6 +1943,660 @@ def detach_opportunity_snapshot(
     )
 
 
+def canonical_packet_json(value: object) -> str:
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        indent=2,
+        sort_keys=True,
+        separators=(",", ": "),
+    ) + "\n"
+
+
+def packet_sha256(content: str) -> str:
+    return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+
+def resolve_packet_run(
+    db: Session,
+    thread: OpportunityThread,
+    snapshot: Opportunity,
+) -> ResearchProjectRun | None:
+    run = db.get(ResearchProjectRun, snapshot.run_id) if snapshot.run_id else None
+    if run is None and snapshot.scan_id is not None:
+        run = db.scalar(
+            select(ResearchProjectRun).where(ResearchProjectRun.scan_id == snapshot.scan_id)
+        )
+    if run is None:
+        cluster = db.get(Cluster, snapshot.cluster_id)
+        if cluster is not None and cluster.scan_id is not None:
+            run = db.scalar(
+                select(ResearchProjectRun).where(
+                    ResearchProjectRun.scan_id == cluster.scan_id
+                )
+            )
+    if run is None or thread.project_id is None or run.project_id != thread.project_id:
+        return None
+    return run
+
+
+def packet_source_snapshot(
+    db: Session,
+    thread: OpportunityThread,
+    snapshot: Opportunity,
+) -> tuple[dict, list[dict], dict, str]:
+    output = opportunity_to_out(db, snapshot)
+    readiness = output.evidence_readiness
+    if any(
+        item.review_label == EvidenceReviewLabel.SENSITIVE_RISK
+        for item in output.evidence_items
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Build packet blocked: current evidence includes sensitive_risk.",
+        )
+    if readiness.level not in {
+        EvidenceReadinessLevel.MEDIUM,
+        EvidenceReadinessLevel.STRONG,
+    }:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Build packet requires medium or strong evidence readiness; "
+                f"current readiness is {readiness.level.value}."
+            ),
+        )
+
+    item_rows = {
+        item.id: item
+        for item in db.scalars(
+            select(NormalizedItem).where(
+                NormalizedItem.id.in_([item.id for item in output.evidence_items])
+            )
+        ).all()
+    }
+    provenance_run = resolve_packet_run(db, thread, snapshot)
+    provenance_scan_id = (
+        snapshot.scan_id
+        or (provenance_run.scan_id if provenance_run is not None else None)
+    )
+    observations = (
+        {
+            observation.item_id: observation
+            for observation in db.scalars(
+                select(ScanItem).where(
+                    ScanItem.scan_id == provenance_scan_id,
+                    ScanItem.item_id.in_([item.id for item in output.evidence_items]),
+                )
+            ).all()
+        }
+        if provenance_scan_id is not None
+        else {}
+    )
+    evidence = [
+        {
+            "id": str(item.id),
+            "source": (
+                observations[item.id].observed_source
+                if item.id in observations and observations[item.id].observed_source
+                else item.source
+            ),
+            "external_id": (
+                observations[item.id].observed_external_id
+                if item.id in observations and observations[item.id].observed_external_id
+                else item.external_id
+            ),
+            "title": item.title,
+            "excerpt": evidence_excerpt(item),
+            "source_url": safe_source_url(
+                (
+                    observations[item.id].observed_url
+                    if item.id in observations and observations[item.id].observed_url
+                    else item.url
+                ),
+                fallback="",
+            ),
+            "evidence_hash": (
+                item_rows[item.id].text_hash if item.id in item_rows else None
+            ),
+            "scan_id": str(provenance_scan_id) if provenance_scan_id else None,
+            "run_id": str(provenance_run.id) if provenance_run else None,
+            "project_id": str(thread.project_id) if thread.project_id else None,
+            "created_at": as_utc(item.created_at).isoformat(),
+            "signal_type": item.signal_type,
+            "review_label": item.review_label.value if item.review_label else None,
+        }
+        for item in output.evidence_items
+    ]
+    decision_event = db.scalar(
+        select(OpportunityDecisionEvent)
+        .where(
+            OpportunityDecisionEvent.thread_id == thread.id,
+            OpportunityDecisionEvent.event_type.in_(
+                ["decision_changed", "legacy_backfill"]
+            ),
+            OpportunityDecisionEvent.next_state == thread.review_state,
+        )
+        .order_by(
+            OpportunityDecisionEvent.created_at.desc(),
+            OpportunityDecisionEvent.id.desc(),
+        )
+        .limit(1)
+    )
+    decision = (
+        {
+            "id": str(decision_event.id),
+            "event_type": decision_event.event_type,
+            "actor_type": decision_event.actor_type,
+            "snapshot_id": (
+                str(decision_event.snapshot_id) if decision_event.snapshot_id else None
+            ),
+            "related_thread_id": (
+                str(decision_event.related_thread_id)
+                if decision_event.related_thread_id
+                else None
+            ),
+            "previous_state": decision_event.previous_state,
+            "next_state": decision_event.next_state,
+            "created_at": as_utc(decision_event.created_at).isoformat(),
+        }
+        if decision_event is not None
+        else None
+    )
+    safe_snapshot = {
+        "title": snapshot.title,
+        "problem_statement": snapshot.problem_statement,
+        "target_user": snapshot.target_user,
+        "current_workaround": snapshot.current_workaround,
+        "suggested_mvp": snapshot.suggested_mvp,
+        "why_now": snapshot.why_now,
+        "feasibility_score": snapshot.feasibility_score,
+        "opportunity_score": snapshot.opportunity_score,
+        "competition_notes": snapshot.competition_notes,
+        "review_state": thread.review_state,
+        "readiness": readiness.level.value,
+        "evidence_hash": snapshot.evidence_hash,
+        "content_hash": snapshot.content_hash,
+        "match_method": snapshot.match_method,
+        "match_confidence": snapshot.match_confidence,
+        "decision": decision,
+    }
+    source_snapshot = {
+        "thread_version": thread.version,
+        "lineage_status": thread.lineage_status,
+        "opportunity": safe_snapshot,
+        "evidence": evidence,
+        "readiness": readiness.model_dump(mode="json"),
+    }
+    signature = packet_sha256(canonical_packet_json(source_snapshot))
+    return safe_snapshot, evidence, source_snapshot, signature
+
+
+def packet_artifact_out(path: str, content: str) -> BuildPacketArtifactOut:
+    return BuildPacketArtifactOut(
+        path=path,
+        content=content,
+        byte_count=len(content.encode("utf-8")),
+        sha256=packet_sha256(content),
+    )
+
+
+def packet_to_out(packet: BuildPacket) -> BuildPacketOut:
+    originals = dict(packet.artifacts_json)
+    enhanced = dict(packet.enhanced_artifacts_json or {})
+    manifest_content = canonical_packet_json(packet.manifest_json)
+    files = {
+        **originals,
+        **enhanced,
+        MANIFEST_FILENAME: manifest_content,
+    }
+    if not all(isinstance(path, str) and isinstance(content, str) for path, content in files.items()):
+        raise HTTPException(status_code=500, detail="Stored build packet artifacts are invalid.")
+    return BuildPacketOut(
+        id=packet.id,
+        project_id=packet.project_id,
+        run_id=packet.run_id,
+        thread_id=packet.thread_id,
+        snapshot_id=packet.snapshot_id,
+        lineage_status=packet.lineage_status,
+        generation_mode=packet.generation_mode,
+        schema_version=packet.schema_version,
+        tasksignal_version=packet.tasksignal_version,
+        template_version=packet.template_version,
+        generated_at=packet.generated_at,
+        enhancement_status=packet.enhancement_status,
+        enhancement_provider=packet.enhancement_provider,
+        enhancement_model=packet.enhancement_model,
+        enhancement_template_version=packet.enhancement_template_version,
+        artifacts=[packet_artifact_out(path, content) for path, content in sorted(files.items())],
+        manifest=packet.manifest_json,
+        manifest_sha256=packet.manifest_sha256,
+        created_at=packet.created_at,
+    )
+
+
+def packet_summary_to_out(packet: BuildPacket) -> BuildPacketSummaryOut:
+    originals = packet.artifacts_json if isinstance(packet.artifacts_json, dict) else {}
+    enhanced = (
+        packet.enhanced_artifacts_json
+        if isinstance(packet.enhanced_artifacts_json, dict)
+        else {}
+    )
+    contents = [
+        content
+        for content in [
+            *originals.values(),
+            *enhanced.values(),
+            canonical_packet_json(packet.manifest_json),
+        ]
+        if isinstance(content, str)
+    ]
+    return BuildPacketSummaryOut(
+        id=packet.id,
+        project_id=packet.project_id,
+        run_id=packet.run_id,
+        thread_id=packet.thread_id,
+        snapshot_id=packet.snapshot_id,
+        lineage_status=packet.lineage_status,
+        generation_mode=packet.generation_mode,
+        schema_version=packet.schema_version,
+        tasksignal_version=packet.tasksignal_version,
+        template_version=packet.template_version,
+        generated_at=packet.generated_at,
+        enhancement_status=packet.enhancement_status,
+        enhancement_provider=packet.enhancement_provider,
+        enhancement_model=packet.enhancement_model,
+        artifact_count=len(originals) + len(enhanced) + 1,
+        total_bytes=sum(len(content.encode("utf-8")) for content in contents),
+        manifest_sha256=packet.manifest_sha256,
+        created_at=packet.created_at,
+    )
+
+
+def verify_packet_record(packet: BuildPacket) -> BuildPacketVerificationOut:
+    originals = dict(packet.artifacts_json) if isinstance(packet.artifacts_json, dict) else {}
+    enhanced = (
+        dict(packet.enhanced_artifacts_json)
+        if isinstance(packet.enhanced_artifacts_json, dict)
+        else {}
+    )
+    manifest = packet.manifest_json if isinstance(packet.manifest_json, dict) else {}
+    verification = verify_packet_artifacts(originals, manifest, enhanced)
+    errors = list(verification.errors)
+    if not isinstance(packet.manifest_json, dict):
+        errors.append("MANIFEST.json must contain an object")
+    manifest_content = canonical_packet_json(packet.manifest_json)
+    if packet_sha256(manifest_content) != packet.manifest_sha256:
+        errors.append("MANIFEST.json sha256 mismatch")
+    source_snapshot = (
+        packet.source_snapshot_json if isinstance(packet.source_snapshot_json, dict) else {}
+    )
+    if not isinstance(packet.source_snapshot_json, dict):
+        errors.append("source snapshot must contain an object")
+    if (
+        manifest.get("source_snapshot_sha256")
+        != packet_sha256(canonical_packet_json(packet.source_snapshot_json))
+    ):
+        errors.append("source snapshot sha256 mismatch")
+    opportunity_snapshot = source_snapshot.get("opportunity")
+    decision = (
+        opportunity_snapshot.get("decision")
+        if isinstance(opportunity_snapshot, dict)
+        else None
+    )
+    expected_decision_id = decision.get("id") if isinstance(decision, dict) else None
+    expected_decision_hash = (
+        packet_sha256(canonical_packet_json(decision))
+        if isinstance(decision, dict)
+        else None
+    )
+    if manifest.get("decision_event_id") != expected_decision_id:
+        errors.append("manifest metadata mismatch for decision_event_id")
+    if manifest.get("decision_sha256") != expected_decision_hash:
+        errors.append("manifest metadata mismatch for decision_sha256")
+
+    expected_metadata = {
+        "packet_id": str(packet.id),
+        "project_id": str(packet.project_id) if packet.project_id else None,
+        "run_id": str(packet.run_id) if packet.run_id else None,
+        "thread_id": str(packet.thread_id),
+        "snapshot_id": str(packet.snapshot_id),
+        "lineage_status": packet.lineage_status,
+        "schema_version": packet.schema_version,
+        "tasksignal_version": packet.tasksignal_version,
+        "template_version": packet.template_version,
+        "generation_mode": packet.generation_mode,
+        "generated_at": as_utc(packet.generated_at).isoformat().replace("+00:00", "Z"),
+    }
+    for key, expected in expected_metadata.items():
+        if manifest.get(key) != expected:
+            errors.append(f"manifest metadata mismatch for {key}")
+    enhancement = manifest.get("enhancement")
+    if not isinstance(enhancement, dict) or enhancement.get("status") != packet.enhancement_status:
+        errors.append("manifest metadata mismatch for enhancement_status")
+    elif packet.enhancement_status != "not_requested":
+        if enhancement.get("provider") != packet.enhancement_provider:
+            errors.append("manifest metadata mismatch for enhancement_provider")
+        if enhancement.get("model") != packet.enhancement_model:
+            errors.append("manifest metadata mismatch for enhancement_model")
+        if enhancement.get("template_version") != packet.enhancement_template_version:
+            errors.append("manifest metadata mismatch for enhancement_template_version")
+
+    missing: list[str] = []
+    unexpected: list[str] = []
+    mismatched: list[str] = []
+    for error in errors:
+        if error.startswith(("missing packet file(s): ", "missing enhanced packet file(s): ")):
+            missing.extend(error.split(": ", 1)[1].split(", "))
+        elif error.startswith(("manifest is missing artifact(s): ", "manifest is missing enhanced artifact(s): ")):
+            missing.extend(error.split(": ", 1)[1].split(", "))
+        elif error.startswith(("manifested file is missing: ", "manifested enhanced file is missing: ")):
+            missing.append(error.split(": ", 1)[1])
+        elif error.startswith(("unexpected packet file(s): ", "unexpected enhanced packet file(s): ")):
+            unexpected.extend(error.split(": ", 1)[1].split(", "))
+        elif error.startswith(("byte count mismatch for ", "sha256 mismatch for ")):
+            mismatched.append(error.rsplit(" for ", 1)[1])
+        elif error == "MANIFEST.json sha256 mismatch":
+            mismatched.append(MANIFEST_FILENAME)
+    return BuildPacketVerificationOut(
+        packet_id=packet.id,
+        valid=not errors,
+        errors=list(dict.fromkeys(errors)),
+        missing_files=sorted(set(missing)),
+        unexpected_files=sorted(set(unexpected)),
+        mismatched_files=sorted(set(mismatched)),
+    )
+
+
+def enhancement_failure_code(exc: Exception) -> str:
+    if isinstance(exc, EnhancementUnavailable):
+        return "unavailable"
+    if isinstance(exc, httpx.TimeoutException):
+        return "timeout"
+    if isinstance(exc, httpx.HTTPError):
+        return "provider_error"
+    if isinstance(exc, InvalidBuildPacketEnhancement):
+        return "invalid_response"
+    return "invalid_response"
+
+
+@router.post(
+    "/opportunity-threads/{thread_id}/build-packets",
+    response_model=BuildPacketOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_build_packet(
+    thread_id: UUID,
+    payload: BuildPacketCreate,
+    x_operator_scan_token: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> BuildPacketOut:
+    if payload.use_configured_ai:
+        require_operator_token(x_operator_scan_token, "Configured-AI packet generation")
+
+    thread = db.get(OpportunityThread, thread_id)
+    if thread is None:
+        raise HTTPException(status_code=404, detail="Opportunity thread not found")
+    if thread.review_state != ReviewState.BUILD_CANDIDATE.value:
+        raise HTTPException(
+            status_code=409,
+            detail="Build packet requires review_state=build_candidate.",
+        )
+    if payload.expected_version is not None and thread.version != payload.expected_version:
+        raise HTTPException(status_code=409, detail="Opportunity thread version conflict.")
+    if thread.current_snapshot_id is None:
+        raise HTTPException(status_code=409, detail="Opportunity thread has no current snapshot.")
+    snapshot = db.get(Opportunity, thread.current_snapshot_id)
+    if snapshot is None or snapshot.thread_id != thread.id:
+        raise HTTPException(status_code=409, detail="Opportunity thread snapshot is invalid.")
+    initial_thread_version = thread.version
+    initial_snapshot_id = snapshot.id
+
+    safe_snapshot, evidence, source_snapshot, eligibility_signature = packet_source_snapshot(
+        db, thread, snapshot
+    )
+    run = resolve_packet_run(db, thread, snapshot)
+    project_id = thread.project_id if run is not None else None
+    run_id = run.id if run is not None else None
+    packet_id = uuid4()
+    generated_at = datetime.now(UTC)
+    generated = build_packet_artifacts(
+        safe_snapshot,
+        evidence,
+        BuildPacketMetadata(
+            packet_id=packet_id,
+            project_id=project_id,
+            run_id=run_id,
+            thread_id=thread.id,
+            snapshot_id=initial_snapshot_id,
+            tasksignal_version=TASKSIGNAL_VERSION,
+            schema_version=BUILD_PACKET_SCHEMA_VERSION,
+            template_version=BUILD_PACKET_TEMPLATE_VERSION,
+        ),
+        generated_at,
+    )
+
+    enhanced_artifacts: dict[str, str] | None = None
+    enhancement_status = "not_requested"
+    enhancement_provider: str | None = None
+    enhancement_model: str | None = None
+    enhancement_template_version: str | None = None
+    decision = safe_snapshot.get("decision")
+    manifest = {
+        **generated.manifest,
+        "source_snapshot_sha256": eligibility_signature,
+        "lineage_status": thread.lineage_status,
+        "decision_event_id": decision.get("id") if isinstance(decision, dict) else None,
+        "decision_sha256": (
+            packet_sha256(canonical_packet_json(decision))
+            if isinstance(decision, dict)
+            else None
+        ),
+    }
+    if payload.use_configured_ai:
+        provider_hint = configured_provider()
+        provider_metadata = provider_hint if provider_hint != "none" else "unconfigured"
+        model_metadata = settings.llm_model.strip() or "unconfigured"
+        try:
+            provider, model, raw_enhancement = enhance_prompt(
+                build_enhancement_prompt(generated.artifacts)
+            )
+            enhanced_artifacts = parse_enhanced_documents(raw_enhancement)
+            enhancement_status = "generated"
+            enhancement_provider = provider
+            enhancement_model = model
+            manifest = manifest_with_enhancement(
+                manifest,
+                status="generated",
+                provider=provider,
+                model=model,
+                enhanced_artifacts=enhanced_artifacts,
+            )
+        except (
+            AttributeError,
+            EnhancementUnavailable,
+            InvalidBuildPacketEnhancement,
+            TypeError,
+            ValueError,
+            httpx.HTTPError,
+        ) as exc:
+            enhancement_status = "fallback"
+            enhancement_provider = provider_metadata
+            enhancement_model = model_metadata
+            manifest = manifest_with_enhancement(
+                manifest,
+                status="fallback",
+                provider=provider_metadata,
+                model=model_metadata,
+                failure_code=enhancement_failure_code(exc),
+            )
+        enhancement_template_version = ENHANCEMENT_TEMPLATE_VERSION
+        db.rollback()
+
+    generated_verification = verify_packet_artifacts(
+        generated.artifacts,
+        manifest,
+        enhanced_artifacts,
+    )
+    if not generated_verification.valid:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="Generated build packet failed local integrity validation.",
+        )
+
+    db.rollback()
+    with SCAN_WRITE_LOCK:
+        acquire_database_scan_write_lock_with_retry(db)
+        fresh_thread = db.scalar(
+            select(OpportunityThread)
+            .where(OpportunityThread.id == thread_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if (
+            fresh_thread is None
+            or fresh_thread.review_state != ReviewState.BUILD_CANDIDATE.value
+            or fresh_thread.current_snapshot_id != initial_snapshot_id
+            or fresh_thread.version != initial_thread_version
+        ):
+            db.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail="Build packet eligibility changed during generation.",
+            )
+        fresh_snapshot = db.get(Opportunity, initial_snapshot_id)
+        if fresh_snapshot is None:
+            db.rollback()
+            raise HTTPException(status_code=409, detail="Opportunity snapshot changed.")
+        _, _, _, fresh_signature = packet_source_snapshot(db, fresh_thread, fresh_snapshot)
+        if fresh_signature != eligibility_signature:
+            db.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail="Build packet eligibility changed during generation.",
+            )
+
+        manifest_content = canonical_packet_json(manifest)
+        packet = BuildPacket(
+            id=packet_id,
+            project_id=project_id,
+            run_id=run_id,
+            thread_id=fresh_thread.id,
+            snapshot_id=fresh_snapshot.id,
+            lineage_status=fresh_thread.lineage_status,
+            generation_mode=(
+                "configured_ai" if payload.use_configured_ai else "deterministic"
+            ),
+            schema_version=BUILD_PACKET_SCHEMA_VERSION,
+            tasksignal_version=TASKSIGNAL_VERSION,
+            template_version=BUILD_PACKET_TEMPLATE_VERSION,
+            source_snapshot_json=source_snapshot,
+            artifacts_json=generated.artifacts,
+            manifest_json=manifest,
+            manifest_sha256=packet_sha256(manifest_content),
+            enhancement_status=enhancement_status,
+            enhanced_artifacts_json=enhanced_artifacts,
+            enhancement_provider=enhancement_provider,
+            enhancement_model=enhancement_model,
+            enhancement_template_version=enhancement_template_version,
+            generated_at=generated_at,
+        )
+        db.add(packet)
+        commit_review_write(db, "Could not store the immutable build packet.")
+        db.refresh(packet)
+    return packet_to_out(packet)
+
+
+@router.get(
+    "/opportunity-threads/{thread_id}/build-packets",
+    response_model=list[BuildPacketSummaryOut],
+)
+def list_build_packets(
+    thread_id: UUID,
+    limit: int = 20,
+    offset: int = 0,
+    db: Session = Depends(get_db),
+) -> list[BuildPacketSummaryOut]:
+    if limit < 1 or limit > 100 or offset < 0:
+        raise HTTPException(
+            status_code=422,
+            detail="Build packet pagination requires limit 1-100 and offset >= 0.",
+        )
+    if db.get(OpportunityThread, thread_id) is None:
+        raise HTTPException(status_code=404, detail="Opportunity thread not found")
+    packets = db.scalars(
+        select(BuildPacket)
+        .where(BuildPacket.thread_id == thread_id)
+        .order_by(BuildPacket.created_at.desc(), BuildPacket.id.desc())
+        .offset(offset)
+        .limit(limit)
+    ).all()
+    return [packet_summary_to_out(packet) for packet in packets]
+
+
+@router.get("/build-packets/{packet_id}", response_model=BuildPacketOut)
+def get_build_packet(packet_id: UUID, db: Session = Depends(get_db)) -> BuildPacketOut:
+    packet = db.get(BuildPacket, packet_id)
+    if packet is None:
+        raise HTTPException(status_code=404, detail="Build packet not found")
+    return packet_to_out(packet)
+
+
+@router.get(
+    "/build-packets/{packet_id}/verify",
+    response_model=BuildPacketVerificationOut,
+)
+def verify_build_packet(
+    packet_id: UUID,
+    db: Session = Depends(get_db),
+) -> BuildPacketVerificationOut:
+    packet = db.get(BuildPacket, packet_id)
+    if packet is None:
+        raise HTTPException(status_code=404, detail="Build packet not found")
+    return verify_packet_record(packet)
+
+
+@router.get(
+    "/build-packets/{packet_id}/download",
+    response_class=Response,
+    responses={
+        200: {
+            "description": "Verified immutable build-packet archive.",
+            "content": {
+                "application/zip": {
+                    "schema": {"type": "string", "format": "binary"}
+                }
+            },
+        }
+    },
+)
+def download_build_packet(packet_id: UUID, db: Session = Depends(get_db)) -> Response:
+    packet = db.get(BuildPacket, packet_id)
+    if packet is None:
+        raise HTTPException(status_code=404, detail="Build packet not found")
+    verification = verify_packet_record(packet)
+    if not verification.valid:
+        raise HTTPException(
+            status_code=409,
+            detail="Build packet integrity verification failed before download.",
+        )
+    archive = deterministic_zip_bytes(
+        packet.artifacts_json,
+        packet.manifest_json,
+        packet.enhanced_artifacts_json,
+    )
+    return Response(
+        archive,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="tasksignal-packet-{packet.id}.zip"',
+            "Content-Length": str(len(archive)),
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
 @router.get("/opportunities", response_model=list[OpportunityOut])
 def list_opportunities(
     review_state: ReviewState | None = None,
@@ -2142,17 +2830,20 @@ def semantic_search_route(
 
 @router.post("/labels", response_model=LabelOut)
 def create_label(payload: LabelCreate, db: Session = Depends(get_db)) -> LabelOut:
-    if db.get(NormalizedItem, payload.item_id) is None:
-        raise HTTPException(status_code=404, detail="Item not found")
-    note = payload.user_note.strip() if payload.user_note else None
-    label = Label(
-        item_id=payload.item_id,
-        label=payload.label.value,
-        user_note=note or None,
-    )
-    db.add(label)
-    commit_review_write(db, "Could not save the evidence review.")
-    db.refresh(label)
+    with SCAN_WRITE_LOCK:
+        acquire_database_scan_write_lock_with_retry(db)
+        if db.get(NormalizedItem, payload.item_id) is None:
+            db.rollback()
+            raise HTTPException(status_code=404, detail="Item not found")
+        note = payload.user_note.strip() if payload.user_note else None
+        label = Label(
+            item_id=payload.item_id,
+            label=payload.label.value,
+            user_note=note or None,
+        )
+        db.add(label)
+        commit_review_write(db, "Could not save the evidence review.")
+        db.refresh(label)
     return LabelOut.model_validate(label)
 
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import httpx
 
 from app.core.config import settings
@@ -7,6 +9,44 @@ from app.core.config import settings
 
 class EnhancementUnavailable(RuntimeError):
     """Raised when optional model-backed enhancement is not configured."""
+
+
+MAX_PROVIDER_RESPONSE_BYTES = 4 * 1024 * 1024
+
+
+def bounded_provider_json(
+    url: str,
+    *,
+    headers: dict[str, str] | None = None,
+    payload: dict,
+    timeout: int,
+) -> dict:
+    chunks: list[bytes] = []
+    byte_count = 0
+    with httpx.stream(
+        "POST",
+        url,
+        headers=headers,
+        json=payload,
+        timeout=timeout,
+    ) as response:
+        response.raise_for_status()
+        content_length = response.headers.get("Content-Length")
+        if content_length and content_length.isdigit():
+            if int(content_length) > MAX_PROVIDER_RESPONSE_BYTES:
+                raise EnhancementUnavailable("Enhancement provider response was too large.")
+        for chunk in response.iter_bytes():
+            byte_count += len(chunk)
+            if byte_count > MAX_PROVIDER_RESPONSE_BYTES:
+                raise EnhancementUnavailable("Enhancement provider response was too large.")
+            chunks.append(chunk)
+    try:
+        decoded = json.loads(b"".join(chunks))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise EnhancementUnavailable("Enhancement provider returned invalid JSON.") from exc
+    if not isinstance(decoded, dict):
+        raise EnhancementUnavailable("Enhancement provider returned an invalid response shape.")
+    return decoded
 
 
 def configured_provider() -> str:
@@ -56,38 +96,36 @@ def enhance_prompt_with_openai(prompt: str) -> tuple[str, str, str]:
     if not settings.openai_api_key:
         raise EnhancementUnavailable("OPENAI_API_KEY is required when LLM_PROVIDER=openai.")
 
-    response = httpx.post(
+    payload = bounded_provider_json(
         "https://api.openai.com/v1/responses",
         headers={
             "Authorization": f"Bearer {settings.openai_api_key}",
             "Content-Type": "application/json",
         },
-        json={
+        payload={
             "model": settings.llm_model,
             "instructions": enhancement_instruction(),
             "input": prompt,
         },
         timeout=60,
     )
-    response.raise_for_status()
-    enhanced = parse_openai_text(response.json())
+    enhanced = parse_openai_text(payload)
     if not enhanced:
         raise EnhancementUnavailable("OpenAI returned no text output.")
     return "openai", settings.llm_model, enhanced
 
 
 def enhance_prompt_with_ollama(prompt: str) -> tuple[str, str, str]:
-    response = httpx.post(
+    payload = bounded_provider_json(
         f"{settings.ollama_base_url.rstrip('/')}/api/generate",
-        json={
+        payload={
             "model": settings.llm_model,
             "prompt": f"{enhancement_instruction()}\n\n{prompt}",
             "stream": False,
         },
         timeout=120,
     )
-    response.raise_for_status()
-    enhanced = str(response.json().get("response", "")).strip()
+    enhanced = str(payload.get("response", "")).strip()
     if not enhanced:
         raise EnhancementUnavailable("Ollama returned no text output.")
     return "ollama", settings.llm_model, enhanced

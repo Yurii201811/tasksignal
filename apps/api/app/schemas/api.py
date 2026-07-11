@@ -542,6 +542,70 @@ class SearchRequest(SemanticSearchRequest):
     """Backward-compatible Python type name for the former semantic route."""
 
 
+class BuildPacketCreate(BaseModel):
+    use_configured_ai: bool = False
+    expected_version: int | None = Field(default=None, ge=1)
+
+
+class BuildPacketArtifactOut(BaseModel):
+    path: str
+    content: str
+    byte_count: int = Field(ge=0)
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class BuildPacketOut(BaseModel):
+    id: UUID
+    project_id: UUID | None
+    run_id: UUID | None
+    thread_id: UUID
+    snapshot_id: UUID
+    lineage_status: Literal["complete", "untracked"]
+    generation_mode: Literal["deterministic", "configured_ai"]
+    schema_version: str
+    tasksignal_version: str
+    template_version: str
+    generated_at: datetime
+    enhancement_status: Literal["not_requested", "generated", "fallback"]
+    enhancement_provider: str | None
+    enhancement_model: str | None
+    enhancement_template_version: str | None
+    artifacts: list[BuildPacketArtifactOut] = Field(default_factory=list)
+    manifest: dict
+    manifest_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    created_at: datetime
+
+
+class BuildPacketSummaryOut(BaseModel):
+    id: UUID
+    project_id: UUID | None
+    run_id: UUID | None
+    thread_id: UUID
+    snapshot_id: UUID
+    lineage_status: Literal["complete", "untracked"]
+    generation_mode: Literal["deterministic", "configured_ai"]
+    schema_version: str
+    tasksignal_version: str
+    template_version: str
+    generated_at: datetime
+    enhancement_status: Literal["not_requested", "generated", "fallback"]
+    enhancement_provider: str | None
+    enhancement_model: str | None
+    artifact_count: int = Field(ge=0)
+    total_bytes: int = Field(ge=0)
+    manifest_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    created_at: datetime
+
+
+class BuildPacketVerificationOut(BaseModel):
+    packet_id: UUID
+    valid: bool
+    errors: list[str] = Field(default_factory=list)
+    missing_files: list[str] = Field(default_factory=list)
+    unexpected_files: list[str] = Field(default_factory=list)
+    mismatched_files: list[str] = Field(default_factory=list)
+
+
 class TaskPackOut(BaseModel):
     opportunity_id: UUID
     title: str

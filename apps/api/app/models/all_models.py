@@ -8,6 +8,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     Text,
@@ -234,6 +235,11 @@ class ResearchProjectRun(Base):
             "sequence",
             name="uq_research_project_runs_project_sequence",
         ),
+        UniqueConstraint(
+            "id",
+            "project_id",
+            name="uq_research_project_runs_id_project",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -418,6 +424,16 @@ class OpportunityThread(Base):
             "(project_id IS NOT NULL AND lineage_status = 'complete')",
             name="ck_opportunity_threads_project_lineage",
         ),
+        UniqueConstraint(
+            "id",
+            "project_id",
+            name="uq_opportunity_threads_id_project",
+        ),
+        UniqueConstraint(
+            "id",
+            "lineage_status",
+            name="uq_opportunity_threads_id_lineage",
+        ),
         Index("ix_opportunity_threads_project_review", "project_id", "review_state"),
     )
 
@@ -502,6 +518,11 @@ class Opportunity(Base):
             "(embedding_model IS NOT NULL AND embedding_backend IS NOT NULL)",
             name="ck_opportunities_embedding_identity",
         ),
+        UniqueConstraint(
+            "id",
+            "thread_id",
+            name="uq_opportunities_id_thread_id",
+        ),
         Index("ix_opportunities_thread_created", "thread_id", "created_at", "id"),
         Index("ix_opportunities_run_thread", "run_id", "thread_id"),
     )
@@ -562,6 +583,145 @@ class Opportunity(Base):
         foreign_keys=[thread_id],
     )
     research_run: Mapped[ResearchProjectRun | None] = relationship()
+
+
+class BuildPacket(Base):
+    __tablename__ = "build_packets"
+    __table_args__ = (
+        CheckConstraint(
+            "generation_mode IN ('deterministic', 'configured_ai')",
+            name="ck_build_packets_generation_mode",
+        ),
+        CheckConstraint(
+            "enhancement_status IN ('not_requested', 'generated', 'fallback')",
+            name="ck_build_packets_enhancement_status",
+        ),
+        CheckConstraint(
+            "(project_id IS NULL AND run_id IS NULL) OR "
+            "(project_id IS NOT NULL AND run_id IS NOT NULL)",
+            name="ck_build_packets_project_run_linkage",
+        ),
+        CheckConstraint(
+            "(lineage_status = 'untracked' AND project_id IS NULL AND run_id IS NULL) OR "
+            "(lineage_status = 'complete' AND project_id IS NOT NULL AND run_id IS NOT NULL)",
+            name="ck_build_packets_lineage_shape",
+        ),
+        CheckConstraint(
+            "length(trim(schema_version)) BETWEEN 1 AND 128 AND "
+            "length(trim(tasksignal_version)) BETWEEN 1 AND 64 AND "
+            "length(trim(template_version)) BETWEEN 1 AND 128",
+            name="ck_build_packets_versions_nonempty",
+        ),
+        CheckConstraint(
+            "length(manifest_sha256) = 64 AND manifest_sha256 = lower(manifest_sha256) "
+            "AND length(replace(replace(replace(replace(replace(replace(replace(replace("
+            "replace(replace(replace(replace(replace(replace(replace(replace("
+            "manifest_sha256, '0', ''), '1', ''), '2', ''), '3', ''), '4', ''), "
+            "'5', ''), '6', ''), '7', ''), '8', ''), '9', ''), 'a', ''), 'b', ''), "
+            "'c', ''), 'd', ''), 'e', ''), 'f', '')) = 0",
+            name="ck_build_packets_manifest_sha256",
+        ),
+        CheckConstraint(
+            "enhancement_provider IS NULL OR "
+            "length(trim(enhancement_provider)) BETWEEN 1 AND 128",
+            name="ck_build_packets_enhancement_provider_nonempty",
+        ),
+        CheckConstraint(
+            "enhancement_model IS NULL OR "
+            "length(trim(enhancement_model)) BETWEEN 1 AND 256",
+            name="ck_build_packets_enhancement_model_nonempty",
+        ),
+        CheckConstraint(
+            "enhancement_template_version IS NULL OR "
+            "length(trim(enhancement_template_version)) BETWEEN 1 AND 128",
+            name="ck_build_packets_enhancement_template_nonempty",
+        ),
+        CheckConstraint(
+            "(generation_mode = 'deterministic' AND "
+            "enhancement_status = 'not_requested' AND "
+            "enhanced_artifacts_json IS NULL AND enhancement_provider IS NULL AND "
+            "enhancement_model IS NULL AND enhancement_template_version IS NULL) OR "
+            "(generation_mode = 'configured_ai' AND "
+            "enhancement_provider IS NOT NULL AND enhancement_model IS NOT NULL AND "
+            "enhancement_template_version IS NOT NULL AND "
+            "((enhancement_status = 'generated' AND enhanced_artifacts_json IS NOT NULL) OR "
+            "(enhancement_status = 'fallback' AND enhanced_artifacts_json IS NULL)))",
+            name="ck_build_packets_enhancement_shape",
+        ),
+        ForeignKeyConstraint(
+            ["snapshot_id", "thread_id"],
+            ["opportunities.id", "opportunities.thread_id"],
+            name="fk_build_packets_snapshot_thread_opportunities",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["run_id", "project_id"],
+            ["research_project_runs.id", "research_project_runs.project_id"],
+            name="fk_build_packets_run_project",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["thread_id", "project_id"],
+            ["opportunity_threads.id", "opportunity_threads.project_id"],
+            name="fk_build_packets_thread_project",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["thread_id", "lineage_status"],
+            ["opportunity_threads.id", "opportunity_threads.lineage_status"],
+            name="fk_build_packets_thread_lineage",
+            ondelete="RESTRICT",
+        ),
+        Index("ix_build_packets_project_created", "project_id", "created_at", "id"),
+        Index("ix_build_packets_run_id", "run_id"),
+        Index("ix_build_packets_thread_created", "thread_id", "created_at", "id"),
+        Index("ix_build_packets_snapshot_id", "snapshot_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    project_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("research_projects.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    run_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("research_project_runs.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    thread_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("opportunity_threads.id", ondelete="RESTRICT"),
+    )
+    snapshot_id: Mapped[uuid.UUID] = mapped_column()
+    lineage_status: Mapped[str] = mapped_column(Text)
+    generation_mode: Mapped[str] = mapped_column(Text)
+    schema_version: Mapped[str] = mapped_column(Text)
+    tasksignal_version: Mapped[str] = mapped_column(Text)
+    template_version: Mapped[str] = mapped_column(Text)
+    source_snapshot_json: Mapped[dict] = mapped_column(JSON(none_as_null=True))
+    artifacts_json: Mapped[dict] = mapped_column(JSON(none_as_null=True))
+    manifest_json: Mapped[dict] = mapped_column(JSON(none_as_null=True))
+    manifest_sha256: Mapped[str] = mapped_column(Text)
+    enhancement_status: Mapped[str] = mapped_column(Text)
+    enhanced_artifacts_json: Mapped[dict | None] = mapped_column(
+        JSON(none_as_null=True),
+        nullable=True,
+    )
+    enhancement_provider: Mapped[str | None] = mapped_column(Text, nullable=True)
+    enhancement_model: Mapped[str | None] = mapped_column(Text, nullable=True)
+    enhancement_template_version: Mapped[str | None] = mapped_column(Text, nullable=True)
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+    project: Mapped[ResearchProject | None] = relationship(foreign_keys=[project_id])
+    research_run: Mapped[ResearchProjectRun | None] = relationship(foreign_keys=[run_id])
+    thread: Mapped[OpportunityThread] = relationship(foreign_keys=[thread_id])
+    snapshot: Mapped[Opportunity] = relationship(
+        primaryjoin=(
+            "and_(BuildPacket.snapshot_id == Opportunity.id, "
+            "BuildPacket.thread_id == Opportunity.thread_id)"
+        ),
+        foreign_keys=[snapshot_id, thread_id],
+        viewonly=True,
+    )
 
 
 class OpportunityDecisionEvent(Base):
