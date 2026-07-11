@@ -150,6 +150,7 @@ class ResearchProjectCreate(BaseModel):
 
 
 class ResearchProjectUpdate(BaseModel):
+    expected_version: int | None = Field(default=None, ge=1)
     name: str | None = Field(default=None, min_length=1, max_length=120)
     description: str | None = Field(default=None, max_length=500)
     source_type: str | None = Field(default=None, max_length=60)
@@ -179,6 +180,7 @@ class ResearchProjectOut(BaseModel):
     last_run_at: datetime | None
     next_run_at: datetime | None
     run_count: int
+    version: int = Field(ge=1)
     created_at: datetime
     updated_at: datetime
     model_config = ConfigDict(from_attributes=True)
@@ -280,6 +282,11 @@ class ItemOut(BaseModel):
     review_note: str | None = None
     reviewed_at: datetime | None = None
     review_history_count: int = 0
+    agent_review_label: EvidenceReviewLabel | None = None
+    agent_reviewed_at: datetime | None = None
+    agent_review_history_count: int = 0
+    agent_review_version: int | None = None
+    agent_session_id: UUID | None = None
 
 
 class EvidenceReadinessChecksOut(BaseModel):
@@ -343,6 +350,7 @@ class LabelCreate(BaseModel):
     item_id: UUID
     label: EvidenceReviewLabel
     user_note: str | None = Field(default=None, max_length=500)
+    expected_version: int | None = Field(default=None, ge=0)
 
 
 class LabelOut(BaseModel):
@@ -350,6 +358,9 @@ class LabelOut(BaseModel):
     item_id: UUID
     label: str
     user_note: str | None
+    actor_type: Literal["human", "agent"]
+    agent_session_id: UUID | None
+    version: int = Field(ge=1)
     created_at: datetime
     model_config = ConfigDict(from_attributes=True)
 
@@ -419,6 +430,7 @@ class OpportunityDecisionEventOut(BaseModel):
     thread_id: UUID
     event_type: str
     actor_type: str
+    agent_session_id: UUID | None
     snapshot_id: UUID | None
     related_thread_id: UUID | None
     previous_state: ReviewState | None
@@ -604,6 +616,70 @@ class BuildPacketVerificationOut(BaseModel):
     missing_files: list[str] = Field(default_factory=list)
     unexpected_files: list[str] = Field(default_factory=list)
     mismatched_files: list[str] = Field(default_factory=list)
+
+
+class AgentSessionCreate(BaseModel):
+    process_instance_id: UUID
+    client_name: str = Field(min_length=1, max_length=128)
+    client_version: str | None = Field(default=None, min_length=1, max_length=64)
+    transport: Literal["stdio"] = "stdio"
+    secret_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    requested_capabilities: list[str] = Field(min_length=6, max_length=7)
+
+
+class AgentSessionApprove(BaseModel):
+    expected_version: int = Field(ge=1)
+    use_configured_ai: bool = False
+    model_config = ConfigDict(extra="forbid")
+
+
+class AgentSessionLeaseUpdate(BaseModel):
+    expected_version: int | None = Field(default=None, ge=1)
+
+
+class AgentSessionRevoke(BaseModel):
+    expected_version: int = Field(ge=1)
+
+
+class AgentSessionOut(BaseModel):
+    id: UUID
+    process_instance_id: UUID
+    client_name: str
+    client_version: str | None
+    transport: Literal["stdio"]
+    status: Literal["pending", "approved", "revoked", "expired", "exited"]
+    effective_status: Literal["pending", "approved", "revoked", "expired", "exited"]
+    requested_capabilities: list[str] = Field(default_factory=list)
+    approved_capabilities: list[str] = Field(default_factory=list)
+    approval_source: Literal["ui", "interactive_tty"] | None
+    approved_at: datetime | None
+    last_heartbeat_at: datetime
+    expires_at: datetime
+    revoked_at: datetime | None
+    expired_at: datetime | None
+    exited_at: datetime | None
+    version: int = Field(ge=1)
+    created_at: datetime
+    updated_at: datetime
+
+
+class AgentActionOut(BaseModel):
+    id: UUID
+    session_id: UUID
+    operation_id: UUID
+    correlation_id: UUID
+    event_sequence: int = Field(ge=1)
+    event_status: Literal[
+        "reserved", "succeeded", "failed", "conflict", "replayed", "denied"
+    ]
+    capability: str
+    tool_name: str
+    target_type: str | None
+    target_id: str | None
+    request_summary: dict = Field(default_factory=dict)
+    result_summary: dict | None
+    error_code: str | None
+    created_at: datetime
 
 
 class TaskPackOut(BaseModel):

@@ -3,7 +3,7 @@ from collections.abc import Collection, Mapping, Sequence
 from math import ceil
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.all_models import (
@@ -40,6 +40,56 @@ SELECTION_BIAS_WARNING = (
 ReviewableRecord = tuple[NormalizedItem, ItemSignal | None, EvidenceReviewSnapshot]
 
 
+class EvidenceLabelVersionConflict(RuntimeError):
+    """Raised when a label append is based on a stale item-label version."""
+
+    def __init__(self, *, expected_version: int, current_version: int) -> None:
+        self.expected_version = expected_version
+        self.current_version = current_version
+        super().__init__(
+            "Evidence label version conflict: "
+            f"expected {expected_version}, current {current_version}."
+        )
+
+
+def append_evidence_label(
+    db: Session,
+    *,
+    item_id: UUID,
+    label: EvidenceReviewLabel,
+    user_note: str | None,
+    actor_type: str,
+    agent_session_id: UUID | None,
+    expected_version: int | None,
+) -> Label:
+    """Append one actor-attributed label with optional optimistic concurrency."""
+
+    if actor_type not in {"human", "agent"}:
+        raise ValueError("Evidence label actor must be human or agent.")
+    if (actor_type == "agent") != (agent_session_id is not None):
+        raise ValueError("Agent evidence labels require agent-session provenance.")
+    current_version = int(
+        db.scalar(select(func.max(Label.version)).where(Label.item_id == item_id)) or 0
+    )
+    if expected_version is not None and expected_version != current_version:
+        raise EvidenceLabelVersionConflict(
+            expected_version=expected_version,
+            current_version=current_version,
+        )
+    note = user_note.strip() if user_note else None
+    row = Label(
+        item_id=item_id,
+        label=label.value,
+        user_note=note or None,
+        actor_type=actor_type,
+        agent_session_id=agent_session_id,
+        version=current_version + 1,
+    )
+    db.add(row)
+    db.flush()
+    return row
+
+
 def _count_text(count: int, singular: str, plural: str) -> str:
     return singular if count == 1 else plural
 
@@ -49,7 +99,7 @@ def get_label_history(db: Session, item_id: UUID) -> list[Label]:
         db.scalars(
             select(Label)
             .where(Label.item_id == item_id)
-            .order_by(Label.created_at.desc(), Label.id.desc())
+            .order_by(Label.version.desc(), Label.created_at.desc(), Label.id.desc())
         )
     )
 
@@ -58,14 +108,33 @@ def get_review_snapshots(
     db: Session,
     item_ids: Collection[UUID],
 ) -> dict[UUID, EvidenceReviewSnapshot]:
+    return get_actor_review_snapshots(db, item_ids, actor_type="human")
+
+
+def get_agent_review_snapshots(
+    db: Session,
+    item_ids: Collection[UUID],
+) -> dict[UUID, EvidenceReviewSnapshot]:
+    return get_actor_review_snapshots(db, item_ids, actor_type="agent")
+
+
+def get_actor_review_snapshots(
+    db: Session,
+    item_ids: Collection[UUID],
+    *,
+    actor_type: str,
+) -> dict[UUID, EvidenceReviewSnapshot]:
     unique_ids = set(item_ids)
     if not unique_ids:
         return {}
     rows = list(
         db.scalars(
             select(Label)
-            .where(Label.item_id.in_(unique_ids))
-            .order_by(Label.created_at.desc(), Label.id.desc())
+            .where(
+                Label.item_id.in_(unique_ids),
+                Label.actor_type == actor_type,
+            )
+            .order_by(Label.version.desc(), Label.created_at.desc(), Label.id.desc())
         )
     )
     latest: dict[UUID, Label] = {}
@@ -89,8 +158,29 @@ def get_review_snapshots(
             review_note=row.user_note if row and recognized else None,
             reviewed_at=row.created_at if row and recognized else None,
             history_count=history_counts[item_id],
+            actor_type=row.actor_type if row else None,
+            agent_session_id=row.agent_session_id if row else None,
+            version=row.version if row else None,
         )
     return snapshots
+
+
+def unresolved_sensitive_risk(
+    human: Mapping[UUID, EvidenceReviewSnapshot],
+    agent: Mapping[UUID, EvidenceReviewSnapshot],
+) -> bool:
+    item_ids = set(human) | set(agent)
+    for item_id in item_ids:
+        human_snapshot = human.get(item_id, EvidenceReviewSnapshot())
+        agent_snapshot = agent.get(item_id, EvidenceReviewSnapshot())
+        if human_snapshot.review_label == EvidenceReviewLabel.SENSITIVE_RISK:
+            return True
+        if (
+            agent_snapshot.review_label == EvidenceReviewLabel.SENSITIVE_RISK
+            and (agent_snapshot.version or 0) > (human_snapshot.version or 0)
+        ):
+            return True
+    return False
 
 
 def calculate_evidence_readiness(

@@ -88,6 +88,10 @@ SCAN_WRITE_LOCK = RLock()
 POSTGRES_SCAN_ADVISORY_LOCK_ID = 6071229765013788494
 
 
+class ProjectVersionConflict(RuntimeError):
+    """Raised before scan reservation when an expected project version is stale."""
+
+
 @dataclass(frozen=True)
 class ScanPipelineResult:
     raw_items_loaded: int
@@ -602,6 +606,7 @@ def reserve_scan_job(
     requested_limit: int,
     research_project_id: UUID | None,
     configured_source_id: UUID | None = None,
+    expected_project_version: int | None = None,
 ) -> tuple[ScanJob, ResearchProjectRun | None]:
     for attempt in range(3):
         try:
@@ -618,6 +623,14 @@ def reserve_scan_job(
                     )
                     if locked_project is None:
                         raise ValueError("Research project no longer exists")
+                    if (
+                        expected_project_version is not None
+                        and locked_project.version != expected_project_version
+                    ):
+                        raise ProjectVersionConflict(
+                            "Research project version conflict: "
+                            f"expected {expected_project_version}, current {locked_project.version}."
+                        )
 
                 source_record = ensure_source(
                     db,
@@ -651,6 +664,7 @@ def reserve_scan_job(
                         source_origin=source_origin,
                     )
                     locked_project.run_count += 1
+                    locked_project.version += 1
                     locked_project.updated_at = datetime.now(UTC)
                 db.commit()
                 return job, research_run
@@ -669,6 +683,7 @@ def process_scan(
     connector: BaseConnector | None = None,
     research_project: ResearchProject | None = None,
     source_id: UUID | None = None,
+    expected_project_version: int | None = None,
 ) -> ScanJob:
     source_type = canonical_source(source)
     requested_limit = max(1, min(limit, 100))
@@ -683,6 +698,7 @@ def process_scan(
         requested_limit=requested_limit,
         research_project_id=research_project_id,
         configured_source_id=configured_source_id,
+        expected_project_version=expected_project_version,
     )
     research_run_sequence = research_run.sequence if research_run is not None else None
 

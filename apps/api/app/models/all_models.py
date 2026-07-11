@@ -14,6 +14,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     false,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -34,6 +35,17 @@ from app.db.base import Base
 
 def now_utc() -> datetime:
     return datetime.now(UTC)
+
+
+def lowercase_sha256_check(column: str) -> str:
+    return (
+        f"length({column}) = 64 AND {column} = lower({column}) AND "
+        "length(replace(replace(replace(replace(replace(replace(replace(replace("
+        "replace(replace(replace(replace(replace(replace(replace(replace("
+        f"{column}, '0', ''), '1', ''), '2', ''), '3', ''), '4', ''), "
+        "'5', ''), '6', ''), '7', ''), '8', ''), '9', ''), 'a', ''), 'b', ''), "
+        "'c', ''), 'd', ''), 'e', ''), 'f', '')) = 0"
+    )
 
 
 class Source(Base):
@@ -174,6 +186,9 @@ class ScanJob(Base):
 
 class ResearchProject(Base):
     __tablename__ = "research_projects"
+    __table_args__ = (
+        CheckConstraint("version > 0", name="ck_research_projects_version_positive"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(Text)
@@ -197,6 +212,7 @@ class ResearchProject(Base):
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     next_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     run_count: Mapped[int] = mapped_column(Integer, default=0)
+    version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
 
@@ -724,6 +740,199 @@ class BuildPacket(Base):
     )
 
 
+class AgentSession(Base):
+    __tablename__ = "agent_sessions"
+    __table_args__ = (
+        CheckConstraint(
+            "length(trim(client_name)) BETWEEN 1 AND 128",
+            name="ck_agent_sessions_client_name",
+        ),
+        CheckConstraint(
+            "client_version IS NULL OR length(trim(client_version)) BETWEEN 1 AND 64",
+            name="ck_agent_sessions_client_version",
+        ),
+        CheckConstraint(
+            "transport = 'stdio'",
+            name="ck_agent_sessions_transport",
+        ),
+        CheckConstraint(
+            lowercase_sha256_check("secret_hash"),
+            name="ck_agent_sessions_secret_hash",
+        ),
+        CheckConstraint(
+            "status IN ('pending', 'approved', 'revoked', 'expired', 'exited')",
+            name="ck_agent_sessions_status",
+        ),
+        CheckConstraint(
+            "approval_source IS NULL OR approval_source IN ('ui', 'interactive_tty')",
+            name="ck_agent_sessions_approval_source",
+        ),
+        CheckConstraint(
+            "(approval_source IS NULL AND approved_at IS NULL) OR "
+            "(approval_source IS NOT NULL AND approved_at IS NOT NULL)",
+            name="ck_agent_sessions_approval_pair",
+        ),
+        CheckConstraint(
+            "last_heartbeat_at IS NOT NULL AND expires_at IS NOT NULL "
+            "AND expires_at > last_heartbeat_at",
+            name="ck_agent_sessions_lease",
+        ),
+        CheckConstraint(
+            "(status = 'pending' AND approval_source IS NULL AND approved_at IS NULL) OR "
+            "(status = 'approved' AND approval_source IS NOT NULL AND approved_at IS NOT NULL) OR "
+            "status IN ('revoked', 'expired', 'exited')",
+            name="ck_agent_sessions_approval_state",
+        ),
+        CheckConstraint(
+            "(status IN ('pending', 'approved') AND revoked_at IS NULL "
+            "AND expired_at IS NULL AND exited_at IS NULL) OR "
+            "(status = 'revoked' AND revoked_at IS NOT NULL "
+            "AND expired_at IS NULL AND exited_at IS NULL) OR "
+            "(status = 'expired' AND revoked_at IS NULL "
+            "AND expired_at IS NOT NULL AND exited_at IS NULL) OR "
+            "(status = 'exited' AND revoked_at IS NULL "
+            "AND expired_at IS NULL AND exited_at IS NOT NULL)",
+            name="ck_agent_sessions_terminal_state",
+        ),
+        CheckConstraint("version > 0", name="ck_agent_sessions_version_positive"),
+        UniqueConstraint(
+            "process_instance_id",
+            name="uq_agent_sessions_process_instance_id",
+        ),
+        UniqueConstraint("secret_hash", name="uq_agent_sessions_secret_hash"),
+        Index("ix_agent_sessions_status_expires", "status", "expires_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    process_instance_id: Mapped[uuid.UUID] = mapped_column(default=uuid.uuid4)
+    client_name: Mapped[str] = mapped_column(Text)
+    client_version: Mapped[str | None] = mapped_column(Text, nullable=True)
+    transport: Mapped[str] = mapped_column(Text, default="stdio", server_default="stdio")
+    secret_hash: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text, default="pending", server_default="pending")
+    requested_capabilities_json: Mapped[list[str]] = mapped_column(
+        JSON(none_as_null=True),
+        default=list,
+    )
+    approved_capabilities_json: Mapped[list[str]] = mapped_column(
+        JSON(none_as_null=True),
+        default=list,
+    )
+    approval_source: Mapped[str | None] = mapped_column(Text, nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_heartbeat_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    expired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    exited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
+class AgentAction(Base):
+    __tablename__ = "agent_actions"
+    __table_args__ = (
+        CheckConstraint(
+            "event_status IN ('reserved', 'succeeded', 'failed', 'conflict', "
+            "'replayed', 'denied')",
+            name="ck_agent_actions_event_status",
+        ),
+        CheckConstraint(
+            "(event_status = 'reserved' AND event_sequence = 1) OR "
+            "(event_status <> 'reserved' AND event_sequence > 1)",
+            name="ck_agent_actions_event_sequence",
+        ),
+        CheckConstraint(
+            lowercase_sha256_check("idempotency_key_hash"),
+            name="ck_agent_actions_idempotency_key_hash",
+        ),
+        CheckConstraint(
+            lowercase_sha256_check("request_hash"),
+            name="ck_agent_actions_request_hash",
+        ),
+        CheckConstraint(
+            "length(trim(capability)) BETWEEN 1 AND 128",
+            name="ck_agent_actions_capability",
+        ),
+        CheckConstraint(
+            "length(trim(tool_name)) BETWEEN 1 AND 128",
+            name="ck_agent_actions_tool_name",
+        ),
+        CheckConstraint(
+            "target_type IS NULL OR length(trim(target_type)) BETWEEN 1 AND 128",
+            name="ck_agent_actions_target_type",
+        ),
+        CheckConstraint(
+            "target_id IS NULL OR length(trim(target_id)) BETWEEN 1 AND 256",
+            name="ck_agent_actions_target_id",
+        ),
+        CheckConstraint(
+            "length(CAST(request_summary_json AS TEXT)) <= 4096",
+            name="ck_agent_actions_request_summary_bounded",
+        ),
+        CheckConstraint(
+            "result_summary_json IS NULL OR "
+            "length(CAST(result_summary_json AS TEXT)) <= 4096",
+            name="ck_agent_actions_result_summary_bounded",
+        ),
+        CheckConstraint(
+            "error_code IS NULL OR length(trim(error_code)) BETWEEN 1 AND 128",
+            name="ck_agent_actions_error_code",
+        ),
+        UniqueConstraint(
+            "operation_id",
+            "event_sequence",
+            name="uq_agent_actions_operation_sequence",
+        ),
+        Index("ix_agent_actions_session_created", "session_id", "created_at", "id"),
+        Index("ix_agent_actions_operation_sequence", "operation_id", "event_sequence"),
+        Index("ix_agent_actions_correlation_id", "correlation_id"),
+        Index(
+            "uq_agent_actions_reserved_key",
+            "session_id",
+            "idempotency_key_hash",
+            unique=True,
+            sqlite_where=text("event_status = 'reserved'"),
+            postgresql_where=text("event_status = 'reserved'"),
+        ),
+        Index(
+            "uq_agent_actions_terminal_operation",
+            "operation_id",
+            unique=True,
+            sqlite_where=text(
+                "event_status IN ('succeeded', 'failed', 'denied')"
+            ),
+            postgresql_where=text(
+                "event_status IN ('succeeded', 'failed', 'denied')"
+            ),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("agent_sessions.id", ondelete="RESTRICT"),
+        index=True,
+    )
+    operation_id: Mapped[uuid.UUID] = mapped_column(index=True)
+    correlation_id: Mapped[uuid.UUID] = mapped_column()
+    event_sequence: Mapped[int] = mapped_column(Integer)
+    event_status: Mapped[str] = mapped_column(Text)
+    idempotency_key_hash: Mapped[str] = mapped_column(Text)
+    request_hash: Mapped[str] = mapped_column(Text)
+    capability: Mapped[str] = mapped_column(Text)
+    tool_name: Mapped[str] = mapped_column(Text)
+    target_type: Mapped[str | None] = mapped_column(Text, nullable=True)
+    target_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    request_summary_json: Mapped[dict] = mapped_column(JSON(none_as_null=True), default=dict)
+    result_summary_json: Mapped[dict | None] = mapped_column(
+        JSON(none_as_null=True),
+        nullable=True,
+    )
+    error_code: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
 class OpportunityDecisionEvent(Base):
     __tablename__ = "opportunity_decision_events"
     __table_args__ = (
@@ -735,6 +944,11 @@ class OpportunityDecisionEvent(Base):
         CheckConstraint(
             "actor_type IN ('system', 'human', 'agent')",
             name="ck_opportunity_decision_events_actor",
+        ),
+        CheckConstraint(
+            "(actor_type = 'agent' AND agent_session_id IS NOT NULL) OR "
+            "(actor_type IN ('system', 'human') AND agent_session_id IS NULL)",
+            name="ck_opportunity_decision_events_actor_session",
         ),
         Index(
             "ix_opportunity_decision_events_thread_created",
@@ -751,6 +965,11 @@ class OpportunityDecisionEvent(Base):
     )
     event_type: Mapped[str] = mapped_column(Text)
     actor_type: Mapped[str] = mapped_column(Text)
+    agent_session_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("agent_sessions.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
     snapshot_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("opportunities.id", ondelete="SET NULL"),
         nullable=True,
@@ -774,9 +993,29 @@ class OpportunityDecisionEvent(Base):
 
 class Label(Base):
     __tablename__ = "labels"
+    __table_args__ = (
+        CheckConstraint(
+            "actor_type IN ('human', 'agent')",
+            name="ck_labels_actor_type",
+        ),
+        CheckConstraint(
+            "(actor_type = 'agent' AND agent_session_id IS NOT NULL) OR "
+            "(actor_type = 'human' AND agent_session_id IS NULL)",
+            name="ck_labels_actor_session",
+        ),
+        CheckConstraint("version > 0", name="ck_labels_version_positive"),
+        UniqueConstraint("item_id", "version", name="uq_labels_item_version"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     item_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("normalized_items.id"), index=True)
     label: Mapped[str] = mapped_column(Text)
     user_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    actor_type: Mapped[str] = mapped_column(Text, default="human", server_default="human")
+    agent_session_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("agent_sessions.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
+    version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)

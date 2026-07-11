@@ -17,12 +17,13 @@ from app.core.config import settings
 from app.core.version import TASKSIGNAL_VERSION
 from app.db.session import get_db
 from app.models.all_models import (
+    AgentAction,
+    AgentSession,
     BuildPacket,
     Cluster,
     ClusterItem,
     DiscourseSourceState,
     ItemSignal,
-    Label,
     LocalWorkspaceSettings,
     NormalizedItem,
     Opportunity,
@@ -35,6 +36,12 @@ from app.models.all_models import (
     Source,
 )
 from app.schemas.api import (
+    AgentActionOut,
+    AgentSessionApprove,
+    AgentSessionCreate,
+    AgentSessionLeaseUpdate,
+    AgentSessionOut,
+    AgentSessionRevoke,
     BuildPacketArtifactOut,
     BuildPacketCreate,
     BuildPacketOut,
@@ -76,6 +83,22 @@ from app.schemas.api import (
     SourceRuntimeStateOut,
     TaskPackOut,
 )
+from app.services.agent_actions import redacted_agent_action
+from app.services.agent_sessions import (
+    AgentSessionError,
+    SessionAuthenticationError,
+    SessionCapabilityError,
+    SessionStateError,
+    SessionVersionConflict,
+    approve_session,
+    effective_session_status,
+    expire_session_if_needed,
+    heartbeat_session,
+    mark_session_exited,
+    register_session,
+    revoke_session,
+    verify_session_secret,
+)
 from app.services.build_packets import (
     BUILD_PACKET_SCHEMA_VERSION,
     BUILD_PACKET_TEMPLATE_VERSION,
@@ -102,14 +125,17 @@ from app.services.discourse_sources.service import (
     runtime_state_snapshot,
 )
 from app.services.evidence_review.service import (
+    EvidenceLabelVersionConflict,
+    append_evidence_label,
     calculate_evidence_readiness,
     evaluation_summary,
+    get_agent_review_snapshots,
     get_label_history,
     get_review_snapshots,
+    unresolved_sensitive_risk,
 )
 from app.services.evidence_review.types import (
     EvidenceReadinessLevel,
-    EvidenceReviewLabel,
     EvidenceReviewSnapshot,
     ReviewState,
 )
@@ -733,8 +759,10 @@ def item_to_out(
     signal: ItemSignal | None = None,
     review: EvidenceReviewSnapshot | None = None,
     observation: ScanItem | None = None,
+    agent_review: EvidenceReviewSnapshot | None = None,
 ) -> ItemOut:
     review = review or EvidenceReviewSnapshot()
+    agent_review = agent_review or EvidenceReviewSnapshot()
     return ItemOut(
         id=item.id,
         source=(observation.observed_source if observation else None) or item.source,
@@ -761,6 +789,11 @@ def item_to_out(
         review_note=review.review_note,
         reviewed_at=review.reviewed_at,
         review_history_count=review.history_count,
+        agent_review_label=agent_review.review_label,
+        agent_reviewed_at=agent_review.reviewed_at,
+        agent_review_history_count=agent_review.history_count,
+        agent_review_version=agent_review.version,
+        agent_session_id=agent_review.agent_session_id,
     )
 
 
@@ -775,13 +808,25 @@ def items_to_out(
     rows: list[tuple[NormalizedItem, ItemSignal | None]],
 ) -> list[ItemOut]:
     snapshots = get_review_snapshots(db, [item.id for item, _signal in rows])
-    return [item_to_out(item, signal, snapshots.get(item.id)) for item, signal in rows]
+    agent_snapshots = get_agent_review_snapshots(
+        db, [item.id for item, _signal in rows]
+    )
+    return [
+        item_to_out(
+            item,
+            signal,
+            snapshots.get(item.id),
+            agent_review=agent_snapshots.get(item.id),
+        )
+        for item, signal in rows
+    ]
 
 
 def opportunity_to_out(db: Session, opportunity: Opportunity) -> OpportunityOut:
     rows = cluster_signal_rows(db, opportunity.cluster_id)
     items = [item for item, _signal in rows]
     snapshots = get_review_snapshots(db, [item.id for item in items])
+    agent_snapshots = get_agent_review_snapshots(db, [item.id for item in items])
     evidence_scan_id = opportunity.scan_id
     if evidence_scan_id is None:
         evidence_scan_id = db.scalar(
@@ -812,6 +857,7 @@ def opportunity_to_out(db: Session, opportunity: Opportunity) -> OpportunityOut:
             signal,
             snapshots.get(item.id),
             observations.get(item.id),
+            agent_snapshots.get(item.id),
         )
         for item, signal in rows
     ]
@@ -1536,11 +1582,30 @@ def update_research_project(
     payload: ResearchProjectUpdate,
     db: Session = Depends(get_db),
 ) -> ResearchProjectOut:
-    project = db.get(ResearchProject, project_id)
+    db.commit()
+    acquire_database_scan_write_lock_with_retry(db)
+    project = db.scalar(
+        select(ResearchProject)
+        .where(ResearchProject.id == project_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
     if project is None:
+        db.rollback()
         raise HTTPException(status_code=404, detail="Research project not found")
+    if (
+        payload.expected_version is not None
+        and payload.expected_version != project.version
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Research project version conflict: "
+                f"expected {payload.expected_version}, current {project.version}."
+            ),
+        )
 
-    supplied = payload.model_fields_set
+    supplied = payload.model_fields_set - {"expected_version"}
     required_fields = {
         "name",
         "source_type",
@@ -1630,6 +1695,7 @@ def update_research_project(
         )
     if supplied:
         project.updated_at = now
+        project.version += 1
         db.commit()
         db.refresh(project)
     return research_project_to_out(project)
@@ -1810,7 +1876,13 @@ def get_item(item_id: UUID, db: Session = Depends(get_db)) -> ItemOut:
         raise HTTPException(status_code=404, detail="Item not found")
     item, signal = row
     snapshots = get_review_snapshots(db, [item.id])
-    return item_to_out(item, signal, snapshots.get(item.id))
+    agent_snapshots = get_agent_review_snapshots(db, [item.id])
+    return item_to_out(
+        item,
+        signal,
+        snapshots.get(item.id),
+        agent_review=agent_snapshots.get(item.id),
+    )
 
 
 @router.post("/process/demo", response_model=ProcessSummary)
@@ -1987,9 +2059,10 @@ def packet_source_snapshot(
 ) -> tuple[dict, list[dict], dict, str]:
     output = opportunity_to_out(db, snapshot)
     readiness = output.evidence_readiness
-    if any(
-        item.review_label == EvidenceReviewLabel.SENSITIVE_RISK
-        for item in output.evidence_items
+    evidence_ids = [item.id for item in output.evidence_items]
+    if unresolved_sensitive_risk(
+        get_review_snapshots(db, evidence_ids),
+        get_agent_review_snapshots(db, evidence_ids),
     ):
         raise HTTPException(
             status_code=409,
@@ -2088,6 +2161,11 @@ def packet_source_snapshot(
             "id": str(decision_event.id),
             "event_type": decision_event.event_type,
             "actor_type": decision_event.actor_type,
+            "agent_session_id": (
+                str(decision_event.agent_session_id)
+                if decision_event.agent_session_id
+                else None
+            ),
             "snapshot_id": (
                 str(decision_event.snapshot_id) if decision_event.snapshot_id else None
             ),
@@ -2828,6 +2906,296 @@ def semantic_search_route(
     return search_semantically(db, payload)
 
 
+def agent_session_to_out(session: AgentSession) -> AgentSessionOut:
+    return AgentSessionOut(
+        id=session.id,
+        process_instance_id=session.process_instance_id,
+        client_name=session.client_name,
+        client_version=session.client_version,
+        transport=session.transport,
+        status=session.status,
+        effective_status=effective_session_status(session),
+        requested_capabilities=list(session.requested_capabilities_json),
+        approved_capabilities=list(session.approved_capabilities_json),
+        approval_source=session.approval_source,
+        approved_at=as_utc(session.approved_at),
+        last_heartbeat_at=as_utc(session.last_heartbeat_at),
+        expires_at=as_utc(session.expires_at),
+        revoked_at=as_utc(session.revoked_at),
+        expired_at=as_utc(session.expired_at),
+        exited_at=as_utc(session.exited_at),
+        version=session.version,
+        created_at=as_utc(session.created_at),
+        updated_at=as_utc(session.updated_at),
+    )
+
+
+def bearer_session_secret(authorization: str | None) -> str:
+    prefix = "Bearer "
+    if (
+        authorization is None
+        or not authorization.startswith(prefix)
+        or not authorization[len(prefix) :]
+    ):
+        raise HTTPException(
+            status_code=401,
+            detail="Agent session authentication failed.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return authorization[len(prefix) :]
+
+
+def session_lifecycle_error(db: Session, exc: AgentSessionError) -> None:
+    if isinstance(exc, SessionAuthenticationError):
+        db.rollback()
+        raise HTTPException(
+            status_code=401,
+            detail="Agent session authentication failed.",
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from exc
+    if isinstance(exc, SessionStateError) and any(
+        session.status == "expired"
+        for session in [*db.new, *db.dirty]
+        if isinstance(session, AgentSession)
+    ):
+        db.commit()
+    else:
+        db.rollback()
+    status_code = 403 if isinstance(exc, SessionCapabilityError) else 409
+    raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+
+def lock_agent_session(db: Session, session_id: UUID) -> AgentSession | None:
+    return db.scalar(
+        select(AgentSession)
+        .where(AgentSession.id == session_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+
+
+@router.post(
+    "/agent-sessions",
+    response_model=AgentSessionOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_agent_session(
+    payload: AgentSessionCreate,
+    db: Session = Depends(get_db),
+) -> AgentSessionOut:
+    with SCAN_WRITE_LOCK:
+        acquire_database_scan_write_lock_with_retry(db)
+        try:
+            session = register_session(
+                db,
+                secret_hash=payload.secret_hash,
+                client_name=payload.client_name,
+                client_version=payload.client_version,
+                process_instance_id=payload.process_instance_id,
+                transport=payload.transport,
+                requested_capabilities=payload.requested_capabilities,
+            )
+            db.commit()
+            db.refresh(session)
+        except IntegrityError as exc:
+            db.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail="Agent session registration conflicts with existing process state.",
+            ) from exc
+        except AgentSessionError as exc:
+            db.rollback()
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return agent_session_to_out(session)
+
+
+@router.get("/agent-sessions", response_model=list[AgentSessionOut])
+def list_agent_sessions(
+    x_operator_scan_token: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> list[AgentSessionOut]:
+    require_operator_token(x_operator_scan_token, "Listing agent sessions")
+    with SCAN_WRITE_LOCK:
+        acquire_database_scan_write_lock_with_retry(db)
+        sessions = db.scalars(
+            select(AgentSession).order_by(
+                AgentSession.created_at.desc(),
+                AgentSession.id.desc(),
+            )
+        ).all()
+        changed = False
+        for session in sessions:
+            changed = expire_session_if_needed(session) or changed
+        if changed:
+            db.commit()
+    return [agent_session_to_out(session) for session in sessions]
+
+
+@router.get("/agent-sessions/{session_id}", response_model=AgentSessionOut)
+def get_agent_session(
+    session_id: UUID,
+    x_operator_scan_token: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> AgentSessionOut:
+    require_operator_token(x_operator_scan_token, "Reading agent sessions")
+    with SCAN_WRITE_LOCK:
+        acquire_database_scan_write_lock_with_retry(db)
+        session = lock_agent_session(db, session_id)
+        if session is None:
+            db.rollback()
+            raise HTTPException(status_code=404, detail="Agent session not found")
+        if expire_session_if_needed(session):
+            db.commit()
+            db.refresh(session)
+    return agent_session_to_out(session)
+
+
+@router.post("/agent-sessions/{session_id}/approve", response_model=AgentSessionOut)
+def approve_agent_session(
+    session_id: UUID,
+    payload: AgentSessionApprove,
+    x_operator_scan_token: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> AgentSessionOut:
+    require_operator_token(x_operator_scan_token, "Approving agent sessions")
+    with SCAN_WRITE_LOCK:
+        acquire_database_scan_write_lock_with_retry(db)
+        session = lock_agent_session(db, session_id)
+        if session is None:
+            db.rollback()
+            raise HTTPException(status_code=404, detail="Agent session not found")
+        try:
+            approve_session(
+                session,
+                expected_version=payload.expected_version,
+                approval_source="ui",
+                include_configured_ai=payload.use_configured_ai,
+            )
+        except AgentSessionError as exc:
+            session_lifecycle_error(db, exc)
+        db.commit()
+        db.refresh(session)
+    return agent_session_to_out(session)
+
+
+@router.post("/agent-sessions/{session_id}/heartbeat", response_model=AgentSessionOut)
+def heartbeat_agent_session(
+    session_id: UUID,
+    payload: AgentSessionLeaseUpdate,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> AgentSessionOut:
+    raw_secret = bearer_session_secret(authorization)
+    with SCAN_WRITE_LOCK:
+        acquire_database_scan_write_lock_with_retry(db)
+        session = lock_agent_session(db, session_id)
+        if session is None or not verify_session_secret(raw_secret, session.secret_hash):
+            db.rollback()
+            raise HTTPException(
+                status_code=401,
+                detail="Agent session authentication failed.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        try:
+            heartbeat_session(
+                session,
+                raw_secret=raw_secret,
+                expected_version=payload.expected_version,
+            )
+        except AgentSessionError as exc:
+            session_lifecycle_error(db, exc)
+        db.commit()
+        db.refresh(session)
+    return agent_session_to_out(session)
+
+
+@router.post("/agent-sessions/{session_id}/revoke", response_model=AgentSessionOut)
+def revoke_agent_session(
+    session_id: UUID,
+    payload: AgentSessionRevoke,
+    x_operator_scan_token: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> AgentSessionOut:
+    require_operator_token(x_operator_scan_token, "Revoking agent sessions")
+    with SCAN_WRITE_LOCK:
+        acquire_database_scan_write_lock_with_retry(db)
+        session = lock_agent_session(db, session_id)
+        if session is None:
+            db.rollback()
+            raise HTTPException(status_code=404, detail="Agent session not found")
+        try:
+            revoke_session(session, expected_version=payload.expected_version)
+        except SessionVersionConflict:
+            # A human revoke is terminal and wins a race with a routine heartbeat.
+            revoke_session(session, expected_version=session.version)
+        except AgentSessionError as exc:
+            session_lifecycle_error(db, exc)
+        db.commit()
+        db.refresh(session)
+    return agent_session_to_out(session)
+
+
+@router.post("/agent-sessions/{session_id}/exit", response_model=AgentSessionOut)
+def exit_agent_session(
+    session_id: UUID,
+    payload: AgentSessionLeaseUpdate,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> AgentSessionOut:
+    raw_secret = bearer_session_secret(authorization)
+    with SCAN_WRITE_LOCK:
+        acquire_database_scan_write_lock_with_retry(db)
+        session = lock_agent_session(db, session_id)
+        if session is None or not verify_session_secret(raw_secret, session.secret_hash):
+            db.rollback()
+            raise HTTPException(
+                status_code=401,
+                detail="Agent session authentication failed.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        try:
+            mark_session_exited(
+                session,
+                expected_version=payload.expected_version,
+            )
+        except AgentSessionError as exc:
+            session_lifecycle_error(db, exc)
+        db.commit()
+        db.refresh(session)
+    return agent_session_to_out(session)
+
+
+@router.get(
+    "/agent-sessions/{session_id}/actions",
+    response_model=list[AgentActionOut],
+)
+def list_agent_session_actions(
+    session_id: UUID,
+    limit: int = 100,
+    offset: int = 0,
+    x_operator_scan_token: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> list[AgentActionOut]:
+    require_operator_token(x_operator_scan_token, "Reading agent action audit")
+    if limit < 1 or limit > 200 or offset < 0:
+        raise HTTPException(status_code=422, detail="Invalid audit pagination.")
+    if db.get(AgentSession, session_id) is None:
+        raise HTTPException(status_code=404, detail="Agent session not found")
+    events = db.scalars(
+        select(AgentAction)
+        .where(AgentAction.session_id == session_id)
+        .order_by(
+            AgentAction.created_at.desc(),
+            AgentAction.operation_id.desc(),
+            AgentAction.event_sequence.desc(),
+            AgentAction.id.desc(),
+        )
+        .offset(offset)
+        .limit(limit)
+    ).all()
+    return [AgentActionOut.model_validate(redacted_agent_action(event)) for event in events]
+
+
 @router.post("/labels", response_model=LabelOut)
 def create_label(payload: LabelCreate, db: Session = Depends(get_db)) -> LabelOut:
     with SCAN_WRITE_LOCK:
@@ -2835,13 +3203,26 @@ def create_label(payload: LabelCreate, db: Session = Depends(get_db)) -> LabelOu
         if db.get(NormalizedItem, payload.item_id) is None:
             db.rollback()
             raise HTTPException(status_code=404, detail="Item not found")
-        note = payload.user_note.strip() if payload.user_note else None
-        label = Label(
-            item_id=payload.item_id,
-            label=payload.label.value,
-            user_note=note or None,
-        )
-        db.add(label)
+        try:
+            label = append_evidence_label(
+                db,
+                item_id=payload.item_id,
+                label=payload.label,
+                user_note=payload.user_note,
+                actor_type="human",
+                agent_session_id=None,
+                expected_version=payload.expected_version,
+            )
+        except EvidenceLabelVersionConflict as exc:
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "evidence_label_version_conflict",
+                    "expected_version": exc.expected_version,
+                    "current_version": exc.current_version,
+                },
+            ) from exc
         commit_review_write(db, "Could not save the evidence review.")
         db.refresh(label)
     return LabelOut.model_validate(label)

@@ -436,7 +436,10 @@ def set_thread_decision(
     review_note: str | None,
     expected_version: int | None,
     actor_type: str = "human",
+    agent_session_id: UUID | None = None,
 ) -> OpportunityThread:
+    if (actor_type == "agent") != (agent_session_id is not None):
+        raise ValueError("Agent decisions require session provenance; human decisions must omit it.")
     version_before = lock_thread_version(
         db,
         thread=thread,
@@ -451,6 +454,7 @@ def set_thread_decision(
         thread_id=thread.id,
         event_type="decision_changed",
         actor_type=actor_type,
+        agent_session_id=agent_session_id,
         snapshot_id=thread.current_snapshot_id,
         related_thread_id=None,
         previous_state=thread.review_state,

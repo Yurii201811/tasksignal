@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -119,6 +120,7 @@ def test_evidence_reviews_are_append_only_and_legacy_latest_is_unrecognized(clie
                 item_id=UUID(item_id),
                 label="legacy_label",
                 user_note="Do not export legacy note.",
+                version=3,
                 created_at=datetime(2030, 1, 1, tzinfo=UTC),
             )
         )
@@ -131,6 +133,71 @@ def test_evidence_reviews_are_append_only_and_legacy_latest_is_unrecognized(clie
     assert evidence["review_history_count"] == 3
     evaluation = client.get("/api/evaluation").json()
     assert evaluation["unrecognized_latest_labels"] == 1
+
+
+def test_evidence_label_expected_version_returns_structured_conflict(client) -> None:
+    opportunity = first_opportunity(client)
+    item_id = opportunity["evidence_items"][0]["id"]
+    first = client.post(
+        "/api/v1/labels",
+        json={
+            "item_id": item_id,
+            "label": "true_signal",
+            "expected_version": 0,
+        },
+    )
+    stale = client.post(
+        "/api/v1/labels",
+        json={
+            "item_id": item_id,
+            "label": "unclear",
+            "expected_version": 0,
+        },
+    )
+    current = client.post(
+        "/api/v1/labels",
+        json={
+            "item_id": item_id,
+            "label": "unclear",
+            "expected_version": 1,
+        },
+    )
+
+    assert first.status_code == 200
+    assert first.json()["version"] == 1
+    assert stale.status_code == 409
+    assert stale.json() == {
+        "detail": {
+            "code": "evidence_label_version_conflict",
+            "expected_version": 0,
+            "current_version": 1,
+        }
+    }
+    assert current.status_code == 200
+    assert current.json()["version"] == 2
+
+
+def test_concurrent_evidence_labels_with_one_expected_version_append_once(client) -> None:
+    opportunity = first_opportunity(client)
+    item_id = opportunity["evidence_items"][0]["id"]
+
+    def append(label: str):
+        return client.post(
+            "/api/v1/labels",
+            json={
+                "item_id": item_id,
+                "label": label,
+                "expected_version": 0,
+            },
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        responses = list(executor.map(append, ["true_signal", "unclear"]))
+
+    assert sorted(response.status_code for response in responses) == [200, 409]
+    history = client.get(f"/api/v1/items/{item_id}/labels").json()
+    assert len(history) == 1
+    assert history[0]["version"] == 1
 
 
 def test_decision_context_exports_state_and_readiness_without_local_notes(client) -> None:

@@ -26,6 +26,7 @@ def test_latest_unrecognized_label_does_not_fall_back(db_session) -> None:
                 item_id=item_id,
                 label="true_signal",
                 user_note="recognized",
+                version=1,
                 created_at=timestamp,
             ),
             Label(
@@ -33,6 +34,7 @@ def test_latest_unrecognized_label_does_not_fall_back(db_session) -> None:
                 item_id=item_id,
                 label="legacy_label",
                 user_note="legacy newest",
+                version=2,
                 created_at=timestamp,
             ),
         ]
