@@ -578,9 +578,9 @@ export function Dashboard() {
               <dd className="mt-2 text-2xl font-bold tabular-nums text-ink">
                 {stage.value}
               </dd>
-              <p className="mt-1 max-w-xs text-xs leading-5 text-muted">
+              <dd className="mt-1 max-w-xs text-xs leading-5 text-muted">
                 {stage.hint}
-              </p>
+              </dd>
             </div>
           ))}
         </dl>
@@ -768,6 +768,7 @@ export function Dashboard() {
                       dataKey="count"
                       nameKey="source"
                       outerRadius={82}
+                      rootTabIndex={-1}
                       label
                     >
                       {sourceBreakdown.map((entry, index) => (

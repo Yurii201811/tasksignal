@@ -137,6 +137,9 @@ describe("Dashboard", () => {
     expect(screen.getByText("Live source")).toBeInTheDocument();
     expect(screen.getByText("Run scan")).toBeInTheDocument();
     expect(screen.getByText(/Examples: ask, show, job/)).toBeInTheDocument();
+    expect(
+      screen.getByText("Raw public-source items available locally").tagName,
+    ).toBe("DD");
   });
 
   it("renders one live source option when the API repeats a source type", async () => {
