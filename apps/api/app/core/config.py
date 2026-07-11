@@ -1,5 +1,8 @@
+import os
 from functools import lru_cache
+from importlib.resources import files
 from pathlib import Path
+from typing import Any
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -33,6 +36,13 @@ def resolve_project_root(config_file: Path) -> Path:
 
     app_package = next((candidate for candidate in ancestors if candidate.name == "app"), None)
     return app_package.parent if app_package is not None else resolved.parent
+
+
+def resolve_fixture_dir(project_root: Path) -> Path:
+    source_fixtures = project_root / "data" / "fixtures"
+    if source_fixtures.is_dir():
+        return source_fixtures
+    return Path(str(files("app.resources.fixtures")))
 
 
 class Settings(BaseSettings):
@@ -70,12 +80,14 @@ class Settings(BaseSettings):
 
     @property
     def fixture_dir(self) -> Path:
-        return self.project_root / "data" / "fixtures"
+        return resolve_fixture_dir(self.project_root)
 
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    env_file = None if os.getenv("TASKSIGNAL_PACKAGED_MODE") == "1" else ".env"
+    settings_class: Any = Settings
+    return settings_class(_env_file=env_file)
 
 
 settings = get_settings()

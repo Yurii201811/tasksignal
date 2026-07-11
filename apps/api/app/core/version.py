@@ -6,7 +6,7 @@ from importlib.metadata import PackageNotFoundError, version
 def installed_tasksignal_version() -> str:
     """Return the packaged version while supporting the v0.2 distribution name."""
 
-    for distribution in ("tasksignal", "tasksignal-api"):
+    for distribution in ("tasksignal", "tasksignal-app", "tasksignal-api"):
         try:
             return version(distribution)
         except PackageNotFoundError:

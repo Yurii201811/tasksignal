@@ -219,7 +219,7 @@ def test_build_packet_redacts_posted_credentials_identities_and_private_urls() -
             {
                 "id": "sensitive-display-text",
                 "source": "forum [click](http://127.0.0.1)",
-                "title": "Leaked ghp_abcdefghijklmnopqrstuvwxyz",
+                "title": "Leaked ghp_abcdefghijklmnop",
                 "excerpt": (
                     "Email jane@example.com or call +46 70 123 45 67. "
                     "![pixel](https://tracker.example/pixel.png)"
@@ -249,7 +249,7 @@ def test_build_packet_redacts_posted_credentials_identities_and_private_urls() -
         "owner@example.test",
         "jane@example.com",
         "sk-secretsecretsecret",
-        "ghp_abcdefghijklmnopqrstuvwxyz",
+        "ghp_abcdefghijklmnop",
         "+46 70 123 45 67",
         "169.254.169.254",
         "https://tracker.example/pixel.png",

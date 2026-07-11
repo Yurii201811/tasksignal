@@ -67,8 +67,7 @@ def upgrade() -> None:
             name="ck_discourse_source_state_failure_message",
         ),
         sa.CheckConstraint(
-            "last_http_status IS NULL OR "
-            "(last_http_status >= 100 AND last_http_status <= 599)",
+            "last_http_status IS NULL OR (last_http_status >= 100 AND last_http_status <= 599)",
             name="ck_discourse_source_state_http_status",
         ),
         sa.ForeignKeyConstraint(["source_id"], ["sources.id"], ondelete="CASCADE"),

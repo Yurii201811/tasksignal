@@ -136,11 +136,15 @@ jobs:
     needs: package-build
     runs-on: macos-15
     timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
         with:
-          python-version: "3.14"
+          python-version: ${{ matrix.python-version }}
       - uses: actions/download-artifact@v8
         with:
           name: tasksignal-python-distributions

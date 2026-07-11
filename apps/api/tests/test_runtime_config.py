@@ -49,6 +49,9 @@ def test_project_root_resolution_supports_native_and_container_layouts(tmp_path)
 
     assert config.resolve_project_root(container_config) == container_root
 
+    packaged_fixtures = config.resolve_fixture_dir(tmp_path / "installed-package")
+    assert (packaged_fixtures / "hn_sample.json").is_file()
+
 
 def test_database_url_normalization_selects_psycopg3() -> None:
     from app.core.config import Settings, normalize_database_url
@@ -87,9 +90,7 @@ def test_cloud_runtime_keeps_local_ml_optional() -> None:
 
 def test_hosted_deployment_manifests_are_safe_and_reproducible() -> None:
     render_config = (ROOT / "render.yaml").read_text(encoding="utf-8")
-    api_vercel_config = json.loads(
-        (ROOT / "apps/api/vercel.json").read_text(encoding="utf-8")
-    )
+    api_vercel_config = json.loads((ROOT / "apps/api/vercel.json").read_text(encoding="utf-8"))
     vercel_config = json.loads((ROOT / "apps/web/vercel.json").read_text(encoding="utf-8"))
     api_project = tomllib.loads((ROOT / "apps/api/pyproject.toml").read_text(encoding="utf-8"))
     api_vercelignore = (ROOT / "apps/api/.vercelignore").read_text(encoding="utf-8")
@@ -129,7 +130,7 @@ def test_hosted_deployment_manifests_are_safe_and_reproducible() -> None:
     api_function = api_vercel_config["functions"]["app/main.py"]
     assert api_function["maxDuration"] == 60
     assert api_function["includeFiles"] == "data/fixtures/**"
-    assert api_function["excludeFiles"] == "{tests/**,alembic/**,**/__pycache__/**}"
+    assert api_function["excludeFiles"] == "{tests/**,**/__pycache__/**}"
     assert api_project["tool"]["vercel"]["entrypoint"] == "app.main:app"
     assert (ROOT / "apps/api/.python-version").read_text(encoding="utf-8").strip() == "3.12"
     assert ".env*" in api_vercelignore
@@ -275,6 +276,8 @@ def test_default_runtime_is_loopback_only_and_reproducible() -> None:
 
     assert "ghcr.io/astral-sh/uv:0.9.26" in api_dockerfile
     assert "COPY pyproject.toml uv.lock ./" in api_dockerfile
+    assert "COPY app ./app" in api_dockerfile
+    assert "COPY alembic ./alembic" not in api_dockerfile
     assert 'ENV PATH="/app/.venv/bin:$PATH"' in api_dockerfile
     assert "uv sync --locked --no-dev --no-install-project" in api_dockerfile
     assert "uv sync --locked --no-dev" in api_dockerfile
@@ -282,7 +285,8 @@ def test_default_runtime_is_loopback_only_and_reproducible() -> None:
 
     backend_ci = ci.split("  frontend:", maxsplit=1)[0]
     assert "uses: astral-sh/setup-uv@v7" in backend_ci
-    assert 'version: "0.9.26"' in backend_ci
+    assert 'UV_VERSION: "0.9.26"' in ci
+    assert "version: ${{ env.UV_VERSION }}" in backend_ci
     assert "working-directory: apps/api" not in backend_ci
     assert "- run: uv sync --project apps/api --extra dev --locked" in backend_ci
     assert (

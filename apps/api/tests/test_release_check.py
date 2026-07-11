@@ -31,12 +31,11 @@ def write_release_files(
     (api_dir / "app").mkdir(parents=True)
     web_dir.mkdir(parents=True)
     (api_dir / "pyproject.toml").write_text(
-        f'[project]\nname = "tasksignal-api"\nversion = "{api_version}"\n',
+        f'[project]\nname = "tasksignal"\nversion = "{api_version}"\n',
         encoding="utf-8",
     )
     (api_dir / "uv.lock").write_text(
-        'version = 1\n\n[[package]]\nname = "tasksignal-api"\n'
-        f'version = "{api_lock_version}"\n',
+        f'version = 1\n\n[[package]]\nname = "tasksignal"\nversion = "{api_lock_version}"\n',
         encoding="utf-8",
     )
     (api_dir / "app" / "main.py").write_text(
@@ -83,13 +82,44 @@ def test_project_version_check_rejects_mismatched_metadata(tmp_path, monkeypatch
     version, failures = release_check.check_project_versions("1.2.3")
 
     assert version == "1.2.3"
-    assert "Project versions do not match" in failures[0]
-    assert "Requested release version 1.2.3 does not match project metadata" in failures[1]
+    assert len(failures) == 1
+    assert "Web metadata must use 1.2.3 for Python release 1.2.3" in failures[0]
 
 
-def test_project_version_check_rejects_fastapi_and_lock_mismatch(
-    tmp_path, monkeypatch
+@pytest.mark.parametrize(
+    ("python_version", "npm_version"),
+    [
+        ("1.0.0a1", "1.0.0-alpha.1"),
+        ("1.0.0b1", "1.0.0-beta.1"),
+        ("1.0.0rc1", "1.0.0-rc.1"),
+        ("1.0.0", "1.0.0"),
+    ],
+)
+def test_npm_version_mapping_for_canonical_releases(
+    python_version: str,
+    npm_version: str,
 ) -> None:
+    assert release_check.npm_version_for_python(python_version) == npm_version
+
+
+def test_project_version_check_accepts_pep440_to_npm_prerelease_mapping(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    write_release_files(
+        tmp_path,
+        api_version="1.0.0a1",
+        web_version="1.0.0-alpha.1",
+    )
+    monkeypatch.setattr(release_check, "ROOT", tmp_path)
+
+    version, failures = release_check.check_project_versions("1.0.0a1")
+
+    assert version == "1.0.0a1"
+    assert failures == []
+
+
+def test_project_version_check_rejects_fastapi_and_lock_mismatch(tmp_path, monkeypatch) -> None:
     write_release_files(
         tmp_path,
         fastapi_version="1.2.4",
@@ -111,8 +141,7 @@ def test_project_version_check_rejects_fastapi_and_lock_mismatch(
 def test_fastapi_version_ignores_unrelated_version_keywords(tmp_path) -> None:
     path = tmp_path / "main.py"
     path.write_text(
-        'builder = Builder(version="9.9.9")\n'
-        'app = FastAPI(version="1.2.3")\n',
+        'builder = Builder(version="9.9.9")\napp = FastAPI(version="1.2.3")\n',
         encoding="utf-8",
     )
 
@@ -121,7 +150,7 @@ def test_fastapi_version_ignores_unrelated_version_keywords(tmp_path) -> None:
 
 def test_fastapi_version_rejects_missing_constructor(tmp_path) -> None:
     path = tmp_path / "main.py"
-    path.write_text('app = create_app()\n', encoding="utf-8")
+    path.write_text("app = create_app()\n", encoding="utf-8")
 
     with pytest.raises(ValueError, match="Expected exactly one direct FastAPI"):
         release_check.fastapi_version(path)
@@ -138,11 +167,17 @@ def test_fastapi_version_rejects_nonliteral_version(tmp_path) -> None:
         release_check.fastapi_version(path)
 
 
+def test_fastapi_version_accepts_canonical_version_reference_when_resolved(tmp_path) -> None:
+    path = tmp_path / "main.py"
+    path.write_text("app = FastAPI(version=TASKSIGNAL_VERSION)\n", encoding="utf-8")
+
+    assert release_check.fastapi_version(path, "1.2.3") == "1.2.3"
+
+
 def test_fastapi_version_rejects_duplicate_constructors(tmp_path) -> None:
     path = tmp_path / "main.py"
     path.write_text(
-        'app = FastAPI(version="1.2.3")\n'
-        'other_app = FastAPI(version="1.2.3")\n',
+        'app = FastAPI(version="1.2.3")\nother_app = FastAPI(version="1.2.3")\n',
         encoding="utf-8",
     )
 
@@ -174,9 +209,7 @@ def test_safe_project_version_check_reports_malformed_metadata(
     assert failures[0].startswith("Could not read project version metadata:")
 
 
-def test_safe_project_version_check_reports_missing_metadata(
-    tmp_path, monkeypatch
-) -> None:
+def test_safe_project_version_check_reports_missing_metadata(tmp_path, monkeypatch) -> None:
     write_release_files(tmp_path)
     (tmp_path / "apps/web/package-lock.json").unlink()
     monkeypatch.setattr(release_check, "ROOT", tmp_path)
@@ -188,9 +221,7 @@ def test_safe_project_version_check_reports_missing_metadata(
     assert failures[0].startswith("Could not read project version metadata:")
 
 
-def test_main_reports_malformed_metadata_without_traceback(
-    tmp_path, monkeypatch, capsys
-) -> None:
+def test_main_reports_malformed_metadata_without_traceback(tmp_path, monkeypatch, capsys) -> None:
     write_release_files(tmp_path)
     (tmp_path / "apps/api/pyproject.toml").write_text("[project\n", encoding="utf-8")
     monkeypatch.setattr(release_check, "ROOT", tmp_path)
@@ -245,10 +276,13 @@ def test_ci_run_url_validation_requires_actions_run_url() -> None:
     assert release_check.check_ci_run_url(None, require_ci_run_url=True) == [
         "CI run URL is required; pass --ci-run-url or run inside GitHub Actions."
     ]
-    assert release_check.check_ci_run_url(
-        "https://github.com/Yurii201811/tasksignal/actions/runs/123456789",
-        require_ci_run_url=True,
-    ) == []
+    assert (
+        release_check.check_ci_run_url(
+            "https://github.com/Yurii201811/tasksignal/actions/runs/123456789",
+            require_ci_run_url=True,
+        )
+        == []
+    )
     assert release_check.check_ci_run_url(
         "https://github.com/Yurii201811/tasksignal/actions",
         require_ci_run_url=True,

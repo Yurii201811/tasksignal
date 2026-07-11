@@ -4,6 +4,5 @@
 .ruff_cache
 .venv
 __pycache__
-alembic
 test_tasksignal.db
 tests

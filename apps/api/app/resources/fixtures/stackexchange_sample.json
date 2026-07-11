@@ -1,0 +1,60 @@
+{
+  "source": "stackexchange",
+  "items": [
+    {
+      "external_id": "se-ai-audit-1",
+      "title": "How do I check AI generated code for missing tests automatically?",
+      "body": "I am struggling with PRs where AI wrote working code but skipped tests and duplicated logic. Is there a tool or script to audit generated code before review?",
+      "owner": {"display_name": "qa_lead"},
+      "score": 31,
+      "answer_count": 4,
+      "creation_date": 1776859200,
+      "link": "https://stackoverflow.com/questions/se-ai-audit-1",
+      "tags": ["testing", "code-review", "ai"]
+    },
+    {
+      "external_id": "se-leads-1",
+      "title": "Best way to monitor forums for people asking for a tool like ours?",
+      "body": "Our founder manually checks Reddit and Hacker News every day for posts from potential customers. We need to sync useful mentions into a spreadsheet without spammy outreach.",
+      "owner": {"display_name": "founder_ops"},
+      "score": 24,
+      "answer_count": 3,
+      "creation_date": 1777032000,
+      "link": "https://stackoverflow.com/questions/se-leads-1",
+      "tags": ["automation", "api", "lead-generation"]
+    },
+    {
+      "external_id": "se-onboarding-1",
+      "title": "Simple onboarding analytics without a complex event pipeline",
+      "body": "I manually export signup events every week, review a spreadsheet, and guess why users drop off. How are people doing onboarding analysis without a full analytics team?",
+      "owner": {"display_name": "solo_pm"},
+      "score": 27,
+      "answer_count": 5,
+      "creation_date": 1776772800,
+      "link": "https://stackoverflow.com/questions/se-onboarding-1",
+      "tags": ["analytics", "saas", "events"]
+    },
+    {
+      "external_id": "se-ci-1",
+      "title": "Can someone recommend a GitHub Actions log analyzer?",
+      "body": "CI failures are frustrating. The workflow logs take forever to scan, and every YAML mistake looks different. I want a tool that explains what to fix.",
+      "owner": {"display_name": "backend_dev"},
+      "score": 45,
+      "answer_count": 7,
+      "creation_date": 1777464000,
+      "link": "https://stackoverflow.com/questions/se-ci-1",
+      "tags": ["github-actions", "ci", "yaml"]
+    },
+    {
+      "external_id": "se-report-1",
+      "title": "Automate Stripe export to Google Sheets client summary",
+      "body": "Every Monday I manually export Stripe payments, import a CSV into Google Sheets, reconcile refunds, and send a client report. The repeat workflow is annoying and error-prone.",
+      "owner": {"display_name": "finance_builder"},
+      "score": 52,
+      "answer_count": 6,
+      "creation_date": 1777291200,
+      "link": "https://stackoverflow.com/questions/se-report-1",
+      "tags": ["stripe", "google-sheets", "reports"]
+    }
+  ]
+}

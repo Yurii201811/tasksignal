@@ -1,13 +1,32 @@
 [project]
-name = "tasksignal-api"
+name = "tasksignal"
 version = "0.2.0"
 description = "FastAPI backend for TaskSignal, an AI-assisted problem discovery engine."
-requires-python = ">=3.11"
+readme = "README.md"
+requires-python = ">=3.11,<3.15"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Yurii Bakurov" }]
+keywords = ["research", "evidence", "indie-builder", "mcp", "local-first"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Framework :: FastAPI",
+  "Operating System :: MacOS",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: Software Development",
+]
 dependencies = [
   "alembic>=1.13.0",
   "apscheduler>=3.10.4",
   "fastapi>=0.115.0",
   "httpx>=0.27.0",
+  "platformdirs>=4.3,<5",
   "pgvector>=0.3.6",
   "psycopg[binary]>=3.2.0",
   "pydantic>=2.7.0",
@@ -17,13 +36,24 @@ dependencies = [
   "uvicorn[standard]>=0.30.0"
 ]
 
+[project.scripts]
+tasksignal = "app.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/Yurii201811/tasksignal"
+Documentation = "https://github.com/Yurii201811/tasksignal#readme"
+Issues = "https://github.com/Yurii201811/tasksignal/issues"
+Source = "https://github.com/Yurii201811/tasksignal"
+
 [build-system]
 requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 include = ["app*"]
-exclude = ["alembic*"]
+
+[tool.setuptools.package-data]
+"app.resources.fixtures" = ["*.json"]
 
 [tool.vercel]
 entrypoint = "app.main:app"

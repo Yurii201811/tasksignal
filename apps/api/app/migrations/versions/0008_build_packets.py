@@ -95,13 +95,11 @@ def upgrade() -> None:
             name="ck_build_packets_manifest_sha256",
         ),
         sa.CheckConstraint(
-            "enhancement_provider IS NULL OR "
-            "length(trim(enhancement_provider)) BETWEEN 1 AND 128",
+            "enhancement_provider IS NULL OR length(trim(enhancement_provider)) BETWEEN 1 AND 128",
             name="ck_build_packets_enhancement_provider_nonempty",
         ),
         sa.CheckConstraint(
-            "enhancement_model IS NULL OR "
-            "length(trim(enhancement_model)) BETWEEN 1 AND 256",
+            "enhancement_model IS NULL OR length(trim(enhancement_model)) BETWEEN 1 AND 256",
             name="ck_build_packets_enhancement_model_nonempty",
         ),
         sa.CheckConstraint(

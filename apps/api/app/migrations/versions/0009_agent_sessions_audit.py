@@ -137,8 +137,7 @@ def upgrade() -> None:
         sa.Column("error_code", sa.Text(), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.CheckConstraint(
-            "event_status IN ('reserved', 'succeeded', 'failed', 'conflict', "
-            "'replayed', 'denied')",
+            "event_status IN ('reserved', 'succeeded', 'failed', 'conflict', 'replayed', 'denied')",
             name="ck_agent_actions_event_status",
         ),
         sa.CheckConstraint(
@@ -175,8 +174,7 @@ def upgrade() -> None:
             name="ck_agent_actions_request_summary_bounded",
         ),
         sa.CheckConstraint(
-            "result_summary_json IS NULL OR "
-            "length(CAST(result_summary_json AS TEXT)) <= 4096",
+            "result_summary_json IS NULL OR length(CAST(result_summary_json AS TEXT)) <= 4096",
             name="ck_agent_actions_result_summary_bounded",
         ),
         sa.CheckConstraint(
@@ -225,18 +223,12 @@ def upgrade() -> None:
         "agent_actions",
         ["operation_id"],
         unique=True,
-        sqlite_where=sa.text(
-            "event_status IN ('succeeded', 'failed', 'denied')"
-        ),
-        postgresql_where=sa.text(
-            "event_status IN ('succeeded', 'failed', 'denied')"
-        ),
+        sqlite_where=sa.text("event_status IN ('succeeded', 'failed', 'denied')"),
+        postgresql_where=sa.text("event_status IN ('succeeded', 'failed', 'denied')"),
     )
 
     with op.batch_alter_table("research_projects") as batch_op:
-        batch_op.add_column(
-            sa.Column("version", sa.Integer(), nullable=False, server_default="1")
-        )
+        batch_op.add_column(sa.Column("version", sa.Integer(), nullable=False, server_default="1"))
         batch_op.create_check_constraint(
             "ck_research_projects_version_positive",
             "version > 0",
