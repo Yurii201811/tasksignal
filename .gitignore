@@ -14,6 +14,7 @@ out/
 dist/
 coverage/
 .superpowers/
+.hallmark/
 .worktrees/
 .DS_Store
 *.log

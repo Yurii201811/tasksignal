@@ -30,6 +30,7 @@ entrypoint = "app.main:app"
 
 [project.optional-dependencies]
 dev = [
+  "httpx2>=2.0.0",
   "mypy>=1.10.0",
   "pytest>=8.2.0",
   "ruff>=0.5.0"
@@ -42,6 +43,7 @@ ml = [
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+filterwarnings = ["error::starlette.exceptions.StarletteDeprecationWarning"]
 
 [tool.ruff]
 line-length = 100

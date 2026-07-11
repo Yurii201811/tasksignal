@@ -6,7 +6,6 @@ import {
   Layers3,
   Search,
 } from "lucide-react";
-import { AppShell } from "@/components/app-shell";
 import { Badge, ButtonLink, Card, PageHeader } from "@/components/ui";
 
 const examples = [
@@ -50,7 +49,7 @@ const workflow = [
 
 export default function LandingPage() {
   return (
-    <AppShell>
+    <>
       <div className="space-y-6 py-4">
         <PageHeader
           title="TaskSignal"
@@ -60,7 +59,7 @@ export default function LandingPage() {
               <ButtonLink href="/settings">Start setup</ButtonLink>
               <Link
                 href="/dashboard"
-                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-product border border-border bg-surface px-4 py-2 text-sm font-semibold text-ink hover:bg-surface-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]"
+                className="inline-flex min-h-11 items-center justify-center gap-2 whitespace-nowrap rounded-product border border-border-strong bg-surface px-4 py-2 text-sm font-semibold text-ink hover:bg-surface-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)] motion-safe:active:translate-y-px"
               >
                 <Search size={16} /> Open dashboard
               </Link>
@@ -99,13 +98,13 @@ export default function LandingPage() {
             <div className="mt-5 flex flex-wrap gap-2 border-t border-border pt-4">
               <Link
                 href="/settings"
-                className="inline-flex min-h-9 items-center gap-1 rounded-product text-sm font-semibold text-signal hover:text-[var(--ts-accent-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]"
+                className="inline-flex min-h-11 items-center gap-1 whitespace-nowrap rounded-product text-sm font-semibold text-signal hover:text-[var(--ts-accent-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)] motion-safe:active:translate-y-px"
               >
                 Configure workspace <ArrowRight size={15} />
               </Link>
               <Link
                 href="/projects"
-                className="inline-flex min-h-9 items-center gap-1 rounded-product text-sm font-semibold text-signal hover:text-[var(--ts-accent-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]"
+                className="inline-flex min-h-11 items-center gap-1 whitespace-nowrap rounded-product text-sm font-semibold text-signal hover:text-[var(--ts-accent-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)] motion-safe:active:translate-y-px"
               >
                 Save a project <ArrowRight size={15} />
               </Link>
@@ -146,13 +145,13 @@ export default function LandingPage() {
             </div>
             <Link
               href="/dashboard"
-              className="mt-5 inline-flex min-h-9 items-center gap-1 rounded-product text-sm font-semibold text-signal hover:text-[var(--ts-accent-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]"
+              className="mt-5 inline-flex min-h-11 items-center gap-1 whitespace-nowrap rounded-product text-sm font-semibold text-signal hover:text-[var(--ts-accent-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)] motion-safe:active:translate-y-px"
             >
-              Open dashboard and review ranked evidence <ArrowRight size={15} />
+              Review ranked evidence <ArrowRight size={15} />
             </Link>
           </Card>
         </div>
       </div>
-    </AppShell>
+    </>
   );
 }

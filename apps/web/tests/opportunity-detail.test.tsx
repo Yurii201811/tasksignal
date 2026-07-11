@@ -187,8 +187,13 @@ describe("OpportunityDetail", () => {
     expect(evidenceCard).not.toBeNull();
     expect(within(evidenceCard!).getByText("Evidence review")).toBeInTheDocument();
     expect(within(evidenceCard!).getByLabelText("Evidence label")).toHaveValue(
-      "true_signal",
+      "",
     );
+    expect(
+      within(evidenceCard!).getByRole("button", {
+        name: "Add evidence review",
+      }),
+    ).toBeDisabled();
   });
 
   it("keeps save success through the real refetch and clears it on a new draft", async () => {

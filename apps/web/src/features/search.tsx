@@ -47,7 +47,7 @@ export function SemanticSearch() {
           />
           <Button disabled={!trimmedQuery || search.isPending} loading={search.isPending}>
             {search.isPending ? (
-              <RefreshCw className="animate-spin" size={16} />
+              <RefreshCw className="motion-safe:animate-spin" size={16} />
             ) : (
               <SearchIcon size={16} />
             )}
@@ -101,7 +101,7 @@ export function SemanticSearch() {
               {sourceUrl ? (
                 <a
                   href={sourceUrl}
-                  className="mt-3 inline-flex min-h-9 items-center rounded-product text-sm font-semibold text-signal hover:text-[var(--ts-accent-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]"
+                  className="mt-3 inline-flex min-h-11 items-center whitespace-nowrap rounded-product text-sm font-semibold text-signal hover:text-[var(--ts-accent-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)] motion-safe:active:translate-y-px"
                   rel="noreferrer"
                   target="_blank"
                 >

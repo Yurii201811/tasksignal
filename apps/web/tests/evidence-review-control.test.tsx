@@ -56,6 +56,7 @@ describe("EvidenceReviewControl", () => {
     expect(
       Array.from(select.options, (option) => [option.value, option.label]),
     ).toEqual([
+      ["", "Select a label"],
       ["true_signal", "True signal"],
       ["false_positive", "False positive"],
       ["unclear", "Unclear"],
@@ -63,6 +64,10 @@ describe("EvidenceReviewControl", () => {
       ["not_actionable", "Not actionable"],
       ["sensitive_risk", "Sensitive risk"],
     ]);
+    expect(select).toHaveValue("");
+    expect(
+      screen.getByRole("button", { name: "Add evidence review" }),
+    ).toBeDisabled();
   });
 
   it("appends a review and invalidates every dependent query", async () => {
@@ -175,6 +180,8 @@ describe("EvidenceReviewControl", () => {
         />
       </QueryClientProvider>,
     );
+
+    expect(screen.getByLabelText("Evidence label")).toHaveValue("unclear");
 
     fireEvent.change(screen.getByLabelText("Evidence label"), {
       target: { value: "sensitive_risk" },

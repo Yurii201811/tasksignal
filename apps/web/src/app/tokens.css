@@ -1,0 +1,131 @@
+/* Hallmark · macrostructure: Workbench · tone: technical utilitarian research-grade · anchor hue: teal · genre: modern-minimal · theme: TaskSignal locked · enrichment: none · nav: existing product side navigation · footer: none · contrast: pass (40–41) · slop: pass (2–58) · exception: gate 1 preserves DESIGN.md system sans · honest: pass (46) · chrome: pass (47) · tokens: pass (48) · responsive: pass (49) · icons: pass (30) · mobile: pass (34, 49, 50–57) */
+/* Hallmark · pre-emit critique: P5 H5 E4 S5 R5 V4 */
+:root {
+  /* Core colour system */
+  --color-paper: oklch(97% 0.007 255);
+  --color-paper-2: oklch(99% 0.004 255);
+  --color-paper-3: oklch(95.8% 0.01 255);
+  --color-ink: oklch(25% 0.037 258);
+  --color-ink-2: oklch(34% 0.032 258);
+  --color-muted: oklch(45% 0.035 255);
+  --color-neutral: oklch(38% 0.032 255);
+  --color-rule: oklch(88.5% 0.017 255);
+  --color-rule-2: oklch(66% 0.025 255);
+  --color-accent: oklch(50.5% 0.091 183);
+  --color-accent-hover: oklch(44.5% 0.083 183);
+  --color-accent-soft: oklch(94.5% 0.025 183);
+  --color-accent-ink: oklch(98.8% 0.004 255);
+  --color-focus: oklch(40% 0.14 250);
+  --color-attention: oklch(55% 0.145 55);
+  --color-attention-soft: oklch(96.5% 0.03 70);
+
+  /* Semantic colour system */
+  --color-success: oklch(50% 0.13 163);
+  --color-success-surface: oklch(96% 0.025 163);
+  --color-success-rule: oklch(82% 0.055 163);
+  --color-warning: var(--color-attention);
+  --color-warning-surface: var(--color-attention-soft);
+  --color-warning-rule: oklch(84% 0.07 75);
+  --color-danger: oklch(49% 0.18 29);
+  --color-danger-surface: oklch(96% 0.025 29);
+  --color-danger-rule: oklch(84% 0.06 29);
+  --color-info: oklch(44% 0.12 255);
+  --color-info-surface: oklch(96% 0.023 255);
+  --color-info-rule: oklch(84% 0.055 255);
+
+  /* Data visualisation */
+  --color-chart-1: var(--color-accent);
+  --color-chart-2: var(--color-attention);
+  --color-chart-3: oklch(55% 0.16 255);
+  --color-chart-4: oklch(49% 0.14 305);
+  --color-chart-5: var(--color-danger);
+
+  /* Typography: the locked product system intentionally uses one family */
+  --font-body:
+    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  --font-display: var(--font-body);
+  --font-outlier:
+    ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-md: 1.125rem;
+  --text-lg: 1.25rem;
+  --text-xl: 1.5rem;
+  --text-2xl: 1.875rem;
+  --text-display: 2.25rem;
+
+  /* Four-point spacing scale */
+  --space-3xs: 0.25rem;
+  --space-2xs: 0.5rem;
+  --space-xs: 0.75rem;
+  --space-sm: 1rem;
+  --space-md: 1.5rem;
+  --space-lg: 2rem;
+  --space-xl: 2.5rem;
+  --space-2xl: 4rem;
+  --space-3xl: 6rem;
+
+  /* Shape, rules, elevation */
+  --rule-hair: 1px;
+  --rule-fine: 2px;
+  --radius-card: 0.5rem;
+  --radius-input: 0.5rem;
+  --radius-pill: 999px;
+  --shadow-card: 0 1px 2px oklch(25% 0.037 258 / 0.05);
+  --shadow-overlay: 0 12px 30px oklch(25% 0.037 258 / 0.12);
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-micro: 120ms;
+  --dur-short: 200ms;
+  --dur-long: 300ms;
+
+  /* Layering */
+  --z-base: 1;
+  --z-raised: 10;
+  --z-dropdown: 100;
+  --z-sticky: 200;
+  --z-modal: 400;
+  --z-toast: 500;
+  --z-tooltip: 600;
+
+  /* Existing TaskSignal aliases */
+  --ts-bg: var(--color-paper);
+  --ts-surface: var(--color-paper-2);
+  --ts-surface-muted: var(--color-paper-3);
+  --ts-surface-success: var(--color-success-surface);
+  --ts-surface-warning: var(--color-warning-surface);
+  --ts-surface-danger: var(--color-danger-surface);
+  --ts-text: var(--color-ink);
+  --ts-text-muted: var(--color-muted);
+  --ts-accent: var(--color-accent);
+  --ts-accent-hover: var(--color-accent-hover);
+  --ts-accent-subtle: var(--color-accent-soft);
+  --ts-attention: var(--color-attention);
+  --ts-attention-subtle: var(--color-attention-soft);
+  --ts-border: var(--color-rule);
+  --ts-border-strong: var(--color-rule-2);
+  --ts-success: var(--color-success);
+  --ts-success-border: var(--color-success-rule);
+  --ts-warning: var(--color-warning);
+  --ts-warning-border: var(--color-warning-rule);
+  --ts-danger: var(--color-danger);
+  --ts-danger-border: var(--color-danger-rule);
+  --ts-info: var(--color-info);
+  --ts-info-border: var(--color-info-rule);
+  --ts-focus-ring: var(--color-focus);
+  --ts-focus-offset: var(--color-paper-2);
+  --ts-shadow-soft: var(--shadow-card);
+  --ts-chart-1: var(--color-chart-1);
+  --ts-chart-2: var(--color-chart-2);
+  --ts-chart-3: var(--color-chart-3);
+  --ts-chart-4: var(--color-chart-4);
+  --ts-chart-5: var(--color-chart-5);
+  --ts-duration-fast: var(--dur-micro);
+  --ts-duration: var(--dur-short);
+  --ts-ease-out: var(--ease-out);
+}

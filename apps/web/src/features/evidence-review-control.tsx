@@ -16,13 +16,15 @@ export function EvidenceReviewControl({
   item: EvidenceItem;
 }) {
   const queryClient = useQueryClient();
-  const [label, setLabel] = useState<EvidenceReviewLabel>("true_signal");
+  const [label, setLabel] = useState<EvidenceReviewLabel | "">(
+    item.review_label ?? "",
+  );
   const [note, setNote] = useState("");
   const mutation = useMutation({
-    mutationFn: () =>
+    mutationFn: (reviewLabel: EvidenceReviewLabel) =>
       api.createEvidenceReview({
         item_id: item.id,
-        label,
+        label: reviewLabel,
         user_note: note.trim() || null,
       }),
     onSuccess: async () => {
@@ -80,9 +82,13 @@ export function EvidenceReviewControl({
             value={label}
             onChange={(event) => {
               clearMutationFeedback();
-              setLabel(event.target.value as EvidenceReviewLabel);
+              setLabel(event.target.value as EvidenceReviewLabel | "");
             }}
+            required
           >
+            <option value="" disabled>
+              Select a label
+            </option>
             {EVIDENCE_REVIEW_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
@@ -105,7 +111,14 @@ export function EvidenceReviewControl({
             }}
           />
         </label>
-        <Button onClick={() => mutation.mutate()} loading={mutation.isPending}>
+        <Button
+          onClick={() => {
+            if (label) mutation.mutate(label);
+          }}
+          loading={mutation.isPending}
+          disabled={!label}
+          title={!label ? "Choose an evidence label first." : undefined}
+        >
           Add evidence review
         </Button>
       </div>

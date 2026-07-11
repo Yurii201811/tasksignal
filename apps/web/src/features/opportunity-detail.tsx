@@ -134,7 +134,7 @@ export function OpportunityDetail({ id }: { id: string }) {
     <div className="space-y-6">
       <Link
         href="/dashboard"
-        className="inline-flex min-h-9 items-center gap-1 rounded-product text-sm font-semibold text-signal hover:text-[var(--ts-accent-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]"
+        className="inline-flex min-h-11 items-center gap-1 whitespace-nowrap rounded-product text-sm font-semibold text-signal hover:text-[var(--ts-accent-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)] motion-safe:active:translate-y-px"
       >
         <ArrowLeft size={15} /> Back to dashboard
       </Link>
@@ -148,7 +148,7 @@ export function OpportunityDetail({ id }: { id: string }) {
             <>
               <Link
                 href={`/opportunities/${id}/prompt`}
-                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-product bg-signal px-4 py-2 text-sm font-semibold text-[color-mix(in_srgb,var(--ts-surface)_96%,transparent)] hover:bg-[var(--ts-accent-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]"
+                className="inline-flex min-h-11 items-center justify-center gap-2 whitespace-nowrap rounded-product bg-signal px-4 py-2 text-sm font-semibold text-[var(--color-accent-ink)] hover:bg-[var(--ts-accent-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)] motion-safe:active:translate-y-px"
               >
                 <FileText size={16} /> View Codex Prompt
               </Link>
@@ -157,14 +157,32 @@ export function OpportunityDetail({ id }: { id: string }) {
                 onClick={() => taskPackDownload.mutate()}
                 loading={taskPackDownload.isPending}
               >
-                <Download size={16} /> Task Pack
+                <Download
+                  size={16}
+                  className={
+                    taskPackDownload.isPending
+                      ? "motion-safe:animate-pulse"
+                      : ""
+                  }
+                />
+                {taskPackDownload.isPending ? "Downloading…" : "Task Pack"}
               </Button>
               <Button
                 variant="secondary"
                 onClick={() => evidenceDownload.mutate()}
                 loading={evidenceDownload.isPending}
               >
-                <Download size={16} /> Export Evidence
+                <Download
+                  size={16}
+                  className={
+                    evidenceDownload.isPending
+                      ? "motion-safe:animate-pulse"
+                      : ""
+                  }
+                />
+                {evidenceDownload.isPending
+                  ? "Downloading…"
+                  : "Export Evidence"}
               </Button>
               <Button
                 variant="secondary"
@@ -174,7 +192,9 @@ export function OpportunityDetail({ id }: { id: string }) {
               >
                 <RotateCw
                   size={16}
-                  className={regenerate.isPending ? "animate-spin" : ""}
+                  className={
+                    regenerate.isPending ? "motion-safe:animate-spin" : ""
+                  }
                 />
                 Regenerate
               </Button>
@@ -193,7 +213,9 @@ export function OpportunityDetail({ id }: { id: string }) {
               >
                 <Sparkles
                   size={16}
-                  className={enhance.isPending ? "animate-pulse" : ""}
+                  className={
+                    enhance.isPending ? "motion-safe:animate-pulse" : ""
+                  }
                 />
                 Enhance Prompt
               </Button>
@@ -254,7 +276,7 @@ export function OpportunityDetail({ id }: { id: string }) {
           action={
             <Link
               href="/settings"
-              className="inline-flex min-h-9 items-center justify-center gap-1 rounded-product border border-border bg-surface px-3 py-1.5 text-xs font-semibold text-ink hover:bg-surface-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]"
+              className="inline-flex min-h-11 items-center justify-center gap-1 whitespace-nowrap rounded-product border border-border-strong bg-surface px-3 py-2 text-xs font-semibold text-ink hover:bg-surface-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)] motion-safe:active:translate-y-px"
             >
               Settings <ArrowRight size={14} />
             </Link>
@@ -331,7 +353,11 @@ export function OpportunityDetail({ id }: { id: string }) {
           </div>
 
           <div className="mt-5">
-            <TableShell tableClassName="min-w-[540px]">
+            <TableShell
+              label="Opportunity score breakdown"
+              caption="Weighted factors contributing to the opportunity score"
+              tableClassName="min-w-[540px]"
+            >
               <thead className="border-b border-border text-xs uppercase text-muted">
                 <tr>
                   <th className="py-2 pr-3">Factor</th>
@@ -354,7 +380,10 @@ export function OpportunityDetail({ id }: { id: string }) {
                       </td>
                       <td className="py-3 pr-3">
                         <div className="flex min-w-28 items-center gap-2">
-                          <ScoreBar value={value} />
+                          <ScoreBar
+                            value={value}
+                            label={`${row.label} score`}
+                          />
                           <span className="w-8 text-right tabular-nums text-muted">
                             {percent(value)}
                           </span>
@@ -386,7 +415,7 @@ export function OpportunityDetail({ id }: { id: string }) {
               <ul className="mt-2 grid gap-2 text-sm text-muted">
                 {rankDrivers.map((driver) => (
                   <li key={driver} className="flex gap-2">
-                    <ArrowRight className="mt-0.5 h-4 w-4 shrink-0 text-signal" />
+                    <ArrowRight className="mt-1 h-4 w-4 shrink-0 text-signal" />
                     <span>{driver}</span>
                   </li>
                 ))}
@@ -449,7 +478,7 @@ export function OpportunityDetail({ id }: { id: string }) {
                   {sourceUrl ? (
                     <a
                       href={sourceUrl}
-                      className="inline-flex min-h-9 items-center gap-1 rounded-product text-sm font-semibold text-signal hover:text-[var(--ts-accent-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]"
+                      className="inline-flex min-h-11 items-center gap-1 whitespace-nowrap rounded-product text-sm font-semibold text-signal hover:text-[var(--ts-accent-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)] motion-safe:active:translate-y-px"
                       rel="noreferrer"
                       target="_blank"
                     >
@@ -501,7 +530,9 @@ function MiniScore({ label, value }: { label: string; value: number | null }) {
         <span>{label}</span>
         <span>{value === null ? "Not measured" : percent(value)}</span>
       </div>
-      {value === null ? null : <ScoreBar value={value} />}
+      {value === null ? null : (
+        <ScoreBar value={value} label={`${label} score`} />
+      )}
     </div>
   );
 }

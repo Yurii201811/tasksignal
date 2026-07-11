@@ -10,7 +10,7 @@ TaskSignal is an AI-assisted engine that mines public developer and community di
 
 TaskSignal is a portfolio-ready MVP built by Yurii Bakurov. It is designed for one local operator on their own machine: fixture data works out of the box, a local workspace profile stores that user's research defaults, and repeatable API-backed workflows can be enabled for supported public sources when credentials are provided.
 
-Current public posture: TaskSignal is an early public application repository, not a widely adopted package. Its published v0.1.3 review package includes a browser-verified fixture demo. The committed v0.2 decision workbench has automated and smoke evidence, while fresh interactive browser verification remains a pre-release step. See the [demo evidence snapshot](docs/demo-evidence.md) and [Codex for OSS evidence](docs/codex-for-oss-application.md) for the current review package.
+Current public posture: TaskSignal is an early public application repository, not a widely adopted package. The current `v0.2.0` release candidate combines the decision workbench, refreshed accessible UI, locked design-token exports, test-only `httpx2` support, and upstream redaction hardening. It is prepared for public release, but it is not externally published until the matching Git tag and GitHub Release exist. See the [demo evidence snapshot](docs/demo-evidence.md) and [release checklist](docs/release-prep.md) for the candidate evidence boundary.
 
 Useful starting points:
 
@@ -212,7 +212,8 @@ TaskSignal is currently an application repository, not a published Python or npm
 
 For a quick public review, inspect:
 
-- [Latest release](https://github.com/Yurii201811/tasksignal/releases/tag/v0.1.3)
+- [`v0.2.0` release candidate notes](CHANGELOG.md#020---2026-07-11)
+- [Published releases](https://github.com/Yurii201811/tasksignal/releases)
 - [Open contributor issues](https://github.com/Yurii201811/tasksignal/issues)
 - [Release-readiness workflow](https://github.com/Yurii201811/tasksignal/actions/workflows/release-check.yml)
 - [Demo evidence snapshot](docs/demo-evidence.md)

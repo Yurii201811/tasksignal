@@ -24,7 +24,12 @@ function BreakdownTable({
   return (
     <Card>
       <h2 className="text-lg font-semibold text-ink">{title}</h2>
-      <TableShell className="mt-4" tableClassName="min-w-[560px]">
+      <TableShell
+        className="mt-4"
+        label={`${title} evaluation breakdown`}
+        caption={`${title} totals, review coverage, and precision`}
+        tableClassName="min-w-[560px]"
+      >
         <thead>
           <tr className="border-b border-border text-xs uppercase text-muted">
             <th className="py-2 pr-3">Group</th>
@@ -41,12 +46,12 @@ function BreakdownTable({
               className="border-b border-border last:border-0"
             >
               <td className="py-3 pr-3 font-medium">{name}</td>
-              <td className="py-3 pr-3">{row.total_items}</td>
-              <td className="py-3 pr-3">{row.reviewed_items}</td>
-              <td className="py-3 pr-3">
+              <td className="py-3 pr-3 tabular-nums">{row.total_items}</td>
+              <td className="py-3 pr-3 tabular-nums">{row.reviewed_items}</td>
+              <td className="py-3 pr-3 tabular-nums">
                 {formatPercentage(row.review_coverage)}
               </td>
-              <td className="py-3">
+              <td className="py-3 tabular-nums">
                 {row.precision_on_reviewed_positives === null
                   ? "Not defined"
                   : formatPercentage(row.precision_on_reviewed_positives)}
