@@ -189,8 +189,6 @@ def evidence_focus_terms(items: list[dict], phrases: list[str] | None = None) ->
 
 def evidence_mapped_scope(
     fields: dict,
-    score: dict,
-    evidence_items: list[dict],
     focus_terms: list[str],
 ) -> str:
     term_hint = ", ".join(focus_terms[:4]) if focus_terms else "workflow pain"
@@ -247,7 +245,7 @@ def generate_codex_prompt(
     phrases = common_phrases(evidence_items) if evidence_items else []
     focus_terms = evidence_focus_terms(evidence_items, phrases)
     mix = source_summary(evidence_items) if evidence_items else "no sources"
-    scope = evidence_mapped_scope(fields, score, evidence_items, focus_terms)
+    scope = evidence_mapped_scope(fields, focus_terms)
     excerpts = (
         evidence_pack(evidence_items) if evidence_items else "- No source excerpts were available."
     )
