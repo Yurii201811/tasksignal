@@ -23,13 +23,14 @@ from pathlib import Path
 from uuid import UUID, uuid4
 from urllib.error import URLError
 from urllib.request import urlopen
-from zipfile import BadZipFile, ZipFile
+from zipfile import ZIP_DEFLATED, BadZipFile, ZipFile
 
 os.environ.setdefault("DISABLE_SQLALCHEMY_CEXT_RUNTIME", "1")
 
 ROOT = Path(__file__).resolve().parents[1]
 API_DIR = ROOT / "apps" / "api"
 WEB_DIR = ROOT / "apps" / "web"
+FIXTURE_DIR = API_DIR / "app" / "resources" / "fixtures"
 HOMEBREW_NODE20_BIN = Path("/opt/homebrew/opt/node@20/bin")
 TASK_PACK_CHECKER_PATH = (
     ROOT
@@ -50,6 +51,27 @@ BUILD_PACKET_FILES = {
     "implementation-plan.md",
     "agent-brief.md",
 }
+BUILD_PACKET_SCHEMA_VERSION = "tasksignal.build-packet/v1"
+BUILD_PACKET_TEMPLATE_VERSION = "deterministic-v1"
+BUILD_PACKET_MANIFEST_SELF_HASH_POLICY = (
+    "MANIFEST.json is excluded to avoid recursive self-hashing; "
+    "persist the manifest immutably with the packet record."
+)
+BUILD_PACKET_UUID_FIELDS = (
+    "packet_id",
+    "project_id",
+    "run_id",
+    "thread_id",
+    "snapshot_id",
+    "decision_event_id",
+)
+BUILD_PACKET_SHA256_FIELDS = ("source_snapshot_sha256", "decision_sha256")
+PRIVACY_MARKER_CATEGORIES = (
+    "local_notes",
+    "raw_identities",
+    "author_hashes",
+    "secret_values",
+)
 PROOF_BUNDLE_SCHEMA_VERSION = "tasksignal.first-run-proof/v1"
 PROOF_BUNDLE_ARTIFACTS = [
     "README.md",
@@ -256,6 +278,84 @@ def client_json(
     return response.json()
 
 
+def fixture_raw_identity_markers(
+    fixture_dir: Path,
+    selected_identities: set[tuple[str, str]],
+) -> set[str]:
+    """Read raw author identities before the scan pipeline sanitizes fixture payloads."""
+
+    markers: set[str] = set()
+    observed: set[tuple[str, str]] = set()
+    try:
+        paths = sorted(fixture_dir.glob("*_sample.json"))
+    except OSError as exc:
+        raise SmokeError("Fixture inputs could not be enumerated.") from exc
+    assert_condition(paths, "Fixture inputs are missing from the source checkout.")
+
+    for path in paths:
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise SmokeError(
+                "A pre-sanitized fixture input could not be read."
+            ) from exc
+        if not isinstance(payload, dict):
+            raise SmokeError("A pre-sanitized fixture input was not an object.")
+        source = str(payload.get("source") or path.stem.replace("_sample", ""))
+        items = payload.get("items")
+        if not isinstance(items, list):
+            raise SmokeError("A pre-sanitized fixture input omitted its items list.")
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            external_id = str(item.get("external_id") or item.get("id") or "")
+            identity = (source, external_id)
+            if identity not in selected_identities:
+                continue
+            observed.add(identity)
+            candidates = [item.get("author"), item.get("by"), item.get("username")]
+            user = item.get("user")
+            if isinstance(user, dict):
+                candidates.append(user.get("login"))
+            owner = item.get("owner")
+            if isinstance(owner, dict):
+                candidates.append(owner.get("display_name"))
+            markers.update(
+                value for value in candidates if isinstance(value, str) and value
+            )
+
+    missing = selected_identities - observed
+    assert_condition(
+        not missing,
+        f"Pre-sanitized fixture inputs omitted {len(missing)} selected evidence item(s).",
+    )
+    assert_condition(
+        markers,
+        "Pre-sanitized fixture inputs exposed no raw identity markers to verify.",
+    )
+    return markers
+
+
+def privacy_marker_categories(
+    *,
+    local_notes: set[str],
+    raw_identities: set[str],
+    author_hashes: set[str],
+    runtime_secrets: set[str],
+) -> dict[str, set[str]]:
+    categories = {
+        "local_notes": set(local_notes),
+        "raw_identities": set(raw_identities),
+        "author_hashes": set(author_hashes),
+        "secret_values": set(runtime_secrets),
+    }
+    assert_condition(
+        all(categories.values()),
+        "Build-packet privacy proof contained an empty marker category.",
+    )
+    return categories
+
+
 def assert_identical_run_delta(
     delta: object,
     *,
@@ -326,7 +426,7 @@ def inspect_build_packet(
     archive_bytes: bytes,
     verification: object,
     *,
-    forbidden_markers: set[str],
+    forbidden_marker_categories: dict[str, set[str]],
 ) -> dict[str, object]:
     assert_condition(
         isinstance(packet, dict), "Build packet response was not an object."
@@ -460,22 +560,45 @@ def inspect_build_packet(
             "Downloaded packet archive timestamps were not deterministic.",
         )
 
+    assert_condition(
+        set(forbidden_marker_categories) == set(PRIVACY_MARKER_CATEGORIES),
+        "Build-packet privacy marker categories were incomplete.",
+    )
+    marker_counts = {
+        category: len(markers)
+        for category, markers in sorted(forbidden_marker_categories.items())
+    }
+    assert_condition(
+        all(count > 0 for count in marker_counts.values()),
+        "Build-packet privacy proof contained an empty marker category.",
+    )
     serialized = "\n".join(
         str(by_path[name].get("content", "")) for name in sorted(by_path)
     )
-    leaked_markers = sorted(
-        marker for marker in forbidden_markers if marker in serialized
-    )
+    leaked_categories = {
+        category: sum(marker in serialized for marker in markers)
+        for category, markers in forbidden_marker_categories.items()
+    }
     assert_condition(
-        not leaked_markers,
-        f"Build packet leaked {len(leaked_markers)} private marker(s).",
+        not any(leaked_categories.values()),
+        "Build packet leaked private marker(s) in category count(s): "
+        + ", ".join(
+            f"{category}={count}"
+            for category, count in sorted(leaked_categories.items())
+            if count
+        ),
     )
+    unique_markers = set().union(*forbidden_marker_categories.values())
     return {
         "artifact_count": len(by_path),
         "manifested_original_count": len(manifested_paths),
         "archive_bytes": len(archive_bytes),
         "archive_sha256": hashlib.sha256(archive_bytes).hexdigest(),
-        "private_markers_checked": len(forbidden_markers),
+        "private_markers_checked": len(unique_markers),
+        "private_marker_counts": marker_counts,
+        "privacy_exports": {
+            f"{category}_exported": False for category in PRIVACY_MARKER_CATEGORIES
+        },
     }
 
 
@@ -734,10 +857,8 @@ def proof_summary(
                     "private_markers_checked": result[
                         "build_packet_private_markers_checked"
                     ],
-                    "local_notes_exported": False,
-                    "raw_identities_exported": False,
-                    "author_hashes_exported": False,
-                    "secret_values_exported": False,
+                    "marker_counts": result["build_packet_private_marker_counts"],
+                    **result["build_packet_privacy_exports"],
                 },
             },
             "dashboard_route_source": {
@@ -861,6 +982,7 @@ def proof_report_markdown(
         (
             "| Build-packet privacy | passed | "
             f"{result['build_packet_private_markers_checked']} private markers checked; "
+            f"categories={report_value(result['build_packet_private_marker_counts'])}; "
             "local notes, raw identities, author hashes, and secret values excluded |"
         ),
         (
@@ -932,6 +1054,168 @@ def proof_bundle_manifest(
             for name in artifact_names
         ],
     }
+
+
+def _canonical_uuid(value: object) -> bool:
+    if not isinstance(value, str):
+        return False
+    try:
+        return str(UUID(value)) == value
+    except ValueError:
+        return False
+
+
+def _lower_sha256(value: object) -> bool:
+    if not isinstance(value, str) or len(value) != 64:
+        return False
+    return all(character in "0123456789abcdef" for character in value)
+
+
+def build_packet_manifest_contract_errors(manifest: object) -> list[str]:
+    if not isinstance(manifest, dict):
+        return ["build packet manifest must be a JSON object"]
+
+    required = {
+        "schema_version",
+        "tasksignal_version",
+        "template_version",
+        *BUILD_PACKET_UUID_FIELDS,
+        "generated_at",
+        "generation_mode",
+        "deterministic_originals_authoritative",
+        "lineage_status",
+        *BUILD_PACKET_SHA256_FIELDS,
+        "manifest_self_hash",
+        "manifest_self_hash_policy",
+        "enhancement",
+        "file_count",
+        "files",
+    }
+    errors: list[str] = []
+    missing = sorted(required - set(manifest))
+    if missing:
+        errors.append(
+            "build packet manifest missing required metadata: " + ", ".join(missing)
+        )
+
+    if manifest.get("schema_version") != BUILD_PACKET_SCHEMA_VERSION:
+        errors.append(
+            f"build packet schema_version must be {BUILD_PACKET_SCHEMA_VERSION}"
+        )
+    version = manifest.get("tasksignal_version")
+    if not isinstance(version, str) or not version or version != version.strip():
+        errors.append("build packet tasksignal_version must be a non-empty string")
+    if manifest.get("template_version") != BUILD_PACKET_TEMPLATE_VERSION:
+        errors.append(
+            f"build packet template_version must be {BUILD_PACKET_TEMPLATE_VERSION}"
+        )
+    for field in BUILD_PACKET_UUID_FIELDS:
+        if not _canonical_uuid(manifest.get(field)):
+            errors.append(f"build packet {field} must be a canonical UUID")
+    generated_at = manifest.get("generated_at")
+    try:
+        parsed_generated_at = datetime.fromisoformat(
+            str(generated_at).replace("Z", "+00:00")
+        )
+    except ValueError:
+        parsed_generated_at = None
+    if (
+        not isinstance(generated_at, str)
+        or not generated_at.endswith("Z")
+        or parsed_generated_at is None
+        or parsed_generated_at.utcoffset()
+        != datetime.min.replace(tzinfo=UTC).utcoffset()
+    ):
+        errors.append("build packet generated_at must be an ISO-8601 UTC timestamp")
+    if manifest.get("generation_mode") != "deterministic":
+        errors.append("build packet generation_mode must be deterministic")
+    if manifest.get("deterministic_originals_authoritative") is not True:
+        errors.append("build packet deterministic originals must be authoritative")
+    if manifest.get("lineage_status") != "complete":
+        errors.append("build packet lineage_status must be complete")
+    for field in BUILD_PACKET_SHA256_FIELDS:
+        if not _lower_sha256(manifest.get(field)):
+            errors.append(f"build packet {field} must be a lowercase SHA-256")
+    if manifest.get("manifest_self_hash") is not None:
+        errors.append("build packet manifest_self_hash must be null")
+    if (
+        manifest.get("manifest_self_hash_policy")
+        != BUILD_PACKET_MANIFEST_SELF_HASH_POLICY
+    ):
+        errors.append("build packet manifest_self_hash_policy is invalid")
+    if manifest.get("enhancement") != {
+        "requested": False,
+        "status": "not_requested",
+        "provider": None,
+        "model": None,
+    }:
+        errors.append("deterministic build packet enhancement metadata is invalid")
+    if manifest.get("file_count") != len(BUILD_PACKET_FILES):
+        errors.append(
+            f"build packet manifest file_count must be {len(BUILD_PACKET_FILES)}"
+        )
+    return errors
+
+
+def build_packet_archive_contract_errors(archive: ZipFile) -> list[str]:
+    errors: list[str] = []
+    infos = archive.infolist()
+    names = [info.filename for info in infos]
+    if names != sorted(BUILD_PACKET_FILES):
+        errors.append("build packet archive inventory must contain exactly 10 files")
+        return errors
+    for info in infos:
+        if info.date_time != (1980, 1, 1, 0, 0, 0):
+            errors.append(
+                f"build packet file must use the deterministic timestamp: {info.filename}"
+            )
+        if info.compress_type != ZIP_DEFLATED:
+            errors.append(
+                f"build packet file must use DEFLATE compression: {info.filename}"
+            )
+        if info.create_system != 3:
+            errors.append(
+                f"build packet file must use the Unix creator system: {info.filename}"
+            )
+        if info.external_attr >> 16 != 0o100644:
+            errors.append(
+                f"build packet file must use 0644 regular-file mode: {info.filename}"
+            )
+        if info.flag_bits != 0 or info.extra or info.comment:
+            errors.append(
+                f"build packet file has nondeterministic ZIP metadata: {info.filename}"
+            )
+    if archive.comment:
+        errors.append("build packet archive must not have a ZIP comment")
+    return errors
+
+
+def proof_summary_packet_errors(path: Path, packet_archive_path: Path) -> list[str]:
+    summary_path = path / "first-run-summary.json"
+    try:
+        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        evidence = summary["checks"]["immutable_build_packet"]["evidence"]
+    except (OSError, json.JSONDecodeError, KeyError, TypeError):
+        return ["first-run summary omitted immutable build packet evidence"]
+    if not isinstance(evidence, dict):
+        return ["first-run summary build packet evidence must be an object"]
+
+    errors: list[str] = []
+    archive_size = packet_archive_path.stat().st_size
+    archive_sha256 = file_sha256(packet_archive_path)
+    if evidence.get("archive_bytes") != archive_size:
+        errors.append("first-run summary archive byte count does not match packet")
+    if evidence.get("archive_sha256") != archive_sha256:
+        errors.append("first-run summary archive sha256 does not match packet")
+    if evidence.get("generation_mode") != "deterministic":
+        errors.append("first-run summary generation mode is not deterministic")
+    if evidence.get("artifact_count") != len(BUILD_PACKET_FILES):
+        errors.append("first-run summary artifact count is not 10")
+    if evidence.get("manifested_original_count") != len(BUILD_PACKET_FILES) - 1:
+        errors.append("first-run summary manifested original count is not 9")
+    if evidence.get("server_verified") is not True:
+        errors.append("first-run summary did not record server verification")
+    return errors
 
 
 def proof_bundle_manifest_errors(path: Path) -> list[str]:
@@ -1039,11 +1323,7 @@ def proof_bundle_manifest_errors(path: Path) -> list[str]:
     packet_verification_path = path / "top-opportunity-build-packet-verification.json"
     try:
         with ZipFile(packet_archive_path) as archive:
-            archive_names = archive.namelist()
-            if archive_names != sorted(BUILD_PACKET_FILES):
-                errors.append(
-                    "build packet archive inventory must contain exactly 10 files"
-                )
+            errors.extend(build_packet_archive_contract_errors(archive))
             try:
                 archived_manifest = archive.read("MANIFEST.json")
             except KeyError:
@@ -1058,7 +1338,12 @@ def proof_bundle_manifest_errors(path: Path) -> list[str]:
             except json.JSONDecodeError as exc:
                 errors.append(f"build packet manifest is invalid JSON: {exc}")
                 packet_manifest = {}
-            packet_files = packet_manifest.get("files")
+            errors.extend(build_packet_manifest_contract_errors(packet_manifest))
+            packet_files = (
+                packet_manifest.get("files")
+                if isinstance(packet_manifest, dict)
+                else None
+            )
             if not isinstance(packet_files, list):
                 errors.append("build packet manifest must include a files list")
             else:
@@ -1067,6 +1352,10 @@ def proof_bundle_manifest_errors(path: Path) -> list[str]:
                     for entry in packet_files
                     if isinstance(entry, dict)
                 }
+                if len(packet_files) != len(manifested_packet_paths):
+                    errors.append(
+                        "build packet manifest contains duplicate file entries"
+                    )
                 if manifested_packet_paths != BUILD_PACKET_FILES - {"MANIFEST.json"}:
                     errors.append(
                         "build packet manifest inventory does not match the archive"
@@ -1095,6 +1384,11 @@ def proof_bundle_manifest_errors(path: Path) -> list[str]:
                         )
     except (BadZipFile, OSError, ValueError) as exc:
         errors.append(f"build packet archive is invalid: {exc}")
+
+    try:
+        errors.extend(proof_summary_packet_errors(path, packet_archive_path))
+    except OSError as exc:
+        errors.append(f"build packet summary cross-check failed: {exc}")
 
     try:
         packet_verification = json.loads(
@@ -1257,7 +1551,7 @@ def run_api_checks(database_path: Path) -> dict[str, object]:
 
     from app.db.session import SessionLocal
     from app.main import app
-    from app.models.all_models import NormalizedItem, RawItem
+    from app.models.all_models import NormalizedItem
     from app.services.agent_sessions import (
         STANDARD_WRITE_CAPABILITIES,
         hash_session_secret,
@@ -1718,13 +2012,15 @@ def run_api_checks(database_path: Path) -> dict[str, object]:
             for item in evidence_items
             if isinstance(item, dict) and item.get("id")
         }
-        identity_markers: set[str] = set()
-        author_hashes: set[str] = set()
         selected_identities = {
             (str(item.get("source")), str(item.get("external_id")))
             for item in evidence_items
             if isinstance(item, dict)
         }
+        identity_markers = fixture_raw_identity_markers(
+            FIXTURE_DIR,
+            selected_identities,
+        )
         with SessionLocal() as db:
             normalized_rows = db.scalars(
                 select(NormalizedItem).where(NormalizedItem.id.in_(selected_item_ids))
@@ -1732,30 +2028,17 @@ def run_api_checks(database_path: Path) -> dict[str, object]:
             author_hashes = {
                 row.author_hash for row in normalized_rows if row.author_hash
             }
-            for raw in db.scalars(select(RawItem)).all():
-                if (raw.source, raw.external_id) not in selected_identities:
-                    continue
-                payload = raw.raw_json if isinstance(raw.raw_json, dict) else {}
-                for key in ("author", "by", "username"):
-                    value = payload.get(key)
-                    if isinstance(value, str) and value:
-                        identity_markers.add(value)
-                user = payload.get("user")
-                if isinstance(user, dict) and isinstance(user.get("login"), str):
-                    identity_markers.add(user["login"])
-                owner = payload.get("owner")
-                if isinstance(owner, dict) and isinstance(
-                    owner.get("display_name"), str
-                ):
-                    identity_markers.add(owner["display_name"])
-
-        forbidden_markers = {
-            opportunity_note,
-            evidence_note,
-            credential_marker,
-            *identity_markers,
-            *author_hashes,
-        }
+        forbidden_marker_categories = privacy_marker_categories(
+            local_notes={opportunity_note, evidence_note, credential_marker},
+            raw_identities=identity_markers,
+            author_hashes=author_hashes,
+            runtime_secrets={
+                agent_process_secret,
+                os.environ["OPERATOR_SCAN_TOKEN"],
+                os.environ["AUTHOR_HASH_SALT"],
+            },
+        )
+        forbidden_markers = set().union(*forbidden_marker_categories.values())
         legacy_export_leaks = sorted(
             marker for marker in forbidden_markers if marker in export_text
         )
@@ -1767,7 +2050,7 @@ def run_api_checks(database_path: Path) -> dict[str, object]:
             packet,
             first_download.content,
             packet_verification,
-            forbidden_markers=forbidden_markers,
+            forbidden_marker_categories=forbidden_marker_categories,
         )
 
         return {
@@ -1836,6 +2119,10 @@ def run_api_checks(database_path: Path) -> dict[str, object]:
             "build_packet_private_markers_checked": packet_evidence[
                 "private_markers_checked"
             ],
+            "build_packet_private_marker_counts": packet_evidence[
+                "private_marker_counts"
+            ],
+            "build_packet_privacy_exports": packet_evidence["privacy_exports"],
             "build_packet_archive_bytes": first_download.content,
             "build_packet_manifest_content": packet_manifest_content(packet),
             "build_packet_verification": packet_verification,
@@ -1970,6 +2257,7 @@ def main() -> int:
             f"{result['build_packet_artifact_count']} files, "
             f"{result['build_packet_archive_byte_count']} archive bytes, "
             f"{result['build_packet_private_markers_checked']} private markers excluded, "
+            f"categories={result['build_packet_private_marker_counts']}, "
             "server verified",
             flush=True,
         )
