@@ -184,6 +184,14 @@ class GeneratedSnapshotsOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class OpportunityThreadDeltaCountsOut(BaseModel):
+    new: int = Field(ge=0)
+    updated: int = Field(ge=0)
+    unchanged: int = Field(ge=0)
+    not_observed_this_run: int = Field(ge=0)
+    model_config = ConfigDict(from_attributes=True)
+
+
 class RunDeltaOut(BaseModel):
     project_id: UUID
     run_id: UUID
@@ -193,7 +201,7 @@ class RunDeltaOut(BaseModel):
     evidence_changes: RunDeltaCountsOut
     signal_changes: RunDeltaCountsOut
     generated_snapshots: GeneratedSnapshotsOut
-    opportunity_changes: None = None
+    opportunity_changes: OpportunityThreadDeltaCountsOut | None = None
     warnings: list[str] = Field(default_factory=list)
 
 
@@ -311,7 +319,20 @@ class OpportunityReviewUpdate(BaseModel):
 
 class OpportunityOut(BaseModel):
     id: UUID
+    thread_id: UUID | None = None
+    run_id: UUID | None = None
+    scan_id: UUID | None = None
     cluster_id: UUID
+    evidence_hash: str | None = None
+    content_hash: str | None = None
+    match_method: str | None = None
+    match_confidence: float | None = None
+    match_margin: float | None = None
+    centroid_similarity: float | None = None
+    evidence_jaccard: float | None = None
+    title_jaccard: float | None = None
+    embedding_model: str | None = None
+    embedding_backend: str | None = None
     title: str
     problem_statement: str
     target_user: str
@@ -333,6 +354,56 @@ class OpportunityOut(BaseModel):
     top_source: str = "fixture"
     evidence_readiness: EvidenceReadinessOut
     model_config = ConfigDict(from_attributes=True)
+
+
+class OpportunitySnapshotOut(OpportunityOut):
+    pass
+
+
+class OpportunityDecisionUpdate(BaseModel):
+    review_state: ReviewState
+    review_note: str | None = Field(default=None, max_length=1000)
+    expected_version: int | None = Field(default=None, ge=1)
+
+
+class OpportunityDecisionEventOut(BaseModel):
+    id: UUID
+    thread_id: UUID
+    event_type: str
+    actor_type: str
+    snapshot_id: UUID | None
+    related_thread_id: UUID | None
+    previous_state: ReviewState | None
+    next_state: ReviewState | None
+    previous_note: str | None
+    next_note: str | None
+    details_json: dict
+    created_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+
+class OpportunityThreadSummaryOut(BaseModel):
+    id: UUID
+    project_id: UUID | None
+    lineage_status: Literal["complete", "untracked"]
+    review_state: ReviewState
+    review_note: str | None
+    decision_updated_at: datetime | None
+    version: int
+    snapshot_count: int
+    current_snapshot: OpportunitySnapshotOut | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class OpportunityThreadOut(OpportunityThreadSummaryOut):
+    snapshots: list[OpportunitySnapshotOut] = Field(default_factory=list)
+    decision_history: list[OpportunityDecisionEventOut] = Field(default_factory=list)
+
+
+class DetachSnapshotOut(BaseModel):
+    source_thread: OpportunityThreadOut
+    new_thread: OpportunityThreadOut
 
 
 class ProcessSummary(BaseModel):

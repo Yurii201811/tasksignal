@@ -14,6 +14,8 @@ from app.models.all_models import (
     Label,
     NormalizedItem,
     Opportunity,
+    OpportunityDecisionEvent,
+    OpportunityThread,
     RawItem,
     ResearchProject,
     ResearchProjectRun,
@@ -40,9 +42,12 @@ def reset_demo_data(db: Session) -> None:
                 run_count=0,
             )
         )
+        db.execute(update(OpportunityThread).values(current_snapshot_id=None))
         for model in [
             Label,
+            OpportunityDecisionEvent,
             Opportunity,
+            OpportunityThread,
             ClusterItem,
             Cluster,
             ScanItem,

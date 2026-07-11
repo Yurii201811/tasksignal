@@ -49,6 +49,14 @@ class GeneratedSnapshots:
 
 
 @dataclass(frozen=True)
+class OpportunityThreadChanges:
+    new: int
+    updated: int
+    unchanged: int
+    not_observed_this_run: int
+
+
+@dataclass(frozen=True)
 class RunDelta:
     project_id: UUID
     run_id: UUID
@@ -58,6 +66,7 @@ class RunDelta:
     evidence_changes: DeltaCounts
     signal_changes: DeltaCounts
     generated_snapshots: GeneratedSnapshots
+    opportunity_changes: OpportunityThreadChanges
 
 
 def list_project_runs(db: Session, project_id: UUID) -> list[ResearchProjectRun]:
@@ -153,7 +162,6 @@ def calculate_run_delta(db: Session, run: ResearchProjectRun) -> RunDelta:
                 ResearchProjectRun.lineage_complete.is_(True),
             )
             .order_by(ResearchProjectRun.sequence.desc())
-            .limit(1)
         ).all()
     )
     previous_run = prior_runs[0] if prior_runs else None
@@ -178,6 +186,54 @@ def calculate_run_delta(db: Session, run: ResearchProjectRun) -> RunDelta:
         .select_from(Opportunity)
         .where(Opportunity.scan_id == run.scan_id)
     )
+    current_thread_content = {
+        thread_id: snapshot_content_hash
+        for thread_id, snapshot_content_hash in db.execute(
+            select(Opportunity.thread_id, Opportunity.content_hash).where(
+                Opportunity.run_id == run.id
+            )
+        ).all()
+    }
+    previous_thread_content = (
+        {
+            thread_id: snapshot_content_hash
+            for thread_id, snapshot_content_hash in db.execute(
+                select(Opportunity.thread_id, Opportunity.content_hash).where(
+                    Opportunity.run_id == previous_run.id
+                )
+            ).all()
+        }
+        if previous_run
+        else {}
+    )
+    prior_thread_content: dict[UUID, str] = {}
+    for prior_run in reversed(prior_runs):
+        prior_thread_content.update(
+            {
+                thread_id: snapshot_content_hash
+                for thread_id, snapshot_content_hash in db.execute(
+                    select(Opportunity.thread_id, Opportunity.content_hash).where(
+                        Opportunity.run_id == prior_run.id
+                    )
+                ).all()
+            }
+        )
+    new_threads = current_thread_content.keys() - prior_thread_content.keys()
+    existing_threads = current_thread_content.keys() & prior_thread_content.keys()
+    thread_changes = OpportunityThreadChanges(
+        new=len(new_threads),
+        updated=sum(
+            current_thread_content[thread_id] != prior_thread_content[thread_id]
+            for thread_id in existing_threads
+        ),
+        unchanged=sum(
+            current_thread_content[thread_id] == prior_thread_content[thread_id]
+            for thread_id in existing_threads
+        ),
+        not_observed_this_run=len(
+            previous_thread_content.keys() - current_thread_content.keys()
+        ),
+    )
     return RunDelta(
         project_id=run.project_id,
         run_id=run.id,
@@ -190,4 +246,5 @@ def calculate_run_delta(db: Session, run: ResearchProjectRun) -> RunDelta:
             clusters=cluster_count or 0,
             opportunities=opportunity_count or 0,
         ),
+        opportunity_changes=thread_changes,
     )

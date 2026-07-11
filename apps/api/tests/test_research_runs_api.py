@@ -200,8 +200,13 @@ def test_run_delta_reports_first_and_identical_runs_precisely(client, monkeypatc
         "not_observed_this_run": 0,
     }
     assert payload["signal_changes"] == payload["evidence_changes"]
-    assert payload["opportunity_changes"] is None
-    assert payload["warnings"] == ["thread_matching_unavailable"]
+    assert payload["opportunity_changes"] == {
+        "new": 0,
+        "updated": 0,
+        "unchanged": 1,
+        "not_observed_this_run": 0,
+    }
+    assert payload["warnings"] == []
     assert "deleted" not in identical_delta.text
     assert "resolved" not in identical_delta.text
 

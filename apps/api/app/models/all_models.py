@@ -114,6 +114,10 @@ class ResearchProject(Base):
         passive_deletes=True,
         order_by="ResearchProjectRun.sequence",
     )
+    opportunity_threads: Mapped[list["OpportunityThread"]] = relationship(
+        back_populates="project",
+        passive_deletes=True,
+    )
 
     @property
     def last_scan_status(self) -> str | None:
@@ -299,15 +303,137 @@ class ClusterItem(Base):
     similarity_score: Mapped[float] = mapped_column(Float)
 
 
-class Opportunity(Base):
-    __tablename__ = "opportunities"
+class OpportunityThread(Base):
+    __tablename__ = "opportunity_threads"
+    __table_args__ = (
+        CheckConstraint("version > 0", name="ck_opportunity_threads_version_positive"),
+        CheckConstraint(
+            "lineage_status IN ('complete', 'untracked')",
+            name="ck_opportunity_threads_lineage_status",
+        ),
+        CheckConstraint(
+            "review_state IN ('new', 'needs_more_evidence', 'promising', "
+            "'rejected', 'duplicate', 'build_candidate')",
+            name="ck_opportunity_threads_review_state",
+        ),
+        CheckConstraint(
+            "(project_id IS NULL AND lineage_status = 'untracked') OR "
+            "(project_id IS NOT NULL AND lineage_status = 'complete')",
+            name="ck_opportunity_threads_project_lineage",
+        ),
+        Index("ix_opportunity_threads_project_review", "project_id", "review_state"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    project_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("research_projects.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
+    current_snapshot_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey(
+            "opportunities.id",
+            name="fk_opportunity_threads_current_snapshot_id_opportunities",
+            ondelete="SET NULL",
+            use_alter=True,
+        ),
+        nullable=True,
+        unique=True,
+    )
+    lineage_status: Mapped[str] = mapped_column(Text)
+    review_state: Mapped[str] = mapped_column(Text, default="new", server_default="new", index=True)
+    review_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    decision_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+    project: Mapped[ResearchProject | None] = relationship(back_populates="opportunity_threads")
+    current_snapshot: Mapped["Opportunity | None"] = relationship(
+        foreign_keys=[current_snapshot_id],
+        post_update=True,
+    )
+    snapshots: Mapped[list["Opportunity"]] = relationship(
+        back_populates="thread",
+        foreign_keys="Opportunity.thread_id",
+    )
+    decision_events: Mapped[list["OpportunityDecisionEvent"]] = relationship(
+        back_populates="thread",
+        foreign_keys="OpportunityDecisionEvent.thread_id",
+        order_by="OpportunityDecisionEvent.created_at",
+    )
+
+
+class Opportunity(Base):
+    __tablename__ = "opportunities"
+    __table_args__ = (
+        CheckConstraint(
+            "match_method IN ('legacy_backfill', 'new_untracked', "
+            "'new_no_candidates', 'new_below_threshold', 'new_ambiguous', "
+            "'exact_evidence', 'weighted_similarity', 'manual_detach', "
+            "'regenerated', 'enhanced')",
+            name="ck_opportunities_match_method",
+        ),
+        CheckConstraint(
+            "match_confidence IS NULL OR "
+            "(match_confidence >= 0 AND match_confidence <= 1)",
+            name="ck_opportunities_match_confidence",
+        ),
+        CheckConstraint(
+            "match_margin IS NULL OR (match_margin >= 0 AND match_margin <= 1)",
+            name="ck_opportunities_match_margin",
+        ),
+        CheckConstraint(
+            "centroid_similarity IS NULL OR "
+            "(centroid_similarity >= 0 AND centroid_similarity <= 1)",
+            name="ck_opportunities_centroid_similarity",
+        ),
+        CheckConstraint(
+            "evidence_jaccard IS NULL OR "
+            "(evidence_jaccard >= 0 AND evidence_jaccard <= 1)",
+            name="ck_opportunities_evidence_jaccard",
+        ),
+        CheckConstraint(
+            "title_jaccard IS NULL OR (title_jaccard >= 0 AND title_jaccard <= 1)",
+            name="ck_opportunities_title_jaccard",
+        ),
+        CheckConstraint(
+            "(embedding_model IS NULL AND embedding_backend IS NULL) OR "
+            "(embedding_model IS NOT NULL AND embedding_backend IS NOT NULL)",
+            name="ck_opportunities_embedding_identity",
+        ),
+        Index("ix_opportunities_thread_created", "thread_id", "created_at", "id"),
+        Index("ix_opportunities_run_thread", "run_id", "thread_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    thread_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("opportunity_threads.id", ondelete="RESTRICT"),
+        index=True,
+    )
+    run_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("research_project_runs.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     scan_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("scan_jobs.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
+    evidence_hash: Mapped[str] = mapped_column(Text, index=True)
+    content_hash: Mapped[str] = mapped_column(Text)
+    match_method: Mapped[str] = mapped_column(Text)
+    match_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    match_margin: Mapped[float | None] = mapped_column(Float, nullable=True)
+    centroid_similarity: Mapped[float | None] = mapped_column(Float, nullable=True)
+    evidence_jaccard: Mapped[float | None] = mapped_column(Float, nullable=True)
+    title_jaccard: Mapped[float | None] = mapped_column(Float, nullable=True)
+    embedding_model: Mapped[str | None] = mapped_column(Text, nullable=True)
+    embedding_backend: Mapped[str | None] = mapped_column(Text, nullable=True)
     cluster_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("clusters.id"), index=True)
     title: Mapped[str] = mapped_column(Text)
     problem_statement: Mapped[str] = mapped_column(Text)
@@ -333,6 +459,60 @@ class Opportunity(Base):
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+    thread: Mapped[OpportunityThread] = relationship(
+        back_populates="snapshots",
+        foreign_keys=[thread_id],
+    )
+    research_run: Mapped[ResearchProjectRun | None] = relationship()
+
+
+class OpportunityDecisionEvent(Base):
+    __tablename__ = "opportunity_decision_events"
+    __table_args__ = (
+        CheckConstraint(
+            "event_type IN ('legacy_backfill', 'decision_changed', "
+            "'snapshot_detached', 'thread_created_by_detach')",
+            name="ck_opportunity_decision_events_type",
+        ),
+        CheckConstraint(
+            "actor_type IN ('system', 'human', 'agent')",
+            name="ck_opportunity_decision_events_actor",
+        ),
+        Index(
+            "ix_opportunity_decision_events_thread_created",
+            "thread_id",
+            "created_at",
+            "id",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    thread_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("opportunity_threads.id", ondelete="RESTRICT"),
+        index=True,
+    )
+    event_type: Mapped[str] = mapped_column(Text)
+    actor_type: Mapped[str] = mapped_column(Text)
+    snapshot_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("opportunities.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    related_thread_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("opportunity_threads.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    previous_state: Mapped[str | None] = mapped_column(Text, nullable=True)
+    next_state: Mapped[str | None] = mapped_column(Text, nullable=True)
+    previous_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    next_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    details_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+    thread: Mapped[OpportunityThread] = relationship(
+        back_populates="decision_events",
+        foreign_keys=[thread_id],
+    )
 
 
 class Label(Base):

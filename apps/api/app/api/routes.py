@@ -7,7 +7,7 @@ from uuid import UUID
 
 import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -22,12 +22,15 @@ from app.models.all_models import (
     LocalWorkspaceSettings,
     NormalizedItem,
     Opportunity,
+    OpportunityDecisionEvent,
+    OpportunityThread,
     ResearchProject,
     ResearchProjectRun,
     ScanJob,
     Source,
 )
 from app.schemas.api import (
+    DetachSnapshotOut,
     DueRunOut,
     EnhancementOut,
     EvaluationOut,
@@ -38,8 +41,12 @@ from app.schemas.api import (
     LabelOut,
     LocalWorkspaceOut,
     LocalWorkspaceUpdate,
+    OpportunityDecisionUpdate,
     OpportunityOut,
     OpportunityReviewUpdate,
+    OpportunitySnapshotOut,
+    OpportunityThreadOut,
+    OpportunityThreadSummaryOut,
     ProcessSummary,
     ReadinessOut,
     ResearchProjectCreate,
@@ -66,6 +73,15 @@ from app.services.generation.enhancement import EnhancementUnavailable, enhance_
 from app.services.generation.service import generate_opportunity
 from app.services.ingestion.connectors import connector_display_name, connector_failure_message
 from app.services.ingestion.normalization import safe_source_url
+from app.services.opportunity_threads.service import (
+    DetachNotAllowed,
+    ThreadVersionConflict,
+    clone_snapshot,
+    set_thread_decision,
+)
+from app.services.opportunity_threads.service import (
+    detach_snapshot as detach_thread_snapshot,
+)
 from app.services.research_memory.service import (
     IncompleteRunError,
     calculate_run_delta,
@@ -582,6 +598,12 @@ def item_to_out(
     )
 
 
+def as_utc(value: datetime | None) -> datetime | None:
+    if value is None or value.tzinfo is not None:
+        return value
+    return value.replace(tzinfo=UTC)
+
+
 def items_to_out(
     db: Session,
     rows: list[tuple[NormalizedItem, ItemSignal | None]],
@@ -606,15 +628,86 @@ def opportunity_to_out(db: Session, opportunity: Opportunity) -> OpportunityOut:
         key=lambda source: sum(item.source == source for item in items),
         default="fixture",
     )
+    values = {
+        column.name: getattr(opportunity, column.name)
+        for column in Opportunity.__table__.columns
+    }
+    thread = db.get(OpportunityThread, opportunity.thread_id)
+    if thread is not None:
+        values.update(
+            review_state=thread.review_state,
+            review_note=thread.review_note,
+            decision_updated_at=as_utc(thread.decision_updated_at),
+        )
     return OpportunityOut(
-        **{
-            column.name: getattr(opportunity, column.name)
-            for column in Opportunity.__table__.columns
-        },
+        **values,
         evidence_items=evidence,
         signal_count=len(evidence),
         top_source=top_source,
         evidence_readiness=calculate_evidence_readiness(items, snapshots),
+    )
+
+
+def opportunity_snapshot_to_out(
+    db: Session,
+    opportunity: Opportunity,
+) -> OpportunitySnapshotOut:
+    return OpportunitySnapshotOut(**opportunity_to_out(db, opportunity).model_dump())
+
+
+def opportunity_thread_summary_to_out(
+    db: Session,
+    thread: OpportunityThread,
+) -> OpportunityThreadSummaryOut:
+    snapshot_count = db.scalar(
+        select(func.count())
+        .select_from(Opportunity)
+        .where(Opportunity.thread_id == thread.id)
+    )
+    current = (
+        db.get(Opportunity, thread.current_snapshot_id)
+        if thread.current_snapshot_id is not None
+        else None
+    )
+    return OpportunityThreadSummaryOut(
+        id=thread.id,
+        project_id=thread.project_id,
+        lineage_status=thread.lineage_status,
+        review_state=thread.review_state,
+        review_note=thread.review_note,
+        decision_updated_at=as_utc(thread.decision_updated_at),
+        version=thread.version,
+        snapshot_count=snapshot_count or 0,
+        current_snapshot=(
+            opportunity_snapshot_to_out(db, current) if current is not None else None
+        ),
+        created_at=thread.created_at,
+        updated_at=thread.updated_at,
+    )
+
+
+def opportunity_thread_to_out(
+    db: Session,
+    thread: OpportunityThread,
+) -> OpportunityThreadOut:
+    summary = opportunity_thread_summary_to_out(db, thread)
+    snapshots = db.scalars(
+        select(Opportunity)
+        .where(Opportunity.thread_id == thread.id)
+        .order_by(Opportunity.created_at.desc(), Opportunity.id.desc())
+    ).all()
+    events = db.scalars(
+        select(OpportunityDecisionEvent)
+        .where(OpportunityDecisionEvent.thread_id == thread.id)
+        .order_by(
+            OpportunityDecisionEvent.created_at.asc(),
+            OpportunityDecisionEvent.id.asc(),
+        )
+    ).all()
+    return OpportunityThreadOut(
+        **summary.model_dump(),
+        snapshots=[opportunity_snapshot_to_out(db, snapshot) for snapshot in snapshots],
+        decision_history=list(events),
     )
 
 
@@ -1300,8 +1393,8 @@ def get_research_project_run_delta(
         evidence_changes=delta.evidence_changes,
         signal_changes=delta.signal_changes,
         generated_snapshots=delta.generated_snapshots,
-        opportunity_changes=None,
-        warnings=["thread_matching_unavailable"],
+        opportunity_changes=delta.opportunity_changes,
+        warnings=[],
     )
 
 
@@ -1379,14 +1472,107 @@ def process_stage() -> dict:
     return {"status": "available in the combined demo pipeline", "endpoint": "/api/process/demo"}
 
 
+@router.get(
+    "/opportunity-threads",
+    response_model=list[OpportunityThreadSummaryOut],
+)
+def list_opportunity_threads(
+    project_id: UUID | None = None,
+    review_state: ReviewState | None = None,
+    db: Session = Depends(get_db),
+) -> list[OpportunityThreadSummaryOut]:
+    query = select(OpportunityThread).order_by(
+        OpportunityThread.updated_at.desc(),
+        OpportunityThread.id.desc(),
+    )
+    if project_id is not None:
+        query = query.where(OpportunityThread.project_id == project_id)
+    if review_state is not None:
+        query = query.where(OpportunityThread.review_state == review_state.value)
+    return [
+        opportunity_thread_summary_to_out(db, thread)
+        for thread in db.scalars(query).all()
+    ]
+
+
+@router.get(
+    "/opportunity-threads/{thread_id}",
+    response_model=OpportunityThreadOut,
+)
+def get_opportunity_thread(
+    thread_id: UUID,
+    db: Session = Depends(get_db),
+) -> OpportunityThreadOut:
+    thread = db.get(OpportunityThread, thread_id)
+    if thread is None:
+        raise HTTPException(status_code=404, detail="Opportunity thread not found")
+    return opportunity_thread_to_out(db, thread)
+
+
+@router.patch(
+    "/opportunity-threads/{thread_id}/decision",
+    response_model=OpportunityThreadOut,
+)
+def update_opportunity_thread_decision(
+    thread_id: UUID,
+    payload: OpportunityDecisionUpdate,
+    db: Session = Depends(get_db),
+) -> OpportunityThreadOut:
+    thread = db.get(OpportunityThread, thread_id)
+    if thread is None:
+        raise HTTPException(status_code=404, detail="Opportunity thread not found")
+    try:
+        set_thread_decision(
+            db,
+            thread=thread,
+            review_state=payload.review_state.value,
+            review_note=payload.review_note,
+            expected_version=payload.expected_version,
+            actor_type="human",
+        )
+    except ThreadVersionConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    commit_review_write(db, "Could not save the opportunity-thread decision.")
+    return opportunity_thread_to_out(db, thread)
+
+
+@router.post(
+    "/opportunity-threads/{thread_id}/snapshots/{snapshot_id}/detach",
+    response_model=DetachSnapshotOut,
+)
+def detach_opportunity_snapshot(
+    thread_id: UUID,
+    snapshot_id: UUID,
+    db: Session = Depends(get_db),
+) -> DetachSnapshotOut:
+    thread = db.get(OpportunityThread, thread_id)
+    if thread is None:
+        raise HTTPException(status_code=404, detail="Opportunity thread not found")
+    snapshot = db.get(Opportunity, snapshot_id)
+    if snapshot is None:
+        raise HTTPException(status_code=404, detail="Opportunity snapshot not found")
+    try:
+        new_thread = detach_thread_snapshot(db, thread=thread, snapshot=snapshot)
+    except DetachNotAllowed as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    commit_review_write(db, "Could not detach the opportunity snapshot.")
+    return DetachSnapshotOut(
+        source_thread=opportunity_thread_to_out(db, thread),
+        new_thread=opportunity_thread_to_out(db, new_thread),
+    )
+
+
 @router.get("/opportunities", response_model=list[OpportunityOut])
 def list_opportunities(
     review_state: ReviewState | None = None,
     db: Session = Depends(get_db),
 ) -> list[OpportunityOut]:
-    query = select(Opportunity).order_by(Opportunity.opportunity_score.desc())
+    query = select(Opportunity).join(
+        OpportunityThread,
+        OpportunityThread.id == Opportunity.thread_id,
+    ).order_by(Opportunity.opportunity_score.desc())
     if review_state is not None:
-        query = query.where(Opportunity.review_state == review_state.value)
+        query = query.where(OpportunityThread.review_state == review_state.value)
     return [opportunity_to_out(db, item) for item in db.scalars(query).all()]
 
 
@@ -1410,12 +1596,18 @@ def update_opportunity_review(
     opportunity = db.get(Opportunity, opportunity_id)
     if opportunity is None:
         raise HTTPException(status_code=404, detail="Opportunity not found")
-    note = payload.review_note.strip() if payload.review_note else None
-    opportunity.review_state = payload.review_state.value
-    opportunity.review_note = note or None
-    opportunity.decision_updated_at = datetime.now(UTC)
+    thread = db.get(OpportunityThread, opportunity.thread_id)
+    if thread is None:
+        raise HTTPException(status_code=409, detail="Opportunity has no decision thread")
+    set_thread_decision(
+        db,
+        thread=thread,
+        review_state=payload.review_state.value,
+        review_note=payload.review_note,
+        expected_version=None,
+        actor_type="human",
+    )
     commit_review_write(db, "Could not save the opportunity decision.")
-    db.refresh(opportunity)
     return opportunity_to_out(db, opportunity)
 
 
@@ -1447,21 +1639,29 @@ def regenerate_opportunity(opportunity_id: UUID, db: Session = Depends(get_db)) 
     score = score_opportunity(generation_items, candidate_text)
     generated = generate_opportunity(source_title, source_summary, generation_items, score)
 
-    opportunity.title = generated["title"]
-    opportunity.problem_statement = generated["problem_statement"]
-    opportunity.target_user = generated["target_user"]
-    opportunity.current_workaround = generated["current_workaround"]
-    opportunity.suggested_mvp = generated["suggested_mvp"]
-    opportunity.why_now = generated["why_now"]
-    opportunity.feasibility_score = generated["feasibility_score"]
-    opportunity.opportunity_score = generated["opportunity_score"]
-    opportunity.competition_notes = generated["competition_notes"]
-    opportunity.scoring_breakdown_json = {**score, "common_phrases": generated["common_phrases"]}
-    opportunity.generated_prompt = generated["generated_prompt"]
-    opportunity.updated_at = datetime.now(UTC)
+    regenerated = clone_snapshot(
+        db,
+        source=opportunity,
+        method="regenerated",
+        overrides={
+            "title": generated["title"],
+            "problem_statement": generated["problem_statement"],
+            "target_user": generated["target_user"],
+            "current_workaround": generated["current_workaround"],
+            "suggested_mvp": generated["suggested_mvp"],
+            "why_now": generated["why_now"],
+            "feasibility_score": generated["feasibility_score"],
+            "opportunity_score": generated["opportunity_score"],
+            "competition_notes": generated["competition_notes"],
+            "scoring_breakdown_json": {
+                **score,
+                "common_phrases": generated["common_phrases"],
+            },
+            "generated_prompt": generated["generated_prompt"],
+        },
+    )
     db.commit()
-    db.refresh(opportunity)
-    return opportunity_to_out(db, opportunity)
+    return opportunity_to_out(db, regenerated)
 
 
 @router.post("/opportunities/{opportunity_id}/enhance", response_model=EnhancementOut)
@@ -1487,10 +1687,13 @@ def enhance_opportunity_prompt(
         ) from exc
 
     if apply:
-        opportunity.generated_prompt = enhanced_prompt
-        opportunity.updated_at = datetime.now(UTC)
+        clone_snapshot(
+            db,
+            source=opportunity,
+            method="enhanced",
+            overrides={"generated_prompt": enhanced_prompt},
+        )
         db.commit()
-        db.refresh(opportunity)
 
     return EnhancementOut(
         provider=provider,
@@ -1505,7 +1708,13 @@ def get_prompt(opportunity_id: UUID, db: Session = Depends(get_db)) -> dict:
     opportunity = db.get(Opportunity, opportunity_id)
     if opportunity is None:
         raise HTTPException(status_code=404, detail="Opportunity not found")
-    return {"prompt": opportunity.generated_prompt}
+    thread = db.get(OpportunityThread, opportunity.thread_id)
+    current = (
+        db.get(Opportunity, thread.current_snapshot_id)
+        if thread is not None and thread.current_snapshot_id is not None
+        else opportunity
+    )
+    return {"prompt": current.generated_prompt if current is not None else opportunity.generated_prompt}
 
 
 @router.get("/opportunities/{opportunity_id}/export.md")

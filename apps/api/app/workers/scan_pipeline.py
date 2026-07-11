@@ -17,7 +17,6 @@ from app.models.all_models import (
     ItemEmbedding,
     ItemSignal,
     NormalizedItem,
-    Opportunity,
     RawItem,
     ResearchProject,
     ResearchProjectRun,
@@ -42,6 +41,7 @@ from app.services.ingestion.connectors import (
 )
 from app.services.ingestion.normalization import normalize
 from app.services.ingestion.types import RawFetchedItem
+from app.services.opportunity_threads.service import attach_generated_snapshot
 from app.services.research_projects.service import mark_latest_project_run
 from app.services.scoring.service import score_opportunity
 
@@ -91,6 +91,13 @@ class ScanPipelineResult:
 class SavedFetchedItems:
     observed_item_ids: list[UUID]
     created_item_ids: list[UUID]
+
+
+@dataclass(frozen=True)
+class EmbeddingBatch:
+    vectors_by_item: dict[UUID, list[float]]
+    model_name: str
+    backend: str
 
 
 def acquire_database_scan_write_lock(db: Session) -> None:
@@ -290,7 +297,7 @@ def detect_signals(db: Session, item_ids: list[UUID]) -> int:
 def embed_signals(
     db: Session,
     signal_rows: list[tuple[NormalizedItem, ItemSignal]],
-) -> dict[UUID, list[float]]:
+) -> EmbeddingBatch:
     embedder = EmbeddingService()
     embedding_model = f"{embedder.model_name}:{embedder.backend}"
     item_ids = [item.id for item, _signal in signal_rows]
@@ -324,15 +331,20 @@ def embed_signals(
                 stored_embedding.embedding = vector
                 stored_embedding.model_name = embedding_model
     db.flush()
-    return embeddings_by_item
+    return EmbeddingBatch(
+        vectors_by_item=embeddings_by_item,
+        model_name=embedder.model_name,
+        backend=embedder.backend,
+    )
 
 
 def generate_clusters_and_opportunities(
     db: Session,
     signal_rows: list[tuple[NormalizedItem, ItemSignal]],
-    embeddings_by_item: dict[UUID, list[float]],
+    embedding_batch: EmbeddingBatch,
     scan_id: UUID | None = None,
 ) -> tuple[int, int]:
+    embeddings_by_item = embedding_batch.vectors_by_item
     cluster_inputs = [
         {
             "id": item.id,
@@ -377,25 +389,32 @@ def generate_clusters_and_opportunities(
                     ),
                 )
             )
+        db.flush()
 
         score = score_opportunity(group_items, f"{candidate.title} {candidate.summary}")
         generated = generate_opportunity(candidate.title, candidate.summary, group_items, score)
-        db.add(
-            Opportunity(
-                scan_id=scan_id,
-                cluster_id=cluster.id,
-                title=generated["title"],
-                problem_statement=generated["problem_statement"],
-                target_user=generated["target_user"],
-                current_workaround=generated["current_workaround"],
-                suggested_mvp=generated["suggested_mvp"],
-                why_now=generated["why_now"],
-                feasibility_score=generated["feasibility_score"],
-                opportunity_score=generated["opportunity_score"],
-                competition_notes=generated["competition_notes"],
-                scoring_breakdown_json={**score, "common_phrases": generated["common_phrases"]},
-                generated_prompt=generated["generated_prompt"],
-            )
+        attach_generated_snapshot(
+            db,
+            cluster=cluster,
+            scan_id=scan_id,
+            embedding_model=embedding_batch.model_name,
+            embedding_backend=embedding_batch.backend,
+            opportunity_values={
+                "title": generated["title"],
+                "problem_statement": generated["problem_statement"],
+                "target_user": generated["target_user"],
+                "current_workaround": generated["current_workaround"],
+                "suggested_mvp": generated["suggested_mvp"],
+                "why_now": generated["why_now"],
+                "feasibility_score": generated["feasibility_score"],
+                "opportunity_score": generated["opportunity_score"],
+                "competition_notes": generated["competition_notes"],
+                "scoring_breakdown_json": {
+                    **score,
+                    "common_phrases": generated["common_phrases"],
+                },
+                "generated_prompt": generated["generated_prompt"],
+            },
         )
         opportunities_created += 1
 
@@ -439,11 +458,11 @@ def process_fetched_items(
             opportunities_created=0,
         )
 
-    embeddings_by_item = embed_signals(db, signal_rows)
+    embedding_batch = embed_signals(db, signal_rows)
     clusters_created, opportunities_created = generate_clusters_and_opportunities(
         db,
         signal_rows,
-        embeddings_by_item,
+        embedding_batch,
         scan_id=scan_id,
     )
     return ScanPipelineResult(
