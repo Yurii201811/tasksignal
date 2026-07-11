@@ -4,10 +4,11 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from threading import RLock
+from time import sleep
 from uuid import UUID
 
 from sqlalchemy import func, select, text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from app.models.all_models import (
@@ -103,6 +104,26 @@ def acquire_database_scan_write_lock(db: Session) -> None:
             text("SELECT pg_advisory_xact_lock(:lock_id)"),
             {"lock_id": POSTGRES_SCAN_ADVISORY_LOCK_ID},
         )
+
+
+def acquire_database_scan_write_lock_with_retry(
+    db: Session,
+    *,
+    attempts: int = 3,
+) -> None:
+    for attempt in range(attempts):
+        try:
+            acquire_database_scan_write_lock(db)
+            return
+        except OperationalError as exc:
+            is_sqlite_busy = (
+                db.get_bind().dialect.name == "sqlite"
+                and "locked" in str(exc).lower()
+            )
+            db.rollback()
+            if not is_sqlite_busy or attempt == attempts - 1:
+                raise
+            sleep(0.05 * (2**attempt))
 
 
 def scan_outcome_message(result: ScanPipelineResult) -> str:
@@ -443,7 +464,7 @@ def run_scan_pipeline(
 ) -> ScanPipelineResult:
     fetched = connector.fetch(query=query, limit=limit)
     with SCAN_WRITE_LOCK:
-        acquire_database_scan_write_lock(db)
+        acquire_database_scan_write_lock_with_retry(db)
         return process_fetched_items(db, fetched, scan_id=scan_id)
 
 
@@ -485,7 +506,7 @@ def reserve_scan_job(
         try:
             with SCAN_WRITE_LOCK:
                 db.commit()
-                acquire_database_scan_write_lock(db)
+                acquire_database_scan_write_lock_with_retry(db)
                 locked_project = None
                 if research_project_id is not None:
                     locked_project = db.scalar(
@@ -560,7 +581,7 @@ def process_scan(
         fetched = connector.fetch(query=query, limit=requested_limit)
         with SCAN_WRITE_LOCK:
             try:
-                acquire_database_scan_write_lock(db)
+                acquire_database_scan_write_lock_with_retry(db)
                 result = process_fetched_items(db, fetched, scan_id=job.id)
                 job.status = "completed"
                 job.finished_at = datetime.now(UTC)
@@ -588,7 +609,7 @@ def process_scan(
     except Exception as exc:
         with SCAN_WRITE_LOCK:
             db.rollback()
-            acquire_database_scan_write_lock(db)
+            acquire_database_scan_write_lock_with_retry(db)
             failed_job = db.get(ScanJob, job.id)
             if failed_job is None:
                 raise

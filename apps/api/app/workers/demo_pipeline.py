@@ -24,7 +24,7 @@ from app.models.all_models import (
 from app.services.ingestion.connectors import FixtureConnector
 from app.workers.scan_pipeline import (
     SCAN_WRITE_LOCK,
-    acquire_database_scan_write_lock,
+    acquire_database_scan_write_lock_with_retry,
     process_fetched_items,
     scan_outcome_message,
 )
@@ -32,7 +32,7 @@ from app.workers.scan_pipeline import (
 
 def reset_demo_data(db: Session) -> None:
     with SCAN_WRITE_LOCK:
-        acquire_database_scan_write_lock(db)
+        acquire_database_scan_write_lock_with_retry(db)
         db.execute(
             update(ResearchProject).values(
                 last_scan_id=None,
@@ -88,7 +88,7 @@ def process_demo(db: Session, reset: bool = False) -> dict[str, int]:
     connector = FixtureConnector()
     fetched = connector.fetch(limit=300)
     with SCAN_WRITE_LOCK:
-        acquire_database_scan_write_lock(db)
+        acquire_database_scan_write_lock_with_retry(db)
         result = process_fetched_items(db, fetched, scan_id=job.id)
 
         job.status = "completed"

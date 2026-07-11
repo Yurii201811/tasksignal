@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from app.models.all_models import (
@@ -429,3 +430,44 @@ def test_demo_reset_clears_v1_lineage_and_project_scan_metadata(db_session) -> N
     assert project.last_scan_id is None
     assert project.last_run_at is None
     assert project.run_count == 0
+
+
+def test_sqlite_busy_retry_still_records_connector_failure(
+    db_session,
+    monkeypatch,
+) -> None:
+    project = create_project(db_session)
+    original_acquire = scan_pipeline.acquire_database_scan_write_lock
+    calls = 0
+
+    def fail_once_during_failure_recording(session) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise OperationalError(
+                "BEGIN IMMEDIATE",
+                {},
+                RuntimeError("database is locked"),
+            )
+        original_acquire(session)
+
+    monkeypatch.setattr(
+        scan_pipeline,
+        "acquire_database_scan_write_lock",
+        fail_once_during_failure_recording,
+    )
+    scan = process_scan(
+        db_session,
+        source=project.source_type,
+        query=project.query,
+        limit=project.limit,
+        connector=FailingConnector(),
+        research_project=project,
+    )
+
+    run = db_session.scalar(
+        select(ResearchProjectRun).where(ResearchProjectRun.scan_id == scan.id)
+    )
+    assert calls >= 3
+    assert scan.status == "failed"
+    assert run is not None and run.lineage_complete is False
