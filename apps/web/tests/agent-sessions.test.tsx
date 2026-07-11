@@ -143,6 +143,40 @@ describe("AgentSessions", () => {
     expect(screen.getByText("create build packet")).toBeInTheDocument();
   });
 
+  it("hides unrequested configured AI while allowing standard approval", async () => {
+    const standardSession = {
+      ...pendingSession,
+      requested_capabilities: pendingSession.requested_capabilities.filter(
+        (capability) => capability !== "use_configured_ai",
+      ),
+    };
+    vi.mocked(api.agentSessions).mockResolvedValue([standardSession]);
+    vi.mocked(api.approveAgentSession).mockResolvedValue({
+      ...standardSession,
+      status: "approved",
+      effective_status: "approved",
+      version: 3,
+      approval_source: "ui",
+      approved_capabilities: standardSession.requested_capabilities,
+      approved_at: "2026-07-11T10:00:10Z",
+    });
+
+    renderFeature();
+
+    expect(await screen.findByText("Codex MCP")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("checkbox", { name: /configured AI/i }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Approve session" }));
+    await waitFor(() =>
+      expect(api.approveAgentSession).toHaveBeenCalledWith(
+        "session-1",
+        2,
+        false,
+      ),
+    );
+  });
+
   it("refreshes the optimistic version after an approval conflict", async () => {
     const refreshed = { ...pendingSession, version: 3 };
     vi.mocked(api.agentSessions)

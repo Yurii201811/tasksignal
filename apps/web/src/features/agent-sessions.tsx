@@ -130,6 +130,9 @@ export function AgentSessions() {
         {(sessions.data ?? []).map((session) => {
           const pending = session.effective_status === "pending";
           const approved = session.effective_status === "approved";
+          const configuredAiRequested = session.requested_capabilities.includes(
+            "use_configured_ai",
+          );
           const visibleCapabilities = pending
             ? session.requested_capabilities
             : session.approved_capabilities;
@@ -181,7 +184,7 @@ export function AgentSessions() {
                 </div>
 
                 <div className="flex max-w-md flex-col items-start gap-3 lg:items-end">
-                  {pending ? (
+                  {pending && configuredAiRequested ? (
                     <label className="flex items-start gap-3 text-sm leading-6 text-muted">
                       <input
                         type="checkbox"
