@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.services.evidence_review.types import (
     EvidenceReadinessLevel,
@@ -24,8 +24,46 @@ class SourceOut(SourceCreate):
     model_config = ConfigDict(from_attributes=True)
 
 
+class SourceAuthorizationCreate(BaseModel):
+    origin: str = Field(min_length=1, max_length=500)
+    terms_confirmed: Literal[True]
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+
+class SourceAuthorizationOut(BaseModel):
+    source_id: UUID
+    source_type: str
+    origin: str | None
+    host: str | None
+    port: int | None
+    authorized: bool
+    authorized_at: datetime | None
+    terms_confirmed_at: datetime | None
+
+
+class SourceRuntimeStateOut(BaseModel):
+    source_id: UUID
+    origin: str | None
+    readiness: Literal[
+        "ready",
+        "disabled",
+        "terms_required",
+        "retry_later",
+        "failed",
+        "never_run",
+    ]
+    can_run: bool
+    last_success_at: datetime | None
+    last_failure_at: datetime | None
+    last_failure_code: str | None
+    last_failure_message: str | None
+    last_http_status: int | None
+    retry_after_at: datetime | None
+
+
 class ScanCreate(BaseModel):
     source: str = "hackernews"
+    source_id: UUID | None = None
     query: str = ""
     limit: int = Field(default=30, ge=1, le=100)
 
@@ -102,6 +140,7 @@ class ResearchProjectCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     description: str | None = Field(default=None, max_length=500)
     source_type: str = "hackernews"
+    source_id: UUID | None = None
     query: str = Field(default="", max_length=300)
     limit: int = Field(default=30, ge=1, le=100)
     cadence: str = Field(default="manual", max_length=60)
@@ -114,6 +153,7 @@ class ResearchProjectUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     description: str | None = Field(default=None, max_length=500)
     source_type: str | None = Field(default=None, max_length=60)
+    source_id: UUID | None = None
     query: str | None = Field(default=None, max_length=300)
     limit: int | None = Field(default=None, ge=1, le=100)
     cadence: str | None = Field(default=None, max_length=60)
@@ -127,6 +167,7 @@ class ResearchProjectOut(BaseModel):
     name: str
     description: str | None
     source_type: str
+    source_id: UUID | None
     query: str
     limit: int
     cadence: str
@@ -149,6 +190,7 @@ class ResearchRunOut(BaseModel):
     scan_id: UUID
     sequence: int | None
     source_type: str | None
+    source_origin: str | None = None
     query: str | None
     requested_limit: int | None
     lineage_status: Literal["complete", "incomplete", "untracked"]
@@ -420,9 +462,84 @@ class ProcessSummary(BaseModel):
     opportunities_created: int
 
 
-class SearchRequest(BaseModel):
-    query: str
-    limit: int = 10
+class SemanticSearchRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=500)
+    limit: int = Field(default=10, ge=1, le=20)
+    project_id: UUID | None = None
+    source: str | None = Field(default=None, max_length=60)
+    signal_type: str | None = Field(default=None, max_length=80)
+    review_state: ReviewState | None = None
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    @field_validator("source", "signal_type")
+    @classmethod
+    def reject_blank_filter(cls, value: str | None) -> str | None:
+        if value is not None and not value:
+            raise ValueError("Search filters cannot be blank")
+        return value
+
+
+class EvidenceSearchObservationOut(BaseModel):
+    source: str
+    source_url: str
+    scan_id: UUID
+    run_id: UUID | None
+    project_id: UUID | None
+
+
+class EvidenceSearchProvenanceOut(BaseModel):
+    evidence_hash: str
+    scan_ids: list[UUID] = Field(default_factory=list)
+    run_ids: list[UUID] = Field(default_factory=list)
+    project_ids: list[UUID] = Field(default_factory=list)
+    observations: list[EvidenceSearchObservationOut] = Field(default_factory=list)
+
+
+class EvidenceSearchHitOut(BaseModel):
+    id: UUID
+    source: str
+    title: str
+    excerpt: str
+    source_url: str
+    match_score: float = Field(ge=0.0, le=1.0)
+    signal_type: str | None
+    review_label: EvidenceReviewLabel | None
+    created_at: datetime
+    untrusted_evidence: bool = True
+    provenance: EvidenceSearchProvenanceOut
+
+
+class OpportunityThreadSearchProvenanceOut(BaseModel):
+    snapshot_id: UUID
+    run_id: UUID | None
+    scan_id: UUID | None
+    evidence_hash: str
+    content_hash: str
+    match_method: str
+    match_confidence: float | None
+
+
+class OpportunityThreadHitOut(BaseModel):
+    id: UUID
+    project_id: UUID | None
+    title: str
+    summary: str
+    match_score: float = Field(ge=0.0, le=1.0)
+    matched_evidence_ids: list[UUID]
+    matched_evidence_count: int = Field(ge=1)
+    review_state: ReviewState
+    lineage_status: Literal["complete", "untracked"]
+    evidence_readiness: EvidenceReadinessOut
+    provenance: OpportunityThreadSearchProvenanceOut
+
+
+class SemanticSearchOut(BaseModel):
+    evidence_hits: list[EvidenceSearchHitOut] = Field(default_factory=list)
+    opportunity_threads: list[OpportunityThreadHitOut] = Field(default_factory=list)
+
+
+class SearchRequest(SemanticSearchRequest):
+    """Backward-compatible Python type name for the former semantic route."""
 
 
 class TaskPackOut(BaseModel):

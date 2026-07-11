@@ -100,8 +100,11 @@ def observations_for_scan(
 ) -> list[Observation]:
     statement = (
         select(
-            NormalizedItem.source,
-            NormalizedItem.external_id,
+            func.coalesce(ScanItem.observed_source, NormalizedItem.source),
+            func.coalesce(
+                ScanItem.observed_external_id,
+                NormalizedItem.external_id,
+            ),
             NormalizedItem.text_hash,
             ScanItem.created_in_scan,
         )
@@ -141,8 +144,10 @@ def change_counts(
         for identity in shared_identities
     )
     return DeltaCounts(
-        new=sum(entry.created_in_scan for entry in current),
-        seen_before=sum(not entry.created_in_scan for entry in current),
+        new=len({entry.text_hash for entry in current if entry.created_in_scan}),
+        seen_before=len(
+            {entry.text_hash for entry in current if not entry.created_in_scan}
+        ),
         updated=updated,
         unchanged=unchanged,
         not_observed_this_run=len(previous_by_identity.keys() - current_by_identity.keys()),

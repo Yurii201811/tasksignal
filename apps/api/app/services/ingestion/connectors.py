@@ -1,19 +1,40 @@
 from __future__ import annotations
 
 import json
+import math
 import re
+import socket
 from abc import ABC, abstractmethod
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
+from ipaddress import ip_address
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote, urljoin, urlsplit
 
 import httpx
 
 from app.core.config import settings
-from app.services.ingestion.types import RawFetchedItem, utc_now
+from app.services.ingestion.types import (
+    ConnectorFailure,
+    ConnectorFetchResult,
+    RawFetchedItem,
+    utc_now,
+)
 
 
 class ConnectorError(RuntimeError):
     pass
+
+
+class DiscourseConnectorError(ConnectorError):
+    """A Discourse failure carrying only sanitized, recordable metadata."""
+
+    def __init__(self, info: ConnectorFailure) -> None:
+        self.info = info
+        super().__init__(info.message)
 
 
 class BaseConnector(ABC):
@@ -224,8 +245,558 @@ class StackExchangeConnector(BaseConnector):
         ]
 
 
+DiscourseResolver = Callable[[str, int], Iterable[str]]
+
+
+@dataclass
+class _DiscourseFetchState:
+    requests_made: int = 0
+    retry_after_seconds: int | None = None
+
+
+def _system_resolver(host: str, port: int) -> list[str]:
+    addresses = {
+        sockaddr[0]
+        for _family, _type, _proto, _canonname, sockaddr in socket.getaddrinfo(
+            host,
+            port,
+            type=socket.SOCK_STREAM,
+        )
+    }
+    return sorted(addresses)
+
+
+def _discourse_error(
+    category: str,
+    message: str,
+    *,
+    status_code: int | None = None,
+    retry_after_seconds: int | None = None,
+    retriable: bool = False,
+) -> DiscourseConnectorError:
+    return DiscourseConnectorError(
+        ConnectorFailure(
+            category=category,
+            message=message,
+            status_code=status_code,
+            retry_after_seconds=retry_after_seconds,
+            retriable=retriable,
+        )
+    )
+
+
+class DiscourseConnector(BaseConnector):
+    """Read-only connector for an explicitly authorized public Discourse origin."""
+
+    name = "discourse"
+    _REDIRECT_STATUSES = {301, 302, 303, 307, 308}
+
+    def __init__(
+        self,
+        base_url: str,
+        *,
+        resolver: DiscourseResolver | None = None,
+        transport: httpx.BaseTransport | None = None,
+        timeout_seconds: float = 10.0,
+        max_response_bytes: int = 2_000_000,
+        max_results: int = 50,
+        max_topic_requests: int = 10,
+        max_redirects: int = 3,
+    ) -> None:
+        self._resolver = resolver or _system_resolver
+        self._transport = transport
+        self.timeout_seconds = timeout_seconds
+        self.max_response_bytes = max_response_bytes
+        self.max_results = max_results
+        self.max_topic_requests = max_topic_requests
+        self.max_redirects = max_redirects
+        self.last_result: ConnectorFetchResult | None = None
+        self.last_error: ConnectorFailure | None = None
+
+        if (
+            timeout_seconds <= 0
+            or max_response_bytes <= 0
+            or max_results <= 0
+            or max_topic_requests < 0
+            or max_redirects < 0
+        ):
+            raise _discourse_error(
+                "unsafe_configuration",
+                "Discourse connector limits must be positive and bounded.",
+            )
+
+        parsed = self._parse_url(base_url, category="unsafe_configuration")
+        if parsed.path not in {"", "/"} or parsed.query or parsed.fragment:
+            raise _discourse_error(
+                "unsafe_configuration",
+                "Discourse base URL must contain only an HTTPS origin.",
+            )
+
+        host = self._normalized_host(parsed.hostname)
+        if self._is_ip_literal(host):
+            raise _discourse_error(
+                "unsafe_configuration",
+                "Discourse base URL must use a public DNS hostname, not an IP literal.",
+            )
+
+        port = self._effective_port(parsed, category="unsafe_configuration")
+        self._host = host
+        self._port = port
+        self._ensure_public_dns(category="unsafe_configuration")
+        port_suffix = "" if port == 443 else f":{port}"
+        self._authority = f"{host}{port_suffix}"
+        self.base_url = f"https://{host}{port_suffix}"
+
+    def fetch(self, query: str = "", limit: int = 50) -> list[RawFetchedItem]:
+        return self.fetch_result(query=query, limit=limit).items
+
+    def fetch_result(self, query: str = "", limit: int = 50) -> ConnectorFetchResult:
+        self.last_error = None
+        self.last_result = None
+        state = _DiscourseFetchState()
+        effective_limit = min(max(int(limit), 0), self.max_results)
+
+        if effective_limit == 0:
+            result = ConnectorFetchResult(
+                items=[],
+                requests_made=0,
+                retry_after_seconds=None,
+                last_success_at=utc_now(),
+            )
+            self.last_result = result
+            return result
+
+        try:
+            result = self._fetch_result(query.strip(), effective_limit, state)
+        except DiscourseConnectorError as exc:
+            self.last_error = exc.info
+            raise
+        except httpx.TimeoutException as exc:
+            error = _discourse_error(
+                "timeout",
+                "Discourse request exceeded the configured timeout.",
+                retriable=True,
+            )
+            self.last_error = error.info
+            raise error from exc
+        except httpx.RequestError as exc:
+            error = _discourse_error(
+                "network_error",
+                "Discourse request failed before a public response was received.",
+                retriable=True,
+            )
+            self.last_error = error.info
+            raise error from exc
+
+        self.last_result = result
+        return result
+
+    def _fetch_result(
+        self,
+        query: str,
+        effective_limit: int,
+        state: _DiscourseFetchState,
+    ) -> ConnectorFetchResult:
+        timeout = httpx.Timeout(self.timeout_seconds)
+        with httpx.Client(
+            timeout=timeout,
+            headers={
+                "Accept": "application/json",
+                "User-Agent": "TaskSignal/1.0 public-discourse-connector",
+            },
+            follow_redirects=False,
+            trust_env=False,
+            transport=self._transport,
+        ) as client:
+            if query:
+                payload = self._get_json(
+                    client,
+                    f"{self.base_url}/search.json",
+                    params={"q": query},
+                    state=state,
+                )
+            else:
+                payload = self._get_json(
+                    client,
+                    f"{self.base_url}/latest.json",
+                    params=None,
+                    state=state,
+                )
+
+            topics = self._extract_topics(payload)[:effective_limit]
+            items: list[RawFetchedItem] = []
+            detail_budget = min(len(topics), self.max_topic_requests)
+            for index, topic in enumerate(topics):
+                topic_id = self._topic_id(topic)
+                detail: dict[str, Any] | None = None
+                if index < detail_budget:
+                    detail = self._get_json(
+                        client,
+                        f"{self.base_url}/t/{topic_id}.json",
+                        params=None,
+                        state=state,
+                    )
+                    detail_id = detail.get("id")
+                    if detail_id is not None and str(detail_id) != topic_id:
+                        raise _discourse_error(
+                            "malformed_response",
+                            "Discourse topic detail did not match the requested topic.",
+                        )
+                items.append(self._to_raw_item(topic, detail))
+
+        return ConnectorFetchResult(
+            items=items,
+            requests_made=state.requests_made,
+            retry_after_seconds=state.retry_after_seconds,
+            last_success_at=utc_now(),
+        )
+
+    def _get_json(
+        self,
+        client: httpx.Client,
+        url: str,
+        *,
+        params: dict[str, str] | None,
+        state: _DiscourseFetchState,
+    ) -> dict[str, Any]:
+        current_url = url
+        current_params = params
+
+        for redirect_count in range(self.max_redirects + 1):
+            approved_addresses = self._validate_request_url(
+                current_url,
+                category="unsafe_target",
+            )
+            client.cookies.clear()
+            request = client.build_request("GET", current_url, params=current_params)
+            logical_request_url = str(request.url)
+            request.url = request.url.copy_with(host=approved_addresses[0])
+            request.headers["Host"] = self._authority
+            request.extensions["sni_hostname"] = self._host
+            response = client.send(request, stream=True)
+            state.requests_made += 1
+
+            try:
+                retry_after = self._parse_retry_after(response.headers.get("retry-after"))
+                if retry_after is not None:
+                    state.retry_after_seconds = max(
+                        state.retry_after_seconds or 0,
+                        retry_after,
+                    )
+
+                if response.status_code in self._REDIRECT_STATUSES:
+                    if redirect_count >= self.max_redirects:
+                        raise _discourse_error(
+                            "too_many_redirects",
+                            "Discourse exceeded the configured redirect limit.",
+                        )
+                    location = response.headers.get("location")
+                    if not location:
+                        raise _discourse_error(
+                            "malformed_response",
+                            "Discourse returned a redirect without a location.",
+                        )
+                    redirected_url = urljoin(logical_request_url, location)
+                    self._validate_request_url(redirected_url, category="unsafe_redirect")
+                    current_url = redirected_url
+                    current_params = None
+                    continue
+
+                if response.status_code >= 400:
+                    is_rate_limited = response.status_code == 429
+                    retriable = is_rate_limited or response.status_code in {408, 425} or (
+                        response.status_code >= 500
+                    )
+                    raise _discourse_error(
+                        "rate_limited" if is_rate_limited else "http_error",
+                        f"Discourse returned HTTP {response.status_code}.",
+                        status_code=response.status_code,
+                        retry_after_seconds=retry_after,
+                        retriable=retriable,
+                    )
+
+                body = self._read_bounded_body(response)
+                try:
+                    payload = json.loads(body)
+                except (json.JSONDecodeError, RecursionError, UnicodeDecodeError) as exc:
+                    raise _discourse_error(
+                        "malformed_response",
+                        "Discourse returned malformed JSON.",
+                    ) from exc
+                if not isinstance(payload, dict):
+                    raise _discourse_error(
+                        "malformed_response",
+                        "Discourse JSON response must be an object.",
+                    )
+                return payload
+            finally:
+                response.close()
+                client.cookies.clear()
+
+        raise _discourse_error(
+            "too_many_redirects",
+            "Discourse exceeded the configured redirect limit.",
+        )
+
+    def _read_bounded_body(self, response: httpx.Response) -> bytes:
+        content_length = response.headers.get("content-length")
+        if content_length:
+            try:
+                declared_size = int(content_length)
+            except ValueError:
+                declared_size = 0
+            if declared_size > self.max_response_bytes:
+                raise _discourse_error(
+                    "response_too_large",
+                    "Discourse response exceeded the configured byte limit.",
+                )
+
+        content = bytearray()
+        for chunk in response.iter_bytes():
+            content.extend(chunk)
+            if len(content) > self.max_response_bytes:
+                raise _discourse_error(
+                    "response_too_large",
+                    "Discourse response exceeded the configured byte limit.",
+                )
+        return bytes(content)
+
+    def _validate_request_url(self, url: str, *, category: str) -> tuple[str, ...]:
+        parsed = self._parse_url(url, category=category)
+        host = self._normalized_host(parsed.hostname)
+        port = self._effective_port(parsed, category=category)
+        if host != self._host or port != self._port:
+            raise _discourse_error(
+                category,
+                "Discourse requests must remain on the configured HTTPS origin.",
+            )
+        return self._ensure_public_dns(category=category)
+
+    def _ensure_public_dns(self, *, category: str) -> tuple[str, ...]:
+        try:
+            addresses = list(self._resolver(self._host, self._port))
+        except Exception as exc:
+            raise _discourse_error(
+                category,
+                "Discourse hostname could not be resolved safely.",
+                retriable=True,
+            ) from exc
+
+        if not addresses:
+            raise _discourse_error(
+                category,
+                "Discourse hostname did not resolve to a public address.",
+                retriable=True,
+            )
+
+        approved_addresses: set[str] = set()
+        for value in addresses:
+            try:
+                address = ip_address(str(value).split("%", 1)[0])
+            except ValueError as exc:
+                raise _discourse_error(
+                    category,
+                    "Discourse hostname returned an invalid address.",
+                ) from exc
+            if (
+                not address.is_global
+                or address.is_private
+                or address.is_loopback
+                or address.is_link_local
+                or address.is_multicast
+                or address.is_reserved
+                or address.is_unspecified
+            ):
+                raise _discourse_error(
+                    category,
+                    "Discourse hostname resolved to a non-public address.",
+                )
+            approved_addresses.add(str(address))
+        return tuple(
+            sorted(
+                approved_addresses,
+                key=lambda value: (ip_address(value).version, value),
+            )
+        )
+
+    @staticmethod
+    def _parse_url(url: str, *, category: str) -> Any:
+        try:
+            parsed = urlsplit(url)
+            hostname = parsed.hostname
+        except (TypeError, ValueError) as exc:
+            raise _discourse_error(
+                category,
+                "Discourse URL is not a valid HTTPS URL.",
+            ) from exc
+        if (
+            parsed.scheme.lower() != "https"
+            or not hostname
+            or parsed.username is not None
+            or parsed.password is not None
+        ):
+            raise _discourse_error(
+                category,
+                "Discourse URL must be a credential-free HTTPS URL.",
+            )
+        return parsed
+
+    @staticmethod
+    def _normalized_host(host: str | None) -> str:
+        if not host:
+            return ""
+        try:
+            return host.rstrip(".").encode("idna").decode("ascii").lower()
+        except UnicodeError as exc:
+            raise _discourse_error(
+                "unsafe_configuration",
+                "Discourse hostname is invalid.",
+            ) from exc
+
+    @staticmethod
+    def _effective_port(parsed: Any, *, category: str) -> int:
+        try:
+            return parsed.port or 443
+        except ValueError as exc:
+            raise _discourse_error(
+                category,
+                "Discourse URL contains an invalid port.",
+            ) from exc
+
+    @staticmethod
+    def _is_ip_literal(host: str) -> bool:
+        try:
+            ip_address(host)
+        except ValueError:
+            return False
+        return True
+
+    @staticmethod
+    def _parse_retry_after(value: str | None) -> int | None:
+        if not value:
+            return None
+        stripped = value.strip()
+        if stripped.isascii() and stripped.isdigit():
+            try:
+                return max(0, int(stripped))
+            except (OverflowError, ValueError):  # pragma: no cover - defensive bigint guard
+                return None
+        try:
+            parsed = parsedate_to_datetime(stripped)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=UTC)
+        return max(0, math.ceil((parsed - datetime.now(UTC)).total_seconds()))
+
+    @staticmethod
+    def _extract_topics(payload: dict[str, Any]) -> list[dict[str, Any]]:
+        if "topic_list" in payload:
+            topic_list = payload.get("topic_list")
+            if not isinstance(topic_list, dict):
+                raise _discourse_error(
+                    "malformed_response",
+                    "Discourse topic list is malformed.",
+                )
+            topics = topic_list.get("topics")
+        else:
+            topics = payload.get("topics")
+        if not isinstance(topics, list):
+            raise _discourse_error(
+                "malformed_response",
+                "Discourse response did not contain a topic list.",
+            )
+        if any(not isinstance(topic, dict) for topic in topics):
+            raise _discourse_error(
+                "malformed_response",
+                "Discourse topic list contains malformed entries.",
+            )
+        return topics
+
+    @staticmethod
+    def _topic_id(topic: dict[str, Any]) -> str:
+        raw_topic_id = topic.get("id")
+        if isinstance(raw_topic_id, bool):
+            raw_topic_id = None
+        try:
+            topic_id = int(raw_topic_id)
+        except (TypeError, ValueError) as exc:
+            raise _discourse_error(
+                "malformed_response",
+                "Discourse topic is missing a valid numeric ID.",
+            ) from exc
+        if topic_id <= 0:
+            raise _discourse_error(
+                "malformed_response",
+                "Discourse topic is missing a valid numeric ID.",
+            )
+        return str(topic_id)
+
+    def _to_raw_item(
+        self,
+        topic: dict[str, Any],
+        detail: dict[str, Any] | None,
+    ) -> RawFetchedItem:
+        detail = detail or {}
+        topic_id = self._topic_id(topic)
+        post_stream = detail.get("post_stream")
+        posts = post_stream.get("posts") if isinstance(post_stream, dict) else None
+        first_post = posts[0] if isinstance(posts, list) and posts and isinstance(posts[0], dict) else {}
+
+        title = detail.get("title") or topic.get("title") or ""
+        body = (
+            first_post.get("cooked")
+            or first_post.get("raw")
+            or detail.get("excerpt")
+            or topic.get("excerpt")
+            or ""
+        )
+        created_at = (
+            first_post.get("created_at")
+            or detail.get("created_at")
+            or topic.get("created_at")
+        )
+        raw_tags = detail.get("tags") or topic.get("tags") or []
+        tags = [str(tag) for tag in raw_tags if isinstance(tag, (str, int, float))]
+        slug = detail.get("slug") or topic.get("slug") or "topic"
+        safe_slug = quote(str(slug), safe="") or "topic"
+
+        posts_count = detail.get("posts_count")
+        if not isinstance(posts_count, int):
+            posts_count = topic.get("posts_count")
+        comments_count = detail.get("reply_count")
+        if not isinstance(comments_count, int):
+            comments_count = max(posts_count - 1, 0) if isinstance(posts_count, int) else None
+
+        score = first_post.get("like_count")
+        if not isinstance(score, (int, float)):
+            score = detail.get("like_count") or topic.get("like_count")
+
+        views = detail.get("views")
+        if not isinstance(views, int):
+            views = topic.get("views")
+
+        return RawFetchedItem(
+            source="discourse",
+            external_id=f"{self.base_url}/t/{topic_id}",
+            raw_json={
+                "title": title if isinstance(title, str) else str(title),
+                "body": body if isinstance(body, str) else "",
+                "created_at": created_at,
+                "url": f"{self.base_url}/t/{safe_slug}/{topic_id}",
+                "tags": tags,
+                "score": score,
+                "comments_count": comments_count,
+                "views": views,
+                "category_id": detail.get("category_id") or topic.get("category_id"),
+            },
+            fetched_at=utc_now(),
+        )
+
+
 def connector_display_name(source_type: str) -> str:
     names: dict[str, str] = {
+        "discourse": "Discourse",
         "fixture": "Fixture files",
         "github": "GitHub Issues",
         "hackernews": "Hacker News",
@@ -236,6 +807,10 @@ def connector_display_name(source_type: str) -> str:
 
 
 SOURCE_GUIDANCE: dict[str, str] = {
+    "discourse": (
+        "Discourse scans use public JSON endpoints on one explicitly authorized HTTPS origin. "
+        "No cookies or credentials are supported."
+    ),
     "github": (
         "GitHub scans use the official Issues Search API. Set GITHUB_TOKEN for higher "
         "rate limits, or reduce the limit/query breadth."
@@ -330,6 +905,18 @@ def connector_failure_message(source_type: str, exc: Exception) -> str:
 
 
 def without_raw_author(source: str, item: dict[str, Any]) -> dict[str, Any]:
+    if source == "discourse":
+        return {
+            "title": item.get("title"),
+            "body": item.get("body"),
+            "created_at": item.get("created_at"),
+            "url": item.get("url"),
+            "tags": item.get("tags") or [],
+            "score": item.get("score"),
+            "comments_count": item.get("comments_count"),
+            "views": item.get("views"),
+            "category_id": item.get("category_id"),
+        }
     if source == "github":
         return {
             "title": item.get("title"),

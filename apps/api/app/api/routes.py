@@ -8,7 +8,7 @@ from uuid import UUID
 import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
 from sqlalchemy import func, select
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -16,7 +16,7 @@ from app.db.session import get_db
 from app.models.all_models import (
     Cluster,
     ClusterItem,
-    ItemEmbedding,
+    DiscourseSourceState,
     ItemSignal,
     Label,
     LocalWorkspaceSettings,
@@ -26,6 +26,7 @@ from app.models.all_models import (
     OpportunityThread,
     ResearchProject,
     ResearchProjectRun,
+    ScanItem,
     ScanJob,
     Source,
 )
@@ -57,12 +58,24 @@ from app.schemas.api import (
     RunDeltaOut,
     ScanCreate,
     ScanOut,
-    SearchRequest,
+    SemanticSearchOut,
+    SemanticSearchRequest,
+    SourceAuthorizationCreate,
+    SourceAuthorizationOut,
     SourceCreate,
     SourceOut,
+    SourceRuntimeStateOut,
     TaskPackOut,
 )
-from app.services.embeddings.service import EmbeddingService, cosine_similarity
+from app.services.discourse_sources.service import (
+    ImmutableDiscourseOrigin,
+    InvalidDiscourseOrigin,
+    InvalidDiscourseSource,
+    authorize_discourse_source,
+    discourse_readiness,
+    revoke_discourse_source,
+    runtime_state_snapshot,
+)
 from app.services.evidence_review.service import (
     calculate_evidence_readiness,
     evaluation_summary,
@@ -91,6 +104,7 @@ from app.services.research_memory.service import (
 )
 from app.services.research_projects.service import next_run_at_from
 from app.services.scoring.service import score_opportunity
+from app.services.search.service import semantic_search as search_semantically
 from app.workers.demo_pipeline import ensure_sources, process_demo, stats
 from app.workers.scan_pipeline import (
     CONNECTOR_FACTORIES,
@@ -104,7 +118,7 @@ from app.workers.scan_pipeline import (
 router = APIRouter()
 
 PUBLIC_SCAN_API_SOURCES = {"fixture", "hackernews"}
-OPERATOR_SCAN_SOURCES = {"github", "reddit", "stackexchange"}
+OPERATOR_SCAN_SOURCES = {"discourse", "github", "reddit", "stackexchange"}
 SOURCE_CONFIG_SECRET_KEY_PARTS = {
     "accesstoken",
     "apikey",
@@ -145,6 +159,16 @@ INTEGRATION_CATALOG = [
         "rate_limit_note": "Uses the public Firebase API; keep limits modest for interactive scans.",
         "privacy_note": "Stores normalized public story fields and source URLs.",
         "next_step": "Create a project with ask, new, top, best, show, or job.",
+    },
+    {
+        "id": "discourse",
+        "name": "Discourse forums",
+        "kind": "source",
+        "required_env": [],
+        "optional_env": [],
+        "rate_limit_note": "Each authorized public forum has bounded requests and persisted Retry-After state.",
+        "privacy_note": "Public topics only; cookies, credentials, raw author identities, and private categories are excluded.",
+        "next_step": "Create a Discourse source, confirm that forum's terms, then bind it to a project.",
     },
     {
         "id": "github",
@@ -356,6 +380,16 @@ def integration_status(entry: dict, db: Session) -> IntegrationOut:
     if integration_id == "codex_export":
         status_value = "available"
         credential_state = "not_required"
+    elif source_type == "discourse":
+        discourse_sources = db.scalars(
+            select(Source).where(Source.type == "discourse")
+        ).all()
+        ready = any(
+            discourse_readiness(source, source.discourse_state).can_run
+            for source in discourse_sources
+        )
+        status_value = "ready" if ready else "terms_required"
+        credential_state = "not_required"
     elif integration_id == "ollama":
         status_value = "ready" if settings.llm_provider == "ollama" else "available"
         credential_state = "configured" if settings.llm_provider == "ollama" else "not_required"
@@ -406,6 +440,7 @@ def research_run_to_out(run: ResearchProjectRun) -> ResearchRunOut:
         scan_id=run.scan_id,
         sequence=run.sequence,
         source_type=run.source_type,
+        source_origin=run.source_origin,
         query=run.query,
         requested_limit=run.requested_limit,
         lineage_status="complete" if run.lineage_complete else "incomplete",
@@ -431,6 +466,7 @@ def untracked_research_run_to_out(
         scan_id=scan.id,
         sequence=None,
         source_type=scan.source_type,
+        source_origin=None,
         query=scan.query,
         requested_limit=None,
         lineage_status="untracked",
@@ -455,6 +491,78 @@ def source_to_out(source: Source) -> SourceOut:
         enabled=source.enabled,
         created_at=source.created_at,
     )
+
+
+def discourse_source_or_error(db: Session, source_id: UUID) -> Source:
+    source = db.get(Source, source_id)
+    if source is None:
+        raise HTTPException(status_code=404, detail="Source not found")
+    if canonical_source(source.type) != "discourse":
+        raise HTTPException(
+            status_code=409,
+            detail="Only Discourse sources support host authorization.",
+        )
+    return source
+
+
+def source_authorization_to_out(
+    source: Source,
+    state: DiscourseSourceState | None,
+) -> SourceAuthorizationOut:
+    return SourceAuthorizationOut(
+        source_id=source.id,
+        source_type=canonical_source(source.type),
+        origin=state.origin if state is not None else None,
+        host=state.host if state is not None else None,
+        port=state.port if state is not None else None,
+        authorized=bool(
+            state is not None
+            and state.authorized_at is not None
+            and state.terms_confirmed_at is not None
+        ),
+        authorized_at=as_utc(state.authorized_at) if state is not None else None,
+        terms_confirmed_at=(
+            as_utc(state.terms_confirmed_at) if state is not None else None
+        ),
+    )
+
+
+def validate_project_source_binding(
+    db: Session,
+    *,
+    source_type: str,
+    source_id: UUID | None,
+) -> Source | None:
+    if source_type == "discourse" and source_id is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Discourse projects require an authorized source_id.",
+        )
+    if source_id is None:
+        return None
+
+    source = db.get(Source, source_id)
+    if source is None:
+        raise HTTPException(status_code=404, detail="Configured source not found")
+    if canonical_source(source.type) != source_type:
+        raise HTTPException(
+            status_code=409,
+            detail="Configured source type does not match the research project source_type.",
+        )
+    if not source.enabled:
+        raise HTTPException(status_code=409, detail="Configured source is disabled.")
+    if source_type == "discourse":
+        state = db.get(DiscourseSourceState, source.id)
+        if (
+            state is None
+            or state.authorized_at is None
+            or state.terms_confirmed_at is None
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="Discourse source terms have not been authorized.",
+            )
+    return source
 
 
 def local_workspace_to_out(workspace: LocalWorkspaceSettings) -> LocalWorkspaceOut:
@@ -493,6 +601,20 @@ def reject_sensitive_source_config(config: dict) -> None:
                 f"connector credentials in environment variables instead. Blocked: {preview}."
             ),
         )
+
+
+def source_payload_values(payload: SourceCreate) -> dict:
+    reject_sensitive_source_config(payload.config_json)
+    source_type = canonical_source(payload.type)
+    if source_type == "discourse" and payload.config_json:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Discourse hosts use the typed authorization endpoint; "
+                "config_json must remain empty."
+            ),
+        )
+    return {**payload.model_dump(), "type": source_type}
 
 
 def get_or_create_local_workspace(db: Session) -> LocalWorkspaceSettings:
@@ -576,13 +698,20 @@ def item_to_out(
     item: NormalizedItem,
     signal: ItemSignal | None = None,
     review: EvidenceReviewSnapshot | None = None,
+    observation: ScanItem | None = None,
 ) -> ItemOut:
     review = review or EvidenceReviewSnapshot()
     return ItemOut(
         id=item.id,
-        source=item.source,
-        external_id=item.external_id,
-        url=item.url,
+        source=(observation.observed_source if observation else None) or item.source,
+        external_id=(
+            (observation.observed_external_id if observation else None)
+            or item.external_id
+        ),
+        url=safe_source_url(
+            (observation.observed_url if observation else None) or item.url,
+            fallback="",
+        ),
         title=item.title,
         body=item.body,
         score=item.score,
@@ -619,10 +748,42 @@ def opportunity_to_out(db: Session, opportunity: Opportunity) -> OpportunityOut:
     rows = cluster_signal_rows(db, opportunity.cluster_id)
     items = [item for item, _signal in rows]
     snapshots = get_review_snapshots(db, [item.id for item in items])
-    evidence = [item_to_out(item, signal, snapshots.get(item.id)) for item, signal in rows]
+    evidence_scan_id = opportunity.scan_id
+    if evidence_scan_id is None:
+        evidence_scan_id = db.scalar(
+            select(Opportunity.scan_id)
+            .where(
+                Opportunity.thread_id == opportunity.thread_id,
+                Opportunity.scan_id.is_not(None),
+            )
+            .order_by(Opportunity.created_at.desc(), Opportunity.id.desc())
+            .limit(1)
+        )
+    observations = (
+        {
+            observation.item_id: observation
+            for observation in db.scalars(
+                select(ScanItem).where(
+                    ScanItem.scan_id == evidence_scan_id,
+                    ScanItem.item_id.in_([item.id for item in items]),
+                )
+            ).all()
+        }
+        if evidence_scan_id is not None and items
+        else {}
+    )
+    evidence = [
+        item_to_out(
+            item,
+            signal,
+            snapshots.get(item.id),
+            observations.get(item.id),
+        )
+        for item, signal in rows
+    ]
     top_source = max(
-        {item.source for item in items},
-        key=lambda source: sum(item.source == source for item in items),
+        {item.source for item in evidence},
+        key=lambda source: sum(item.source == source for item in evidence),
         default="fixture",
     )
     values = {
@@ -1082,6 +1243,12 @@ def test_integration(
             status="available",
             detail="This integration is configured through exports or local runtime settings.",
         )
+    if source_type == "discourse":
+        return IntegrationTestOut(
+            id=source_type,
+            status="available",
+            detail="Test an exact authorized Discourse source from its source readiness view.",
+        )
 
     scan_source_for_operator(source_type, x_operator_scan_token)
     try:
@@ -1109,8 +1276,7 @@ def create_source(
     db: Session = Depends(get_db),
 ) -> SourceOut:
     require_operator_token(x_operator_scan_token, "Creating sources")
-    reject_sensitive_source_config(payload.config_json)
-    source = Source(**payload.model_dump())
+    source = Source(**source_payload_values(payload))
     db.add(source)
     db.commit()
     db.refresh(source)
@@ -1125,15 +1291,111 @@ def update_source(
     db: Session = Depends(get_db),
 ) -> SourceOut:
     require_operator_token(x_operator_scan_token, "Updating sources")
-    reject_sensitive_source_config(payload.config_json)
     source = db.get(Source, source_id)
     if source is None:
         raise HTTPException(status_code=404, detail="Source not found")
-    for key, value in payload.model_dump().items():
+    values = source_payload_values(payload)
+    if values["type"] != canonical_source(source.type):
+        raise HTTPException(
+            status_code=409,
+            detail="A source connector type is immutable; create a new source instead.",
+        )
+    for key, value in values.items():
         setattr(source, key, value)
     db.commit()
     db.refresh(source)
     return source_to_out(source)
+
+
+@router.get(
+    "/sources/{source_id}/authorization",
+    response_model=SourceAuthorizationOut,
+)
+def get_source_authorization(
+    source_id: UUID,
+    db: Session = Depends(get_db),
+) -> SourceAuthorizationOut:
+    source = discourse_source_or_error(db, source_id)
+    return source_authorization_to_out(
+        source,
+        db.get(DiscourseSourceState, source.id),
+    )
+
+
+@router.put(
+    "/sources/{source_id}/authorization",
+    response_model=SourceAuthorizationOut,
+)
+def authorize_source_host(
+    source_id: UUID,
+    payload: SourceAuthorizationCreate,
+    x_operator_scan_token: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> SourceAuthorizationOut:
+    require_operator_token(x_operator_scan_token, "Authorizing Discourse sources")
+    source = discourse_source_or_error(db, source_id)
+    try:
+        state = authorize_discourse_source(
+            db,
+            source=source,
+            origin=payload.origin,
+            terms_confirmed=payload.terms_confirmed,
+        )
+        db.commit()
+    except InvalidDiscourseOrigin as exc:
+        db.rollback()
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except (ImmutableDiscourseOrigin, InvalidDiscourseSource) as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="That exact Discourse host is already authorized as another source.",
+        ) from exc
+    db.refresh(state)
+    return source_authorization_to_out(source, state)
+
+
+@router.delete(
+    "/sources/{source_id}/authorization",
+    response_model=SourceAuthorizationOut,
+)
+def revoke_source_authorization(
+    source_id: UUID,
+    x_operator_scan_token: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> SourceAuthorizationOut:
+    require_operator_token(x_operator_scan_token, "Revoking Discourse sources")
+    source = discourse_source_or_error(db, source_id)
+    state = db.get(DiscourseSourceState, source.id)
+    if state is not None:
+        revoke_discourse_source(state)
+        db.commit()
+        db.refresh(state)
+    return source_authorization_to_out(source, state)
+
+
+@router.get(
+    "/sources/{source_id}/runtime-state",
+    response_model=SourceRuntimeStateOut,
+)
+@router.get(
+    "/sources/{source_id}/readiness",
+    response_model=SourceRuntimeStateOut,
+    include_in_schema=False,
+)
+def get_source_runtime_state(
+    source_id: UUID,
+    db: Session = Depends(get_db),
+) -> SourceRuntimeStateOut:
+    source = discourse_source_or_error(db, source_id)
+    snapshot = runtime_state_snapshot(
+        source,
+        db.get(DiscourseSourceState, source.id),
+    )
+    return SourceRuntimeStateOut(**snapshot.__dict__)
 
 
 @router.delete("/sources/{source_id}")
@@ -1147,7 +1409,14 @@ def delete_source(
     if source is None:
         raise HTTPException(status_code=404, detail="Source not found")
     db.delete(source)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Source is referenced by a research project and cannot be deleted.",
+        ) from exc
     return {"deleted": True}
 
 
@@ -1160,6 +1429,7 @@ def create_scan(payload: ScanCreate, db: Session = Depends(get_db)) -> ScanJob:
             source=source_type,
             query=payload.query,
             limit=payload.limit,
+            source_id=payload.source_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -1196,12 +1466,18 @@ def create_research_project(
             status_code=400,
             detail=f"Unsupported source '{payload.source_type}'. Supported sources: {supported}.",
         )
+    validate_project_source_binding(
+        db,
+        source_type=source_type,
+        source_id=payload.source_id,
+    )
 
     labels = [label.strip() for label in payload.labels if label.strip()]
     project = ResearchProject(
         name=payload.name.strip(),
         description=payload.description.strip() if payload.description else None,
         source_type=source_type,
+        source_id=payload.source_id,
         query=payload.query.strip(),
         limit=payload.limit,
         cadence=payload.cadence.strip() or "manual",
@@ -1249,6 +1525,36 @@ def update_research_project(
             detail=f"Fields cannot be null: {', '.join(sorted(null_required))}",
         )
 
+    candidate_source_type = (
+        canonical_source(payload.source_type or "")
+        if "source_type" in supplied
+        else project.source_type
+    )
+    candidate_source_id = (
+        payload.source_id if "source_id" in supplied else project.source_id
+    )
+    if (
+        "source_type" in supplied
+        and "source_id" not in supplied
+        and candidate_source_type != project.source_type
+    ):
+        candidate_source_id = None
+    if supplied & {"source_type", "source_id"}:
+        if candidate_source_type not in CONNECTOR_FACTORIES:
+            supported = ", ".join(sorted(CONNECTOR_FACTORIES))
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Unsupported source '{candidate_source_type}'. "
+                    f"Supported sources: {supported}."
+                ),
+            )
+        validate_project_source_binding(
+            db,
+            source_type=candidate_source_type,
+            source_id=candidate_source_id,
+        )
+
     if "name" in supplied:
         name = payload.name.strip() if payload.name else ""
         if not name:
@@ -1257,16 +1563,9 @@ def update_research_project(
     if "description" in supplied:
         project.description = payload.description.strip() if payload.description else None
     if "source_type" in supplied:
-        source_type = canonical_source(payload.source_type or "")
-        if source_type not in CONNECTOR_FACTORIES:
-            supported = ", ".join(sorted(CONNECTOR_FACTORIES))
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    f"Unsupported source '{payload.source_type}'. Supported sources: {supported}."
-                ),
-            )
-        project.source_type = source_type
+        project.source_type = candidate_source_type
+    if supplied & {"source_type", "source_id"}:
+        project.source_id = candidate_source_id
     if "query" in supplied:
         project.query = (payload.query or "").strip()
     if "limit" in supplied:
@@ -1315,6 +1614,18 @@ def run_due_research_projects(
     for project in projects:
         try:
             source_type = scan_source_for_operator(project.source_type, x_operator_scan_token)
+            configured_source = validate_project_source_binding(
+                db,
+                source_type=source_type,
+                source_id=project.source_id,
+            )
+            if source_type == "discourse" and configured_source is not None:
+                readiness = discourse_readiness(
+                    configured_source,
+                    db.get(DiscourseSourceState, configured_source.id),
+                )
+                if not readiness.can_run:
+                    raise HTTPException(status_code=409, detail=readiness.status)
         except HTTPException:
             skipped += 1
             continue
@@ -1418,6 +1729,21 @@ def run_research_project(
         raise HTTPException(status_code=409, detail="Research project is disabled")
 
     source_type = scan_source_for_operator(project.source_type, x_operator_scan_token)
+    configured_source = validate_project_source_binding(
+        db,
+        source_type=source_type,
+        source_id=project.source_id,
+    )
+    if source_type == "discourse" and configured_source is not None:
+        readiness = discourse_readiness(
+            configured_source,
+            db.get(DiscourseSourceState, configured_source.id),
+        )
+        if not readiness.can_run:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Discourse source is not ready: {readiness.status}.",
+            )
     scan = process_scan(
         db,
         source=source_type,
@@ -1801,23 +2127,17 @@ def export_task_pack(opportunity_id: UUID, db: Session = Depends(get_db)) -> Res
     )
 
 
-@router.post("/search/semantic")
-def semantic_search(payload: SearchRequest, db: Session = Depends(get_db)) -> dict:
-    embedder = EmbeddingService()
-    query_vector = embedder.embed_texts([payload.query])[0]
-    rows = db.execute(select(NormalizedItem, ItemEmbedding).join(ItemEmbedding)).all()
-    ranked = sorted(
-        [
-            {
-                "item": item_to_out(item).model_dump(mode="json"),
-                "similarity": round(cosine_similarity(query_vector, embedding.embedding), 3),
-            }
-            for item, embedding in rows
-        ],
-        key=lambda entry: entry["similarity"],
-        reverse=True,
-    )
-    return {"items": ranked[: payload.limit], "opportunities": []}
+@router.post("/search", response_model=SemanticSearchOut)
+@router.post(
+    "/search/semantic",
+    response_model=SemanticSearchOut,
+    include_in_schema=False,
+)
+def semantic_search_route(
+    payload: SemanticSearchRequest,
+    db: Session = Depends(get_db),
+) -> SemanticSearchOut:
+    return search_semantically(db, payload)
 
 
 @router.post("/labels", response_model=LabelOut)

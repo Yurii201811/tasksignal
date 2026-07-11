@@ -35,6 +35,7 @@ def test_models_expose_research_memory_schema() -> None:
         "source_type",
         "query",
         "requested_limit",
+        "source_origin",
         "lineage_complete",
         "created_at",
     }

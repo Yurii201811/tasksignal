@@ -256,7 +256,12 @@ records. Source registry write endpoints require `OPERATOR_SCAN_TOKEN`, reject
 secret-like `config_json` keys, and read endpoints return redacted config so
 local rows cannot expose token values.
 
-`PUBLIC_SCAN_SOURCES` can narrow the public endpoint further, for example to `hackernews` only. Credentialed sources such as GitHub, Reddit, and Stack Exchange stay reserved for trusted internal scan jobs.
+`PUBLIC_SCAN_SOURCES` can narrow the unauthenticated public endpoint further,
+for example to `hackernews` only. Each public Discourse forum still requires
+explicit terms confirmation for its exact HTTPS origin, and its scans require
+the operator token to prevent third parties from consuming forum rate limits.
+Credentialed sources such as GitHub, Reddit, and Stack Exchange likewise stay
+reserved for trusted operator-triggered jobs.
 
 Browser-triggered runs of credentialed sources are available through saved
 research projects only when `OPERATOR_SCAN_TOKEN` is configured on the API and

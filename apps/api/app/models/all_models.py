@@ -45,6 +45,93 @@ class Source(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
 
+    discourse_state: Mapped["DiscourseSourceState | None"] = relationship(
+        back_populates="source",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        uselist=False,
+    )
+
+
+class DiscourseSourceState(Base):
+    __tablename__ = "discourse_source_state"
+    __table_args__ = (
+        CheckConstraint("scheme = 'https'", name="ck_discourse_source_state_https"),
+        CheckConstraint(
+            "length(host) > 0 AND host = lower(host)",
+            name="ck_discourse_source_state_host_canonical",
+        ),
+        CheckConstraint(
+            "port >= 1 AND port <= 65535",
+            name="ck_discourse_source_state_port",
+        ),
+        CheckConstraint(
+            "(authorized_at IS NULL AND terms_confirmed_at IS NULL) OR "
+            "(authorized_at IS NOT NULL AND terms_confirmed_at IS NOT NULL)",
+            name="ck_discourse_source_state_terms_authorization",
+        ),
+        CheckConstraint(
+            "last_failure_code IS NULL OR last_failure_code IN "
+            "('timeout', 'connection', 'dns_rejected', 'redirect_rejected', "
+            "'http_error', 'rate_limited', 'response_too_large', 'invalid_response')",
+            name="ck_discourse_source_state_failure_code",
+        ),
+        CheckConstraint(
+            "last_failure_message IS NULL OR length(last_failure_message) <= 500",
+            name="ck_discourse_source_state_failure_message",
+        ),
+        CheckConstraint(
+            "last_http_status IS NULL OR "
+            "(last_http_status >= 100 AND last_http_status <= 599)",
+            name="ck_discourse_source_state_http_status",
+        ),
+        UniqueConstraint(
+            "host",
+            "port",
+            name="uq_discourse_source_state_host_port",
+        ),
+    )
+
+    source_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("sources.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    scheme: Mapped[str] = mapped_column(Text, default="https", server_default="https")
+    host: Mapped[str] = mapped_column(Text)
+    port: Mapped[int] = mapped_column(Integer, default=443, server_default="443")
+    authorized_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    terms_confirmed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    last_success_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    last_failure_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    last_failure_code: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_failure_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_http_status: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    retry_after_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+    source: Mapped[Source] = relationship(back_populates="discourse_state")
+
+    @property
+    def origin(self) -> str:
+        suffix = "" if self.port == 443 else f":{self.port}"
+        return f"https://{self.host}{suffix}"
+
 
 class ScanJob(Base):
     __tablename__ = "scan_jobs"
@@ -97,6 +184,11 @@ class ResearchProject(Base):
     schedule_interval_hours: Mapped[int | None] = mapped_column(Integer, nullable=True)
     labels_json: Mapped[list[str]] = mapped_column(JSON, default=list)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    source_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("sources.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
     last_scan_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("scan_jobs.id"),
         nullable=True,
@@ -108,6 +200,7 @@ class ResearchProject(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
 
     last_scan: Mapped[ScanJob | None] = relationship()
+    configured_source: Mapped[Source | None] = relationship(foreign_keys=[source_id])
     runs: Mapped[list["ResearchProjectRun"]] = relationship(
         back_populates="project",
         cascade="all, delete-orphan",
@@ -157,6 +250,7 @@ class ResearchProjectRun(Base):
     source_type: Mapped[str] = mapped_column(Text)
     query: Mapped[str] = mapped_column(Text)
     requested_limit: Mapped[int] = mapped_column(Integer)
+    source_origin: Mapped[str | None] = mapped_column(Text, nullable=True)
     lineage_complete: Mapped[bool] = mapped_column(
         Boolean,
         default=False,
@@ -244,6 +338,9 @@ class ScanItem(Base):
         default=False,
         server_default=false(),
     )
+    observed_source: Mapped[str | None] = mapped_column(Text, nullable=True)
+    observed_external_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    observed_url: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     scan: Mapped[ScanJob] = relationship(back_populates="observed_items")
     item: Mapped[NormalizedItem] = relationship(back_populates="scan_observations")

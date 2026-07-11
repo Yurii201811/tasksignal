@@ -11,6 +11,26 @@ class RawFetchedItem:
     fetched_at: datetime
 
 
+@dataclass(frozen=True)
+class ConnectorFailure:
+    """Sanitized connector failure metadata suitable for runtime recording."""
+
+    category: str
+    message: str
+    status_code: int | None = None
+    retry_after_seconds: int | None = None
+    retriable: bool = False
+
+
+@dataclass(frozen=True)
+class ConnectorFetchResult:
+    """Items plus bounded, non-sensitive connector runtime metadata."""
+
+    items: list[RawFetchedItem]
+    requests_made: int
+    retry_after_seconds: int | None
+    last_success_at: datetime
+
+
 def utc_now() -> datetime:
     return datetime.now(UTC)
-

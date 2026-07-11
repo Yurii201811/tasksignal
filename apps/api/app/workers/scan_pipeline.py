@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.models.all_models import (
     Cluster,
     ClusterItem,
+    DiscourseSourceState,
     ItemEmbedding,
     ItemSignal,
     NormalizedItem,
@@ -26,10 +27,17 @@ from app.models.all_models import (
 )
 from app.services.clustering.service import cluster_items
 from app.services.detection.rules import detect_problem_signal
+from app.services.discourse_sources.service import (
+    discourse_readiness,
+    record_discourse_failure,
+    record_discourse_success,
+)
 from app.services.embeddings.service import EmbeddingService, cosine_similarity
 from app.services.generation.service import generate_opportunity
 from app.services.ingestion.connectors import (
     BaseConnector,
+    DiscourseConnector,
+    DiscourseConnectorError,
     FixtureConnector,
     GitHubIssuesConnector,
     HackerNewsConnector,
@@ -57,13 +65,15 @@ SOURCE_ALIASES = {
     "hackernews": "hackernews",
     "hn": "hackernews",
     "reddit": "reddit",
+    "discourse": "discourse",
     "stack-exchange": "stackexchange",
     "stack_exchange": "stackexchange",
     "stackexchange": "stackexchange",
     "stackoverflow": "stackexchange",
 }
 
-CONNECTOR_FACTORIES: dict[str, ConnectorFactory] = {
+CONNECTOR_FACTORIES: dict[str, ConnectorFactory | None] = {
+    "discourse": None,
     "fixture": FixtureConnector,
     "github": GitHubIssuesConnector,
     "hackernews": HackerNewsConnector,
@@ -88,9 +98,17 @@ class ScanPipelineResult:
 
 
 @dataclass(frozen=True)
+class ObservedItemIdentity:
+    source: str
+    external_id: str
+    url: str
+
+
+@dataclass(frozen=True)
 class SavedFetchedItems:
     observed_item_ids: list[UUID]
     created_item_ids: list[UUID]
+    identities_by_item_id: dict[UUID, ObservedItemIdentity]
 
 
 @dataclass(frozen=True)
@@ -174,8 +192,27 @@ def canonical_source(source: str) -> str:
     return SOURCE_ALIASES.get(normalized, normalized)
 
 
-def connector_for_source(source: str) -> BaseConnector:
+def connector_for_source(
+    source: str,
+    *,
+    db: Session | None = None,
+    source_id: UUID | None = None,
+) -> BaseConnector:
     source_type = canonical_source(source)
+    if source_type == "discourse":
+        if db is None or source_id is None:
+            raise ValueError("Discourse scans require an authorized source_id.")
+        source_record = db.get(Source, source_id)
+        state = db.get(DiscourseSourceState, source_id)
+        if source_record is None or canonical_source(source_record.type) != "discourse":
+            raise ValueError("Configured Discourse source was not found.")
+        readiness = discourse_readiness(source_record, state)
+        if not readiness.can_run or state is None:
+            raise ValueError(
+                f"Discourse source is not ready: {readiness.status.replace('_', ' ')}."
+            )
+        return DiscourseConnector(state.origin)
+
     factory = CONNECTOR_FACTORIES.get(source_type)
     if factory is None:
         supported = ", ".join(sorted(CONNECTOR_FACTORIES))
@@ -183,7 +220,18 @@ def connector_for_source(source: str) -> BaseConnector:
     return factory()
 
 
-def ensure_source(db: Session, source_type: str) -> Source:
+def ensure_source(
+    db: Session,
+    source_type: str,
+    source_id: UUID | None = None,
+) -> Source:
+    if source_id is not None:
+        source = db.get(Source, source_id)
+        if source is None or canonical_source(source.type) != source_type:
+            raise ValueError("Configured source does not match the requested connector.")
+        return source
+    if source_type == "discourse":
+        raise ValueError("Discourse scans require an authorized source_id.")
     source = db.scalar(select(Source).where(Source.type == source_type))
     if source is not None:
         return source
@@ -199,9 +247,25 @@ def ensure_source(db: Session, source_type: str) -> Source:
     return source
 
 
+def discourse_failure_code(category: str) -> str:
+    return {
+        "timeout": "timeout",
+        "network_error": "connection",
+        "unsafe_configuration": "dns_rejected",
+        "unsafe_target": "dns_rejected",
+        "unsafe_redirect": "redirect_rejected",
+        "too_many_redirects": "redirect_rejected",
+        "rate_limited": "rate_limited",
+        "http_error": "http_error",
+        "response_too_large": "response_too_large",
+        "malformed_response": "invalid_response",
+    }.get(category, "invalid_response")
+
+
 def save_fetched_items(db: Session, fetched: list[RawFetchedItem]) -> SavedFetchedItems:
     observed_item_ids: list[UUID] = []
     created_item_ids: list[UUID] = []
+    identities_by_item_id: dict[UUID, ObservedItemIdentity] = {}
     for raw in fetched:
         raw_exists = db.scalar(
             select(RawItem.id).where(
@@ -230,6 +294,11 @@ def save_fetched_items(db: Session, fetched: list[RawFetchedItem]) -> SavedFetch
         if exists is not None:
             if exists not in observed_item_ids:
                 observed_item_ids.append(exists)
+                identities_by_item_id[exists] = ObservedItemIdentity(
+                    source=normalized["source"],
+                    external_id=normalized["external_id"],
+                    url=normalized["url"],
+                )
             continue
 
         item = NormalizedItem(**normalized)
@@ -237,9 +306,15 @@ def save_fetched_items(db: Session, fetched: list[RawFetchedItem]) -> SavedFetch
         db.flush()
         observed_item_ids.append(item.id)
         created_item_ids.append(item.id)
+        identities_by_item_id[item.id] = ObservedItemIdentity(
+            source=normalized["source"],
+            external_id=normalized["external_id"],
+            url=normalized["url"],
+        )
     return SavedFetchedItems(
         observed_item_ids=observed_item_ids,
         created_item_ids=created_item_ids,
+        identities_by_item_id=identities_by_item_id,
     )
 
 
@@ -250,11 +325,15 @@ def record_scan_items(
 ) -> None:
     created_ids = set(saved.created_item_ids)
     for item_id in saved.observed_item_ids:
+        identity = saved.identities_by_item_id[item_id]
         db.add(
             ScanItem(
                 scan_id=scan_id,
                 item_id=item_id,
                 created_in_scan=item_id in created_ids,
+                observed_source=identity.source,
+                observed_external_id=identity.external_id,
+                observed_url=identity.url,
             )
         )
     db.flush()
@@ -494,6 +573,7 @@ def create_research_project_run(
     source_type: str,
     query: str,
     requested_limit: int,
+    source_origin: str | None = None,
 ) -> ResearchProjectRun:
     last_sequence = db.scalar(
         select(func.max(ResearchProjectRun.sequence)).where(
@@ -507,6 +587,7 @@ def create_research_project_run(
         source_type=source_type,
         query=query,
         requested_limit=requested_limit,
+        source_origin=source_origin,
         lineage_complete=False,
     )
     db.add(run)
@@ -520,6 +601,7 @@ def reserve_scan_job(
     query: str,
     requested_limit: int,
     research_project_id: UUID | None,
+    configured_source_id: UUID | None = None,
 ) -> tuple[ScanJob, ResearchProjectRun | None]:
     for attempt in range(3):
         try:
@@ -537,7 +619,17 @@ def reserve_scan_job(
                     if locked_project is None:
                         raise ValueError("Research project no longer exists")
 
-                source_record = ensure_source(db, source_type)
+                source_record = ensure_source(
+                    db,
+                    source_type,
+                    source_id=configured_source_id,
+                )
+                source_origin = (
+                    source_record.discourse_state.origin
+                    if source_type == "discourse"
+                    and source_record.discourse_state is not None
+                    else None
+                )
                 job = ScanJob(
                     source_id=source_record.id,
                     status="queued",
@@ -556,6 +648,7 @@ def reserve_scan_job(
                         source_type=source_type,
                         query=query,
                         requested_limit=requested_limit,
+                        source_origin=source_origin,
                     )
                     locked_project.run_count += 1
                     locked_project.updated_at = datetime.now(UTC)
@@ -575,19 +668,21 @@ def process_scan(
     limit: int = 30,
     connector: BaseConnector | None = None,
     research_project: ResearchProject | None = None,
+    source_id: UUID | None = None,
 ) -> ScanJob:
     source_type = canonical_source(source)
-    if connector is None:
-        connector = connector_for_source(source_type)
-
     requested_limit = max(1, min(limit, 100))
     research_project_id = research_project.id if research_project is not None else None
+    configured_source_id = (
+        research_project.source_id if research_project is not None else source_id
+    )
     job, research_run = reserve_scan_job(
         db,
         source_type=source_type,
         query=query,
         requested_limit=requested_limit,
         research_project_id=research_project_id,
+        configured_source_id=configured_source_id,
     )
     research_run_sequence = research_run.sequence if research_run is not None else None
 
@@ -597,7 +692,44 @@ def process_scan(
             job.started_at = datetime.now(UTC)
             db.commit()
 
-        fetched = connector.fetch(query=query, limit=requested_limit)
+        active_connector = connector or connector_for_source(
+            source_type,
+            db=db,
+            source_id=configured_source_id,
+        )
+        if isinstance(active_connector, DiscourseConnector):
+            fetch_result = active_connector.fetch_result(
+                query=query,
+                limit=requested_limit,
+            )
+            fetched = fetch_result.items
+            success_at = fetch_result.last_success_at
+            success_retry_after = fetch_result.retry_after_seconds
+        else:
+            fetched = active_connector.fetch(query=query, limit=requested_limit)
+            success_at = datetime.now(UTC)
+            success_retry_after = None
+
+        if source_type == "discourse" and configured_source_id is not None:
+            with SCAN_WRITE_LOCK:
+                acquire_database_scan_write_lock_with_retry(db)
+                discourse_state = db.get(
+                    DiscourseSourceState,
+                    configured_source_id,
+                )
+                if discourse_state is not None:
+                    retry_after = (
+                        str(success_retry_after)
+                        if success_retry_after is not None
+                        else None
+                    )
+                    record_discourse_success(
+                        discourse_state,
+                        at=success_at,
+                        retry_after=retry_after,
+                    )
+                    db.commit()
+
         with SCAN_WRITE_LOCK:
             try:
                 acquire_database_scan_write_lock_with_retry(db)
@@ -629,6 +761,28 @@ def process_scan(
         with SCAN_WRITE_LOCK:
             db.rollback()
             acquire_database_scan_write_lock_with_retry(db)
+            if (
+                source_type == "discourse"
+                and configured_source_id is not None
+                and isinstance(exc, DiscourseConnectorError)
+            ):
+                discourse_state = db.get(
+                    DiscourseSourceState,
+                    configured_source_id,
+                )
+                if discourse_state is not None:
+                    retry_after = (
+                        str(exc.info.retry_after_seconds)
+                        if exc.info.retry_after_seconds is not None
+                        else None
+                    )
+                    record_discourse_failure(
+                        discourse_state,
+                        code=discourse_failure_code(exc.info.category),
+                        message=exc.info.message,
+                        http_status=exc.info.status_code,
+                        retry_after=retry_after,
+                    )
             failed_job = db.get(ScanJob, job.id)
             if failed_job is None:
                 raise
