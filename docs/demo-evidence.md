@@ -1,6 +1,15 @@
-# Demo Evidence Snapshot
+# v0.2.0 Demo Evidence Snapshot
 
-This snapshot records what the fixture demo produces without paid APIs, live credentials, private data, or model downloads. It gives reviewers a fast way to understand the end-to-end output before running the app locally.
+This snapshot accompanies the `v0.2.0` release candidate and records what the
+fixture demo produces without paid APIs, live credentials, private data, or
+model downloads. It gives reviewers a fast way to understand the end-to-end
+output before running the app locally.
+
+The candidate is ready for public-release review only when `make verify`, the
+web npm audit, a fresh smoke proof bundle, manifest verification, and the
+`0.2.0` release content gate pass at the candidate commit. A Git tag and GitHub
+Release are separate publication evidence; this document does not claim they
+exist before the maintainer creates them. See the [release checklist](release-prep.md).
 
 ## How To Reproduce
 
@@ -88,9 +97,11 @@ curl "http://localhost:8000/api/opportunities"
 To force a destructive reset over the API, set `DEMO_RESET_TOKEN` and include
 the matching `X-Demo-Reset-Token` header with `reset=true`.
 
-## Fixture Run Summary
+## Reference Fixture Run Summary
 
-Snapshot generated from the local fixture pipeline on 2026-06-01.
+The static counts below were generated from the local fixture pipeline on
+2026-06-01. Release evidence uses a fresh smoke proof bundle and its verified
+manifest rather than treating these historical counts as a current test run.
 
 | Metric | Count |
 | --- | ---: |

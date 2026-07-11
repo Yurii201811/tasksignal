@@ -4,7 +4,7 @@ All notable public-facing changes to TaskSignal are recorded here.
 
 ## Unreleased
 
-## 0.2.0 - 2026-07-09
+## 0.2.0 - 2026-07-11
 
 ### Added
 
@@ -12,30 +12,32 @@ All notable public-facing changes to TaskSignal are recorded here.
 - Append-only evidence reviews, transparent evidence readiness, and a selection-biased evaluation report.
 - Decision queue filtering, opportunity review controls, and the Evaluation page.
 - Decision Context in evidence bundles and Codex task packs.
+- A responsive application shell, visible focus treatment, reduced-motion support,
+  and shared design-token exports for the repository and runtime web app.
+- First-run smoke checks can now write a shareable Markdown proof report with
+  fixture counts, task-pack evidence, dashboard checks, and runtime boundaries.
+- Evidence bundle Markdown export for opportunity detail pages and
+  `/api/opportunities/{id}/evidence.md`.
+- Local `make doctor` setup checks for fresh clones and contributor onboarding.
+- Source limits and terms guidance for live connectors, hosted demos, and
+  rate-limit review.
+- Scan detail pages and outcome telemetry for reviewing ingestion results and
+  distinguishing working connectors from weak source/query fit.
 
 ### Changed
 
 - Local API/web/database host ports bind to loopback by default.
 - Development setup uses locked API and web dependencies through `make setup`.
 - First-run smoke evidence now proves the complete decision and evidence-review loop.
+- Starlette TestClient verification uses `httpx2` only through the API dev/test
+  dependency set; production connector dependencies are unchanged.
 
 ### Security
 
 - Local review notes remain outside shared exports, and unauthenticated review writes are documented as local-only.
 - Compatible frontend dependency advisories were resolved without a framework major upgrade.
-
-### Added
-
-- First-run smoke checks can now write a shareable Markdown proof report with
-  fixture counts, task-pack evidence, dashboard checks, and runtime boundaries.
-- Evidence bundle Markdown export for opportunity detail pages and
-  `/api/opportunities/{id}/evidence.md`.
-- Local `make doctor` setup check for fresh clones and contributor onboarding.
-- Source limits and terms guide for live connectors, hosted demos, and rate-limit review.
-- Scan detail pages for reviewing one ingestion run's source, query, status,
-  timing, saved counts, and redacted connector error.
-- Scan outcome telemetry with signal, cluster, opportunity counts, and operator
-  guidance for completed scans that save records but produce no opportunities.
+- Secret redaction is hardened for connector failures before error details reach
+  API responses or persisted scan records.
 
 ### Fixed
 
@@ -46,7 +48,8 @@ All notable public-facing changes to TaskSignal are recorded here.
 - Prompt enhancement now requires an operator token before any configured OpenAI or Ollama request is made.
 - Security reporting docs now include a no-details public fallback when GitHub private vulnerability reporting is unavailable.
 - Source URLs are limited to absolute `http` and `https` links before storage and before frontend rendering.
-- API version metadata now matches the `0.2.0` development package while published-release links remain at `v0.1.3`.
+- API, web, lockfile, and release-documentation version references now identify
+  the `v0.2.0` release candidate.
 
 ## 0.1.3 - 2026-06-01
 
