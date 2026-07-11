@@ -24,8 +24,9 @@ Before publication, build and exercise the exact local wheel with
 
 The base wheel does not install the MCP SDK. Local semantic embeddings remain
 an independent `ml` extra and are audited separately from the supported
-base-plus-MCP surface; no paid model is required for the fixture flow or
-deterministic build packets.
+base-plus-MCP surface. The 2026-07-11 all-extras audit reports `torch 2.12.0` /
+`CVE-2025-3000` without a fixed version, so the ML extra is not alpha-supported.
+No paid model is required for the fixture flow or deterministic build packets.
 
 ## First run
 

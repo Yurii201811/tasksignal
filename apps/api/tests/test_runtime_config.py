@@ -140,12 +140,13 @@ def test_hosted_deployment_manifests_are_safe_and_reproducible() -> None:
     assert "--exclude '__pycache__/' --exclude '*.pyc'" in prepare_script
     assert '"$API_DIR/app/" "$TARGET_DIR/app/"' in prepare_script
     assert 'rsync -a --delete "$SOURCE_DIR/" "$TARGET_DIR/data/fixtures/"' in prepare_script
-    assert "for file in pyproject.toml uv.lock vercel.json .python-version .vercelignore" in (
-        prepare_script
+    assert (
+        "for file in pyproject.toml uv.lock README.md LICENSE vercel.json "
+        ".python-version .vercelignore" in prepare_script
     )
     assert 'rsync -a "$API_DIR/.vercel/project.json"' in prepare_script
     assert "AUTO_CREATE_TABLES=false" in deployment
-    assert "AUTHOR_HASH_SALT=<long random value>" in deployment
+    assert "AUTHOR_HASH_SALT=<long-random-value>" in deployment
 
     assert vercel_config["$schema"] == "https://openapi.vercel.sh/vercel.json"
     assert vercel_config["framework"] == "nextjs"
@@ -172,6 +173,8 @@ def test_vercel_api_bundle_contains_only_runtime_inputs() -> None:
         ".python-version",
         ".vercel",
         ".vercelignore",
+        "LICENSE",
+        "README.md",
         "app",
         "data",
         "pyproject.toml",
@@ -241,7 +244,7 @@ def test_default_runtime_is_loopback_only_and_reproducible() -> None:
     assert "RUN npm ci" in web_dockerfile
     assert "- run: npm ci" in ci
     assert "- run: npm audit --audit-level=moderate" in ci
-    assert 'reddit_user_agent: str = "tasksignal-local-demo/0.2"' in api_config
+    assert 'reddit_user_agent: str = "tasksignal-local-demo/1.0"' in api_config
     assert web_dockerignore_path.exists()
     web_dockerignore = web_dockerignore_path.read_text(encoding="utf-8").splitlines()
     assert "node_modules" in web_dockerignore
@@ -278,6 +281,7 @@ def test_default_runtime_is_loopback_only_and_reproducible() -> None:
     assert "COPY pyproject.toml uv.lock ./" in api_dockerfile
     assert "COPY app ./app" in api_dockerfile
     assert "COPY alembic ./alembic" not in api_dockerfile
+    assert "COPY README.md LICENSE ./" in api_dockerfile
     assert 'ENV PATH="/app/.venv/bin:$PATH"' in api_dockerfile
     assert "uv sync --locked --no-dev --no-install-project" in api_dockerfile
     assert "uv sync --locked --no-dev" in api_dockerfile
@@ -302,6 +306,7 @@ def test_default_runtime_is_loopback_only_and_reproducible() -> None:
     assert f"DATABASE_URL: {compose_database_url}" in compose
     assert "migrate:\n\tdocker compose run --rm --build api alembic upgrade head" in makefile
     assert "migrate-native:\n\tcd apps/api && .venv/bin/alembic upgrade head" in makefile
-    assert "`make migrate` runs Alembic inside the Compose API service" in deployment
+    assert "`make migrate` rebuilds the API image" in deployment
+    assert "then upgrades the explicit Compose PostgreSQL URL" in deployment
     assert "`make migrate-native`" in deployment
     assert "apps/api/.env" in deployment

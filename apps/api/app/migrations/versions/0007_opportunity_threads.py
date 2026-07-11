@@ -14,8 +14,8 @@ from datetime import UTC, datetime
 from typing import Any
 
 import sqlalchemy as sa
-
 from alembic import op
+from pgvector.sqlalchemy import Vector  # noqa: F401 - registers PG reflection type
 
 revision = "0007_opportunity_threads"
 down_revision = "0007_research_memory"

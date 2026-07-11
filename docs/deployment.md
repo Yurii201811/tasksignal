@@ -106,7 +106,10 @@ implicitly loaded by either process.
 
 Use `make setup-ml` only when the optional local semantic-model stack is wanted.
 The `ml` extra is outside the base+MCP audited dependency surface and must be
-assessed separately. That scope boundary does not imply a known vulnerability.
+assessed separately. The 2026-07-11 all-extras audit reports `torch 2.12.0`
+under `CVE-2025-3000` with no fix version; keep the deterministic fallback and
+do not install the ML extra in a release-supported environment until that
+finding is resolved or explicitly accepted.
 
 ## Local Docker Compose
 
@@ -135,6 +138,11 @@ The repository keeps the Next.js UI available through source checkout and
 container builds. A release can publish a versioned Docker/GHCR image only after
 the image, Python artifact, GitHub release, CI evidence, proof manifest, and
 migration record are pinned to the same commit SHA.
+
+Published image records name the immutable manifest-list digest. Version and
+`sha-<full-commit>` tags resolve to that digest; only stable releases update
+`latest`. Treat the digest, rather than any mutable convenience tag, as the
+deployment authority.
 
 Until such an image is published for the target version, build from the verified
 source checkout instead of treating an unversioned or `latest` image as release

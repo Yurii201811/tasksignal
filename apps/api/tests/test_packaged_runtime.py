@@ -227,7 +227,10 @@ def test_packaged_migration_resources_contain_the_complete_revision_graph() -> N
 def test_packaged_alembic_env_honors_an_injected_locked_connection(tmp_path) -> None:
     database_file = tmp_path / "connection.db"
     engine = create_engine(f"sqlite:///{database_file}")
-    invalid_url = f"sqlite:///{tmp_path / 'missing-parent/database.db'}"
+    invalid_url = (
+        "postgresql+psycopg://user:password@127.0.0.1:1/missing"
+        "?options=-csearch_path%3Disolated%2Cpublic"
+    )
     config = packaged_alembic_config(invalid_url)
 
     with engine.begin() as connection:

@@ -83,5 +83,9 @@ versioned container image for the full workbench UI.
 
 The base and `mcp` dependency surfaces are the release-audited package scope.
 The optional `ml` extra adds a materially wider transitive dependency set and
-must be assessed separately. This is an audit boundary, not evidence of a known
-vulnerability.
+must be assessed separately. On 2026-07-11, the locked all-extras audit reports
+`torch 2.12.0` as affected by `CVE-2025-3000` with no fixed version reported by
+the audit. The base and MCP installs do not include torch and audit clean. Do
+not treat the `ml` extra as release-supported until that finding has a reviewed
+resolution or explicit risk acceptance; deterministic embeddings remain the
+safe default.

@@ -2080,7 +2080,7 @@ wheels = [
 
 [[package]]
 name = "tasksignal"
-version = "0.2.0"
+version = "1.0.0a1"
 source = { editable = "." }
 dependencies = [
     { name = "alembic" },
