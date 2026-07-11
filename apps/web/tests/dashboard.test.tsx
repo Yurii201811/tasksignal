@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -19,7 +25,9 @@ vi.mock("../src/lib/api", () => ({
 }));
 
 function renderWithClient(ui: React.ReactElement) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   return {
     client,
     ...render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>),
@@ -48,7 +56,11 @@ const readiness = {
   gaps: ["Review 1 more evidence item."],
 };
 
-function opportunity(id: string, title: string, reviewState: ReviewState): Opportunity {
+function opportunity(
+  id: string,
+  title: string,
+  reviewState: ReviewState,
+): Opportunity {
   return {
     id,
     cluster_id: `cluster-${id}`,
@@ -162,7 +174,9 @@ describe("Dashboard", () => {
     expect(await screen.findByText("First useful run")).toBeInTheDocument();
     expect(screen.getByText("Set workspace defaults")).toBeInTheDocument();
     expect(screen.getByText("Save a research project")).toBeInTheDocument();
-    expect(screen.getByText("Generate ranked opportunities")).toBeInTheDocument();
+    expect(
+      screen.getByText("Generate ranked opportunities"),
+    ).toBeInTheDocument();
     expect(screen.getByText("Export a task pack")).toBeInTheDocument();
     expect(
       await screen.findByText("Create at least one saved research project."),
@@ -189,9 +203,21 @@ describe("Dashboard", () => {
     expect(api.opportunities).toHaveBeenCalledTimes(1);
     expect(screen.getByText("Promising")).toBeInTheDocument();
     expect(screen.getByText("medium")).toBeInTheDocument();
+    expect(
+      screen.getByRole("meter", {
+        name: "Promising idea feasibility score",
+      }),
+    ).toHaveAttribute("aria-valuetext", "80 percent");
+    expect(
+      screen.getByRole("region", { name: "Top opportunities" }),
+    ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Build candidate 0" }));
-    expect(screen.getByText("No opportunities match this decision state")).toBeInTheDocument();
-    expect(screen.queryByText("No ranked opportunities yet")).not.toBeInTheDocument();
+    expect(
+      screen.getByText("No opportunities match this decision state"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("No ranked opportunities yet"),
+    ).not.toBeInTheDocument();
   });
 });

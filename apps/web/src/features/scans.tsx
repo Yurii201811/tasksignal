@@ -68,7 +68,7 @@ export function Scans() {
             disabled={create.isPending}
           >
             {create.isPending ? (
-              <RefreshCw className="animate-spin" size={16} />
+              <RefreshCw className="motion-safe:animate-spin" size={16} />
             ) : (
               <Plus size={16} />
             )}
@@ -97,7 +97,11 @@ export function Scans() {
       ) : null}
 
       <Card>
-        <TableShell tableClassName="min-w-[760px]">
+        <TableShell
+          label="Scan history"
+          caption="Source scans with status, timing, item counts, detected signals, and generated opportunities"
+          tableClassName="min-w-[760px]"
+        >
           <thead className="border-b border-border text-xs uppercase text-muted">
             <tr>
               <th className="py-3 pr-4">Status</th>
@@ -123,7 +127,7 @@ export function Scans() {
             {!scans.isLoading && (scans.data ?? []).length === 0 ? (
               <tr>
                 <td colSpan={10} className="py-8 text-center">
-                  <div className="mx-auto max-w-md rounded-product border border-dashed border-border bg-surface-muted px-4 py-6">
+                  <div className="mx-auto max-w-md px-4 py-6">
                     <p className="text-sm font-semibold text-ink">
                       No scans recorded yet
                     </p>
@@ -160,7 +164,7 @@ export function Scans() {
                   <td className="py-3">
                     <Link
                       href={`/scans/${scan.id}`}
-                      className="inline-flex min-h-9 items-center gap-1 rounded-product text-sm font-semibold text-signal hover:text-[var(--ts-accent-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]"
+                      className="inline-flex min-h-11 items-center gap-1 whitespace-nowrap rounded-product text-sm font-semibold text-signal hover:text-[var(--ts-accent-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)] motion-safe:active:translate-y-px"
                     >
                       Open <ArrowRight size={14} />
                     </Link>

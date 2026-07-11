@@ -7,10 +7,13 @@ import { FormEvent, ReactNode, useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   BarChart3,
+  ChevronDown,
   ClipboardCheck,
   Database,
   FolderKanban,
+  HardDrive,
   Home,
+  Menu,
   Radar,
   Search,
   Settings,
@@ -22,16 +25,36 @@ import { Button, Input } from "./ui";
 
 const NAV_ICON_CLASS = "h-[18px] w-[18px] shrink-0";
 
-const nav: { href: string; label: string; icon: LucideIcon }[] = [
-  { href: "/", label: "Home", icon: Home },
-  { href: "/dashboard", label: "Dashboard", icon: BarChart3 },
-  { href: "/evaluation", label: "Evaluation", icon: ClipboardCheck },
-  { href: "/projects", label: "Projects", icon: FolderKanban },
-  { href: "/sources", label: "Sources", icon: Database },
-  { href: "/scans", label: "Scans", icon: TimerReset },
-  { href: "/search", label: "Search", icon: Search },
-  { href: "/settings", label: "Integrations", icon: Settings },
+const navGroups: {
+  label: string;
+  items: { href: string; label: string; icon: LucideIcon }[];
+}[] = [
+  {
+    label: "Research",
+    items: [
+      { href: "/", label: "Home", icon: Home },
+      { href: "/dashboard", label: "Dashboard", icon: BarChart3 },
+      { href: "/evaluation", label: "Evaluation", icon: ClipboardCheck },
+    ],
+  },
+  {
+    label: "Collection",
+    items: [
+      { href: "/projects", label: "Projects", icon: FolderKanban },
+      { href: "/sources", label: "Sources", icon: Database },
+      { href: "/scans", label: "Scans", icon: TimerReset },
+    ],
+  },
+  {
+    label: "Tools",
+    items: [
+      { href: "/search", label: "Search", icon: Search },
+      { href: "/settings", label: "Integrations", icon: Settings },
+    ],
+  },
 ];
+
+const nav = navGroups.flatMap((group) => group.items);
 
 function isNavActive(pathname: string, href: string) {
   if (href === "/") {
@@ -44,7 +67,7 @@ function isNavActive(pathname: string, href: string) {
 }
 
 const navLinkBase = clsx(
-  "rounded-product font-semibold motion-safe:transition-[color,background-color] motion-safe:duration-200 motion-safe:ease-product",
+  "whitespace-nowrap rounded-product font-semibold motion-safe:transition-[color,background-color,transform] motion-safe:duration-200 motion-safe:ease-product motion-safe:active:translate-y-px",
   "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]",
 );
 
@@ -86,40 +109,40 @@ function ShellNavLink({
       aria-current={active ? "page" : undefined}
       className={clsx(
         navLinkBase,
-        "flex min-h-11 min-w-0 flex-col items-center justify-center gap-1 px-1 py-2",
+        "flex min-h-11 min-w-0 items-center gap-2 px-3 py-2 text-sm",
         active
           ? "bg-[var(--ts-accent-subtle)] text-signal"
           : "text-muted hover:bg-surface-muted hover:text-ink",
       )}
     >
       <Icon className={NAV_ICON_CLASS} aria-hidden />
-      <span className="max-w-full truncate text-center text-[11px] leading-none whitespace-nowrap">
-        {label}
-      </span>
+      <span className="max-w-full truncate">{label}</span>
     </Link>
   );
 }
 
-function BrandMark() {
+function BrandMark({ compact = false }: { compact?: boolean }) {
   return (
     <Link
       href="/"
       className={clsx(
-        "flex min-w-0 items-center gap-3 rounded-product text-ink",
+        "flex min-w-0 items-center gap-2 rounded-product px-1 py-1 text-ink",
         navLinkBase,
         "hover:bg-surface-muted",
       )}
     >
-      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-product bg-signal text-[color-mix(in_srgb,var(--ts-surface)_96%,transparent)]">
-        <Radar className="h-[22px] w-[22px]" aria-hidden />
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-product bg-signal text-[var(--color-accent-ink)]">
+        <Radar className="h-5 w-5" aria-hidden />
       </span>
       <span className="min-w-0">
-        <span className="block truncate text-base font-semibold lg:text-lg">
+        <span className="block truncate text-base font-bold tracking-[-0.02em]">
           TaskSignal
         </span>
-        <span className="block truncate text-xs text-muted">
-          Problem discovery engine
-        </span>
+        {!compact ? (
+          <span className="block truncate text-xs text-muted">
+            Problem discovery engine
+          </span>
+        ) : null}
       </span>
     </Link>
   );
@@ -200,44 +223,96 @@ export function AppShell({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen bg-[var(--color-paper)]">
       <a
         href="#main-content"
-        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:inline-flex focus:min-h-11 focus:items-center focus:rounded-product focus:border focus:border-border focus:bg-surface focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-ink focus:shadow-soft focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[var(--z-tooltip)] focus:inline-flex focus:min-h-11 focus:items-center focus:rounded-product focus:border focus:border-border focus:bg-surface focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-ink focus:shadow-soft focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]"
       >
         Skip to content
       </a>
 
-      <header className="border-b border-border bg-surface px-4 py-3 lg:hidden">
-        <BrandMark />
-        <nav className="mt-3 grid grid-cols-4 gap-1" aria-label="Primary">
-          {nav.map((item) => (
-            <ShellNavLink
-              key={item.href}
-              {...item}
-              layout="mobile"
-              active={isNavActive(pathname, item.href)}
-            />
-          ))}
-        </nav>
+      <header className="sticky top-0 z-[var(--z-sticky)] border-b border-border bg-surface px-4 py-3 lg:hidden">
+        <div className="flex items-center justify-between gap-3">
+          <BrandMark compact />
+          <details key={pathname} className="group relative">
+            <summary
+              className={clsx(
+                navLinkBase,
+                "flex min-h-11 cursor-pointer list-none items-center gap-2 border border-border-strong bg-surface px-3 text-sm text-ink hover:bg-surface-muted",
+              )}
+            >
+              <Menu className="h-[18px] w-[18px]" aria-hidden />
+              <span>Menu</span>
+              <ChevronDown
+                className="h-4 w-4 motion-safe:transition-transform motion-safe:duration-200 motion-safe:ease-product motion-safe:group-open:rotate-180"
+                aria-hidden
+              />
+            </summary>
+            <nav
+              className="absolute right-0 top-[calc(100%+0.5rem)] z-[var(--z-dropdown)] grid w-[min(22rem,calc(100vw-2rem))] grid-cols-2 gap-1 rounded-product border border-border bg-surface p-2 shadow-[var(--shadow-overlay)]"
+              aria-label="Primary"
+            >
+              {nav.map((item) => (
+                <ShellNavLink
+                  key={item.href}
+                  {...item}
+                  layout="mobile"
+                  active={isNavActive(pathname, item.href)}
+                />
+              ))}
+            </nav>
+          </details>
+        </div>
       </header>
 
-      <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 border-r border-border bg-surface px-4 py-5 lg:block">
+      <aside className="fixed inset-y-0 left-0 z-[var(--z-sticky)] hidden w-60 flex-col overflow-y-auto border-r border-border bg-surface px-3 py-4 lg:flex">
         <BrandMark />
-        <nav className="mt-8 space-y-1" aria-label="Primary">
-          {nav.map((item) => (
-            <ShellNavLink
-              key={item.href}
-              {...item}
-              layout="desktop"
-              active={isNavActive(pathname, item.href)}
-            />
+        <nav className="mt-7 space-y-5" aria-label="Primary">
+          {navGroups.map((group) => (
+            <div key={group.label}>
+              <p className="mb-1 px-3 text-xs font-medium text-muted">
+                {group.label}
+              </p>
+              <div className="space-y-1">
+                {group.items.map((item) => (
+                  <ShellNavLink
+                    key={item.href}
+                    {...item}
+                    layout="desktop"
+                    active={isNavActive(pathname, item.href)}
+                  />
+                ))}
+              </div>
+            </div>
           ))}
         </nav>
+        <div className="mt-auto border-t border-border px-3 pt-5">
+          <div className="flex items-center gap-2 text-sm font-semibold text-ink">
+            <HardDrive className="h-4 w-4 text-signal" aria-hidden />
+            Local-first workspace
+          </div>
+          <p className="mt-1 text-xs leading-5 text-muted">
+            Review evidence and exports on this machine.
+          </p>
+        </div>
       </aside>
 
-      <main id="main-content" tabIndex={-1} className="min-w-0 lg:pl-64">
-        <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+      <main
+        id="main-content"
+        tabIndex={-1}
+        className="min-w-0 focus:outline-none lg:pl-60"
+      >
+        <div className="mx-auto w-full max-w-[90rem] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+          {hostedApi && accessState === "loading" ? (
+            <section
+              aria-label="Hosted preview access"
+              aria-live="polite"
+              className="mb-6 flex items-center gap-3 border-y border-info-border bg-[var(--color-info-surface)] px-4 py-3 text-sm text-info"
+            >
+              <span className="h-2 w-2 motion-safe:animate-pulse rounded-full bg-info" />
+              Checking protected preview access…
+            </section>
+          ) : null}
           {hostedApi && accessState === "locked" ? (
             <section
               aria-label="Hosted preview access"

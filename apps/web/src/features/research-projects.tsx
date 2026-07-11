@@ -218,7 +218,7 @@ export function ResearchProjects() {
           </div>
           <Link
             href="/settings"
-            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-product border border-border bg-surface px-4 py-2 text-sm font-semibold text-ink hover:bg-surface-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]"
+            className="inline-flex min-h-11 items-center justify-center gap-2 whitespace-nowrap rounded-product border border-border-strong bg-surface px-4 py-2 text-sm font-semibold text-ink hover:bg-surface-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)] motion-safe:active:translate-y-px"
           >
             Workspace defaults <ArrowRight size={16} />
           </Link>
@@ -350,7 +350,7 @@ export function ResearchProjects() {
                 disabled={create.isPending}
               >
                 {create.isPending ? (
-                  <RefreshCw className="animate-spin" size={16} />
+                  <RefreshCw className="motion-safe:animate-spin" size={16} />
                 ) : (
                   <Plus size={16} />
                 )}
@@ -364,7 +364,7 @@ export function ResearchProjects() {
                 disabled={runDue.isPending}
               >
                 {runDue.isPending ? (
-                  <RefreshCw className="animate-spin" size={16} />
+                  <RefreshCw className="motion-safe:animate-spin" size={16} />
                 ) : (
                   <CalendarClock size={16} />
                 )}
@@ -373,7 +373,7 @@ export function ResearchProjects() {
             </div>
           </form>
 
-          <div className="min-w-0 rounded-product border border-border bg-surface-muted p-4">
+          <div className="min-w-0 border-t border-border pt-4 lg:border-l lg:border-t-0 lg:pl-4 lg:pt-0">
             <p className="text-sm font-semibold text-ink">Operator token</p>
             <p className="mt-2 text-sm leading-6 text-muted">
               Public sources run without this. Credentialed GitHub, Reddit, and
@@ -460,7 +460,7 @@ export function ResearchProjects() {
             action={
               <Link
                 href="/settings"
-                className="inline-flex min-h-9 items-center gap-1 rounded-product px-2 text-sm font-semibold text-warning hover:bg-surface-warning focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-warning"
+                className="inline-flex min-h-11 items-center gap-1 whitespace-nowrap rounded-product px-2 text-sm font-semibold text-warning hover:bg-surface-warning focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-warning motion-safe:active:translate-y-px"
               >
                 Set defaults <ArrowRight size={15} />
               </Link>
@@ -546,7 +546,7 @@ export function ResearchProjects() {
                   variant="secondary"
                 >
                   {run.isPending ? (
-                    <RefreshCw className="animate-spin" size={16} />
+                    <RefreshCw className="motion-safe:animate-spin" size={16} />
                   ) : (
                     <Play size={16} />
                   )}
@@ -555,7 +555,7 @@ export function ResearchProjects() {
                 {project.last_scan_id ? (
                   <Link
                     href={`/scans/${project.last_scan_id}`}
-                    className="inline-flex min-h-11 items-center justify-center gap-2 rounded-product bg-signal px-4 py-2 text-sm font-semibold text-[color-mix(in_srgb,var(--ts-surface)_96%,transparent)] hover:bg-[var(--ts-accent-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]"
+                    className="inline-flex min-h-11 items-center justify-center gap-2 whitespace-nowrap rounded-product bg-signal px-4 py-2 text-sm font-semibold text-[var(--color-accent-ink)] hover:bg-[var(--ts-accent-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)] motion-safe:active:translate-y-px"
                   >
                     Scan detail <ArrowRight size={16} />
                   </Link>

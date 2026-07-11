@@ -11,7 +11,6 @@ import {
   Save,
   ShieldCheck,
 } from "lucide-react";
-import { AppShell } from "@/components/app-shell";
 import {
   Badge,
   Button,
@@ -149,7 +148,7 @@ export default function SettingsPage() {
   }
 
   return (
-    <AppShell>
+    <>
       <div className="space-y-6">
         <PageHeader
           title="Integrations"
@@ -179,7 +178,7 @@ export default function SettingsPage() {
                 disabled={saveWorkspace.isPending}
               >
                 {saveWorkspace.isPending ? (
-                  <RefreshCw className="animate-spin" size={16} />
+                  <RefreshCw className="motion-safe:animate-spin" size={16} />
                 ) : (
                   <Save size={16} />
                 )}
@@ -374,12 +373,14 @@ export default function SettingsPage() {
               >
                 <RefreshCw
                   size={15}
-                  className={readiness.isFetching ? "animate-spin" : ""}
+                  className={
+                    readiness.isFetching ? "motion-safe:animate-spin" : ""
+                  }
                 />
                 Refresh
               </Button>
             </div>
-            <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <div className="mt-5 divide-y divide-border border-y border-border">
               <ReadinessCheck
                 label="Workspace defaults"
                 done={Boolean(readiness.data.checks.local_workspace_configured)}
@@ -418,13 +419,13 @@ export default function SettingsPage() {
             <div className="mt-4 flex flex-wrap gap-2 border-t border-border pt-4">
               <Link
                 href="/projects"
-                className="inline-flex min-h-9 items-center rounded-product px-2 text-sm font-semibold text-signal hover:bg-surface-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]"
+                className="inline-flex min-h-11 items-center whitespace-nowrap rounded-product px-2 text-sm font-semibold text-signal hover:bg-surface-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)] motion-safe:active:translate-y-px"
               >
                 Create or run projects
               </Link>
               <Link
                 href="/dashboard"
-                className="inline-flex min-h-9 items-center rounded-product px-2 text-sm font-semibold text-signal hover:bg-surface-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]"
+                className="inline-flex min-h-11 items-center whitespace-nowrap rounded-product px-2 text-sm font-semibold text-signal hover:bg-surface-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)] motion-safe:active:translate-y-px"
               >
                 Process demo data
               </Link>
@@ -488,7 +489,7 @@ export default function SettingsPage() {
                   disabled={test.isPending}
                 >
                   {test.isPending && test.variables === integration.id ? (
-                    <RefreshCw className="animate-spin" size={15} />
+                    <RefreshCw className="motion-safe:animate-spin" size={15} />
                   ) : (
                     <Play size={15} />
                   )}
@@ -543,7 +544,7 @@ export default function SettingsPage() {
           ))}
         </div>
       </div>
-    </AppShell>
+    </>
   );
 }
 
@@ -557,7 +558,7 @@ function ReadinessCheck({
   detail: string;
 }) {
   return (
-    <div className="rounded-product border border-border bg-surface-muted p-3">
+    <div className="py-3">
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm font-semibold text-ink">{label}</p>
         <Badge tone={done ? "green" : "amber"}>{done ? "Ready" : "Needed"}</Badge>

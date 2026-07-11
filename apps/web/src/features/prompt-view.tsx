@@ -52,7 +52,7 @@ export function PromptView({ id }: { id: string }) {
     <div className="space-y-6">
       <Link
         href={`/opportunities/${id}`}
-        className="inline-flex min-h-9 items-center gap-1 rounded-product text-sm font-semibold text-signal hover:text-[var(--ts-accent-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]"
+        className="inline-flex min-h-11 items-center gap-1 whitespace-nowrap rounded-product text-sm font-semibold text-signal hover:text-[var(--ts-accent-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)] motion-safe:active:translate-y-px"
       >
         <ArrowLeft size={15} /> Back to evidence
       </Link>
@@ -70,21 +70,41 @@ export function PromptView({ id }: { id: string }) {
               onClick={() => taskPackDownload.mutate()}
               loading={taskPackDownload.isPending}
             >
-              <Download size={16} /> Task pack
+              <Download
+                size={16}
+                className={
+                  taskPackDownload.isPending ? "motion-safe:animate-pulse" : ""
+                }
+              />
+              {taskPackDownload.isPending ? "Downloading…" : "Task pack"}
             </Button>
             <Button
               variant="secondary"
               onClick={() => evidenceDownload.mutate()}
               loading={evidenceDownload.isPending}
             >
-              <Download size={16} /> Evidence bundle
+              <Download
+                size={16}
+                className={
+                  evidenceDownload.isPending ? "motion-safe:animate-pulse" : ""
+                }
+              />
+              {evidenceDownload.isPending
+                ? "Downloading…"
+                : "Evidence bundle"}
             </Button>
             <Button
               variant="secondary"
               onClick={() => promptDownload.mutate()}
               loading={promptDownload.isPending}
             >
-              <Download size={16} /> Download .md
+              <Download
+                size={16}
+                className={
+                  promptDownload.isPending ? "motion-safe:animate-pulse" : ""
+                }
+              />
+              {promptDownload.isPending ? "Downloading…" : "Download .md"}
             </Button>
           </>
         }

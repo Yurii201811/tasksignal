@@ -55,7 +55,7 @@ const config: Config = {
         product: "var(--ts-ease-out)",
       },
       borderRadius: {
-        product: "0.5rem",
+        product: "var(--radius-card)",
       },
     },
   },

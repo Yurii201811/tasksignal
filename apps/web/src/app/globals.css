@@ -1,64 +1,23 @@
+/* Hallmark · macrostructure: Workbench · tone: technical utilitarian research-grade · anchor hue: teal · genre: modern-minimal · theme: TaskSignal locked · enrichment: none · nav: existing product side navigation · footer: none · contrast: pass (40–41) · slop: pass (2–58) · exception: gate 1 preserves DESIGN.md system sans · honest: pass (46) · chrome: pass (47) · tokens: pass (48) · responsive: pass (49) · icons: pass (30) · mobile: pass (34, 49, 50–57) */
+/* Hallmark · pre-emit critique: P5 H5 E4 S5 R5 V4 */
+@import "./tokens.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
   color-scheme: light;
-
-  /* Surfaces */
-  --ts-bg: #f4f6f9;
-  --ts-surface: #fafbfc;
-  --ts-surface-muted: #f1f4f8;
-  --ts-surface-success: #ecf8f5;
-  --ts-surface-warning: #fdf6eb;
-  --ts-surface-danger: #fdf2f2;
-
-  /* Text */
-  --ts-text: #172033;
-  --ts-text-muted: #4b5a70;
-
-  /* Brand */
-  --ts-accent: #0f766e;
-  --ts-accent-hover: #0d655e;
-  --ts-accent-subtle: #e6f4f2;
-  --ts-attention: #b45309;
-  --ts-attention-subtle: #fdf6eb;
-
-  /* Borders */
-  --ts-border: #d8dee8;
-  --ts-border-strong: #c5cedb;
-
-  /* Semantic */
-  --ts-success: #047857;
-  --ts-success-border: #a7d9c9;
-  --ts-warning: #b45309;
-  --ts-warning-border: #f0d9a8;
-  --ts-danger: #b42318;
-  --ts-danger-border: #f2c6c2;
-  --ts-info: #1d4f91;
-  --ts-info-border: #b8d4f5;
-
-  /* Focus & elevation */
-  --ts-focus-ring: #0f766e;
-  --ts-focus-offset: #fafbfc;
-  --ts-shadow-soft: 0 14px 35px rgba(23, 32, 51, 0.08);
-
-  /* Charts */
-  --ts-chart-1: #0f766e;
-  --ts-chart-2: #b45309;
-  --ts-chart-3: #2563eb;
-  --ts-chart-4: #6d28d9;
-  --ts-chart-5: #b42318;
-
-  /* Motion */
-  --ts-duration-fast: 150ms;
-  --ts-duration: 200ms;
-  --ts-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 html,
 body {
+  min-height: 100%;
   overflow-x: clip;
+}
+
+html {
+  background: var(--color-paper);
 }
 
 * {
@@ -67,11 +26,11 @@ body {
 
 body {
   margin: 0;
-  background:
-    linear-gradient(135deg, color-mix(in srgb, var(--ts-accent) 8%, transparent), transparent 34%),
-    linear-gradient(45deg, color-mix(in srgb, var(--ts-attention) 8%, transparent), transparent 28%),
-    var(--ts-bg);
+  background: var(--color-paper);
   color: var(--ts-text);
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  line-height: 1.5;
 }
 
 button,
@@ -79,6 +38,35 @@ input,
 select,
 textarea {
   font: inherit;
+}
+
+button,
+a,
+summary {
+  -webkit-tap-highlight-color: transparent;
+}
+
+summary::-webkit-details-marker {
+  display: none;
+}
+
+h1,
+h2,
+h3 {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-family: var(--font-display);
+  font-style: normal;
+  text-wrap: balance;
+}
+
+p {
+  text-wrap: pretty;
+}
+
+::selection {
+  background: var(--color-accent-soft);
+  color: var(--color-ink);
 }
 
 @media (prefers-reduced-motion: reduce) {

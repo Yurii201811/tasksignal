@@ -27,7 +27,7 @@ describe("decision workbench API", () => {
   });
 
   it("encodes an optional opportunity state filter", async () => {
-    const fetchMock = vi.fn(async () => Response.json([]));
+    const fetchMock = vi.fn<typeof fetch>(async () => Response.json([]));
     vi.stubGlobal("fetch", fetchMock);
 
     await api.opportunities("needs_more_evidence");
@@ -39,7 +39,7 @@ describe("decision workbench API", () => {
   });
 
   it("sends the exact opportunity review patch", async () => {
-    const fetchMock = vi.fn(async () => Response.json({}));
+    const fetchMock = vi.fn<typeof fetch>(async () => Response.json({}));
     vi.stubGlobal("fetch", fetchMock);
 
     await api.updateOpportunityReview("opportunity-1", {
@@ -60,7 +60,7 @@ describe("decision workbench API", () => {
   });
 
   it("writes evidence reviews and reads history and evaluation", async () => {
-    const fetchMock = vi.fn(async () => Response.json({}));
+    const fetchMock = vi.fn<typeof fetch>(async () => Response.json({}));
     vi.stubGlobal("fetch", fetchMock);
 
     await api.createEvidenceReview({
@@ -89,7 +89,7 @@ describe("decision workbench API", () => {
   });
 
   it("adds the saved operator token to reads and writes", async () => {
-    const fetchMock = vi.fn(async () => Response.json({}));
+    const fetchMock = vi.fn<typeof fetch>(async () => Response.json({}));
     vi.stubGlobal("fetch", fetchMock);
     window.localStorage.setItem(
       "tasksignal.operatorToken",
@@ -131,7 +131,7 @@ describe("decision workbench API", () => {
   });
 
   it("omits the operator token when the browser has not been unlocked", async () => {
-    const fetchMock = vi.fn(async () => Response.json({}));
+    const fetchMock = vi.fn<typeof fetch>(async () => Response.json({}));
     vi.stubGlobal("fetch", fetchMock);
 
     await api.opportunities();
@@ -146,7 +146,7 @@ describe("decision workbench API", () => {
   });
 
   it("lets an explicit operator token override the saved token", async () => {
-    const fetchMock = vi.fn(async () => Response.json({}));
+    const fetchMock = vi.fn<typeof fetch>(async () => Response.json({}));
     vi.stubGlobal("fetch", fetchMock);
     window.localStorage.setItem("tasksignal.operatorToken", "saved-token");
 
@@ -162,7 +162,9 @@ describe("decision workbench API", () => {
   });
 
   it("downloads protected exports with the saved token and no token in the URL", async () => {
-    const fetchMock = vi.fn(async () => new Response("# Task pack"));
+    const fetchMock = vi.fn<typeof fetch>(
+      async () => new Response("# Task pack"),
+    );
     vi.stubGlobal("fetch", fetchMock);
     window.localStorage.setItem("tasksignal.operatorToken", "saved-token");
     const createObjectURL = vi

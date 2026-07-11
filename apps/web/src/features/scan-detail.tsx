@@ -153,7 +153,7 @@ export function ScanDetail({ id }: { id: string }) {
       <div className="space-y-6">
         <Link
           href="/scans"
-          className="inline-flex min-h-9 items-center gap-1 rounded-product text-sm font-semibold text-signal hover:text-[var(--ts-accent-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]"
+          className="inline-flex min-h-11 items-center gap-1 whitespace-nowrap rounded-product text-sm font-semibold text-signal hover:text-[var(--ts-accent-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)] motion-safe:active:translate-y-px"
         >
           <ArrowLeft size={15} /> Back to scans
         </Link>
@@ -176,7 +176,7 @@ export function ScanDetail({ id }: { id: string }) {
     <div className="space-y-6">
       <Link
         href="/scans"
-        className="inline-flex min-h-9 items-center gap-1 rounded-product text-sm font-semibold text-signal hover:text-[var(--ts-accent-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]"
+        className="inline-flex min-h-11 items-center gap-1 whitespace-nowrap rounded-product text-sm font-semibold text-signal hover:text-[var(--ts-accent-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)] motion-safe:active:translate-y-px"
       >
         <ArrowLeft size={15} /> Back to scans
       </Link>
@@ -227,7 +227,10 @@ export function ScanDetail({ id }: { id: string }) {
             <Database className="h-5 w-5 text-signal" aria-hidden />
             <h2 className="text-lg font-semibold text-ink">Run metadata</h2>
           </div>
-          <TableShell>
+          <TableShell
+            label="Scan run metadata"
+            caption="Identifiers, timing, counts, and outcome for this source scan"
+          >
             <tbody>
               <DetailRow label="Scan ID" value={data.id} />
               <DetailRow label="Source type" value={data.source_type} />

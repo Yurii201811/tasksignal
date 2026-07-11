@@ -13,7 +13,7 @@ import {
 const focusRing =
   "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]";
 const motion =
-  "motion-safe:transition-[color,background-color,border-color,box-shadow,opacity] motion-safe:duration-200 motion-safe:ease-product";
+  "motion-safe:transition-[color,background-color,border-color,opacity,transform] motion-safe:duration-200 motion-safe:ease-product";
 
 type CardVariant =
   | "default"
@@ -24,7 +24,7 @@ type CardVariant =
   | "compact";
 
 const cardVariants: Record<CardVariant, string> = {
-  default: "border-border bg-surface shadow-soft",
+  default: "border-border bg-surface shadow-none",
   muted: "border-border bg-surface-muted shadow-none",
   success: "border-success-border bg-surface-success shadow-none",
   warning: "border-warning-border bg-surface-warning shadow-none",
@@ -63,16 +63,16 @@ export function Badge({
   tone?: "slate" | "green" | "amber" | "blue" | "red";
 }) {
   const tones = {
-    slate: "bg-surface-muted text-muted",
-    green: "bg-surface-success text-success",
-    amber: "bg-surface-warning text-warning",
-    blue: "bg-[color-mix(in_srgb,var(--ts-info)_8%,var(--ts-surface))] text-info",
-    red: "bg-surface-danger text-danger",
+    slate: "border-border bg-surface-muted text-muted",
+    green: "border-success-border bg-surface-success text-success",
+    amber: "border-warning-border bg-surface-warning text-warning",
+    blue: "border-info-border bg-[var(--color-info-surface)] text-info",
+    red: "border-danger-border bg-surface-danger text-danger",
   };
   return (
     <span
       className={clsx(
-        "inline-flex max-w-full items-center rounded-md px-2 py-1 text-xs font-semibold",
+        "inline-flex max-w-full items-center rounded-md border px-2 py-1 text-xs font-semibold",
         tones[tone],
       )}
     >
@@ -86,17 +86,17 @@ type ButtonSize = "sm" | "md";
 
 const buttonVariants: Record<ButtonVariant, string> = {
   primary:
-    "border border-transparent bg-signal text-[color-mix(in_srgb,var(--ts-surface)_96%,transparent)] hover:bg-[var(--ts-accent-hover)] active:opacity-90",
+    "border border-transparent bg-signal text-[var(--color-accent-ink)] hover:bg-[var(--ts-accent-hover)] motion-safe:active:translate-y-px",
   secondary:
-    "border border-border bg-surface text-ink hover:bg-surface-muted active:bg-surface-muted",
+    "border border-border-strong bg-surface text-ink hover:bg-surface-muted motion-safe:active:translate-y-px",
   ghost:
-    "border border-transparent bg-transparent text-ink hover:bg-surface-muted active:bg-surface-muted",
+    "border border-transparent bg-transparent text-ink hover:bg-surface-muted motion-safe:active:translate-y-px",
   danger:
-    "border border-transparent bg-danger text-[color-mix(in_srgb,var(--ts-surface)_96%,transparent)] hover:opacity-90 active:opacity-85",
+    "border border-transparent bg-danger text-[var(--color-accent-ink)] hover:opacity-90 motion-safe:active:translate-y-px",
 };
 
 const buttonSizes: Record<ButtonSize, string> = {
-  sm: "min-h-9 gap-1.5 px-3 py-1.5 text-xs",
+  sm: "min-h-11 gap-2 px-3 py-2 text-xs",
   md: "min-h-11 gap-2 px-4 py-2 text-sm",
 };
 
@@ -129,7 +129,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         aria-busy={loading || undefined}
         data-loading={loading ? "true" : undefined}
         className={clsx(
-          "inline-flex items-center justify-center rounded-product font-semibold",
+          "inline-flex items-center justify-center whitespace-nowrap rounded-product font-semibold",
           focusRing,
           motion,
           buttonVariants[variant],
@@ -158,10 +158,10 @@ export function ButtonLink({
     <Link
       href={href}
       className={clsx(
-        "inline-flex min-h-11 items-center justify-center rounded-product bg-signal px-4 py-2 text-sm font-semibold text-[color-mix(in_srgb,var(--ts-surface)_96%,transparent)]",
+        "inline-flex min-h-11 items-center justify-center whitespace-nowrap rounded-product bg-signal px-4 py-2 text-sm font-semibold text-[var(--color-accent-ink)]",
         focusRing,
         motion,
-        "hover:bg-[var(--ts-accent-hover)] active:opacity-90",
+        "hover:bg-[var(--ts-accent-hover)] motion-safe:active:translate-y-px",
         className,
       )}
     >
@@ -171,11 +171,12 @@ export function ButtonLink({
 }
 
 const fieldBase = clsx(
-  "w-full min-w-0 rounded-product border border-border bg-surface text-sm text-ink shadow-sm",
+  "min-h-11 w-full min-w-0 rounded-product border border-border-strong bg-surface text-sm text-ink shadow-none",
+  "outline outline-2 outline-offset-2 outline-transparent",
   focusRing,
   motion,
   "placeholder:text-muted",
-  "hover:border-border-strong",
+  "hover:border-border-strong active:border-border-strong",
   "disabled:cursor-not-allowed disabled:bg-surface-muted disabled:text-muted disabled:opacity-80",
 );
 
@@ -196,10 +197,8 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
       className={clsx(
         fieldBase,
         "px-3 py-2",
-        error && "border-danger-border focus-visible:outline-danger",
-        success &&
-          !error &&
-          "border-success-border focus-visible:outline-success",
+        error && "border-danger focus-visible:outline-danger",
+        success && !error && "border-success focus-visible:outline-success",
         className,
       )}
       {...props}
@@ -222,10 +221,8 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
         className={clsx(
           fieldBase,
           "px-3 py-2",
-          error && "border-danger-border focus-visible:outline-danger",
-          success &&
-            !error &&
-            "border-success-border focus-visible:outline-success",
+          error && "border-danger focus-visible:outline-danger",
+          success && !error && "border-success focus-visible:outline-success",
           className,
         )}
         {...props}
@@ -251,10 +248,8 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
         className={clsx(
           fieldBase,
           "min-h-24 resize-y px-3 py-2",
-          error && "border-danger-border focus-visible:outline-danger",
-          success &&
-            !error &&
-            "border-success-border focus-visible:outline-success",
+          error && "border-danger focus-visible:outline-danger",
+          success && !error && "border-success focus-visible:outline-success",
           className,
         )}
         {...props}
@@ -282,7 +277,7 @@ export function PageHeader({
       )}
     >
       <div className="min-w-0">
-        <h1 className="text-3xl font-semibold tracking-tight text-ink">
+        <h1 className="min-w-0 break-words text-2xl font-bold tracking-[-0.025em] text-ink [overflow-wrap:anywhere] sm:text-3xl">
           {title}
         </h1>
         {description ? (
@@ -292,7 +287,9 @@ export function PageHeader({
         ) : null}
       </div>
       {actions ? (
-        <div className="flex shrink-0 flex-wrap gap-2">{actions}</div>
+        <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
+          {actions}
+        </div>
       ) : null}
     </header>
   );
@@ -300,11 +297,23 @@ export function PageHeader({
 
 type StateTone = "info" | "success" | "warning" | "danger";
 
-const stateTones: Record<StateTone, { card: CardVariant; text: string }> = {
-  info: { card: "muted", text: "text-info" },
-  success: { card: "success", text: "text-success" },
-  warning: { card: "warning", text: "text-warning" },
-  danger: { card: "danger", text: "text-danger" },
+const stateTones: Record<StateTone, { surface: string; text: string }> = {
+  info: {
+    surface: "border-info-border bg-[var(--color-info-surface)]",
+    text: "text-info",
+  },
+  success: {
+    surface: "border-success-border bg-surface-success",
+    text: "text-success",
+  },
+  warning: {
+    surface: "border-warning-border bg-surface-warning",
+    text: "text-warning",
+  },
+  danger: {
+    surface: "border-danger-border bg-surface-danger",
+    text: "text-danger",
+  },
 };
 
 export function StateMessage({
@@ -322,9 +331,12 @@ export function StateMessage({
 }) {
   const styles = stateTones[tone];
   return (
-    <Card
-      variant={styles.card}
-      className={className}
+    <div
+      className={clsx(
+        "min-w-0 rounded-product border px-4 py-3",
+        styles.surface,
+        className,
+      )}
       role={tone === "danger" ? "alert" : "status"}
       aria-atomic="true"
     >
@@ -337,7 +349,7 @@ export function StateMessage({
         </div>
         {action ? <div className="shrink-0">{action}</div> : null}
       </div>
-    </Card>
+    </div>
   );
 }
 
@@ -368,26 +380,32 @@ export function EmptyState({
 export function TableShell({
   children,
   caption,
+  label,
   className,
   tableClassName,
 }: {
   children: ReactNode;
   caption?: ReactNode;
+  label?: string;
   className?: string;
   tableClassName?: string;
 }) {
   return (
-    <div className={clsx("min-w-0 overflow-x-auto", className)}>
+    <div
+      className={clsx(
+        "min-w-0 overflow-x-auto rounded-product focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]",
+        className,
+      )}
+      role={label ? "region" : undefined}
+      aria-label={label}
+      tabIndex={label ? 0 : undefined}
+    >
       <table
         className={clsx("w-full min-w-0 text-left text-sm", tableClassName)}
       >
+        {caption ? <caption className="sr-only">{caption}</caption> : null}
         {children}
       </table>
-      {caption ? (
-        <p className="mt-2 text-xs text-muted" role="note">
-          {caption}
-        </p>
-      ) : null}
     </div>
   );
 }
@@ -414,20 +432,20 @@ export function MetricTile({
   );
 }
 
-export function ScoreBar({ value }: { value: number }) {
+export function ScoreBar({ value, label }: { value: number; label: string }) {
   const width = `${Math.round(Math.min(1, Math.max(0, value)) * 100)}%`;
+  const percent = Math.round(value * 100);
   return (
     <div
       className="h-2 w-full overflow-hidden rounded-full bg-surface-muted"
       role="meter"
-      aria-valuenow={Math.round(value * 100)}
+      aria-label={label}
+      aria-valuenow={percent}
       aria-valuemin={0}
       aria-valuemax={100}
+      aria-valuetext={`${percent} percent`}
     >
-      <div
-        className="h-2 rounded-full bg-signal motion-safe:transition-[width] motion-safe:duration-200 motion-safe:ease-product"
-        style={{ width }}
-      />
+      <div className="h-2 rounded-full bg-signal" style={{ width }} />
     </div>
   );
 }
