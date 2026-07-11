@@ -132,7 +132,22 @@ export type ScoreBreakdown = {
 
 export type Opportunity = {
   id: string;
+  thread_id?: string | null;
+  run_id?: string | null;
+  scan_id?: string | null;
   cluster_id: string;
+  evidence_hash?: string | null;
+  content_hash?: string | null;
+  match_method?: string | null;
+  match_confidence?: number | null;
+  match_margin?: number | null;
+  centroid_similarity?: number | null;
+  evidence_jaccard?: number | null;
+  title_jaccard?: number | null;
+  embedding_model?: string | null;
+  embedding_backend?: string | null;
+  detached?: boolean;
+  detached_from_thread_id?: string | null;
   title: string;
   problem_statement: string;
   target_user: string;
@@ -235,6 +250,7 @@ export type ResearchProject = {
   name: string;
   description: string | null;
   source_type: string;
+  source_id?: string | null;
   query: string;
   limit: number;
   cadence: string;
@@ -246,14 +262,224 @@ export type ResearchProject = {
   last_run_at: string | null;
   next_run_at: string | null;
   run_count: number;
+  version?: number;
   created_at: string;
   updated_at: string;
+};
+
+export type ResearchRun = {
+  id: string;
+  project_id: string;
+  scan_id: string;
+  sequence: number | null;
+  source_type: string | null;
+  source_origin: string | null;
+  query: string | null;
+  requested_limit: number | null;
+  lineage_status: "complete" | "incomplete" | "untracked";
+  scan_status: string;
+  started_at: string;
+  finished_at: string | null;
+  items_found: number;
+  items_saved: number;
+  signals_detected: number;
+  clusters_created: number;
+  opportunities_created: number;
+  created_at: string;
+};
+
+export type RunDeltaCounts = {
+  new: number;
+  seen_before: number;
+  updated: number;
+  unchanged: number;
+  not_observed_this_run: number;
+};
+
+export type RunDelta = {
+  project_id: string;
+  run_id: string;
+  scan_id: string;
+  sequence: number;
+  previous_run_id: string | null;
+  evidence_changes: RunDeltaCounts;
+  signal_changes: RunDeltaCounts;
+  generated_snapshots: { clusters: number; opportunities: number };
+  opportunity_changes: {
+    new: number;
+    updated: number;
+    unchanged: number;
+    not_observed_this_run: number;
+  } | null;
+  warnings: string[];
+};
+
+export type OpportunityDecisionEvent = {
+  id: string;
+  thread_id: string;
+  event_type: string;
+  actor_type: string;
+  agent_session_id: string | null;
+  snapshot_id: string | null;
+  related_thread_id: string | null;
+  previous_state: ReviewState | null;
+  next_state: ReviewState | null;
+  previous_note: string | null;
+  next_note: string | null;
+  details_json: Record<string, unknown>;
+  created_at: string;
+};
+
+export type OpportunityThreadSummary = {
+  id: string;
+  project_id: string | null;
+  lineage_status: "complete" | "untracked";
+  review_state: ReviewState;
+  review_note: string | null;
+  decision_updated_at: string | null;
+  version: number;
+  snapshot_count: number;
+  current_snapshot: Opportunity | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type OpportunityThread = OpportunityThreadSummary & {
+  snapshots: Opportunity[];
+  decision_history: OpportunityDecisionEvent[];
+};
+
+export type DetachSnapshotResult = {
+  source_thread: OpportunityThread;
+  new_thread: OpportunityThread;
+};
+
+export type BuildPacketArtifact = {
+  path: string;
+  content: string;
+  byte_count: number;
+  sha256: string;
+};
+
+export type BuildPacketSummary = {
+  id: string;
+  project_id: string | null;
+  run_id: string | null;
+  thread_id: string;
+  snapshot_id: string;
+  lineage_status: "complete" | "untracked";
+  generation_mode: "deterministic" | "configured_ai";
+  schema_version: string;
+  tasksignal_version: string;
+  template_version: string;
+  generated_at: string;
+  enhancement_status: "not_requested" | "generated" | "fallback";
+  enhancement_provider: string | null;
+  enhancement_model: string | null;
+  artifact_count: number;
+  total_bytes: number;
+  manifest_sha256: string;
+  created_at: string;
+};
+
+export type BuildPacket = Omit<
+  BuildPacketSummary,
+  "artifact_count" | "total_bytes"
+> & {
+  enhancement_template_version: string | null;
+  artifacts: BuildPacketArtifact[];
+  manifest: Record<string, unknown>;
+};
+
+export type BuildPacketVerification = {
+  packet_id: string;
+  valid: boolean;
+  errors: string[];
+  missing_files: string[];
+  unexpected_files: string[];
+  mismatched_files: string[];
+};
+
+export type SourceAuthorization = {
+  source_id: string;
+  source_type: string;
+  origin: string | null;
+  host: string | null;
+  port: number | null;
+  authorized: boolean;
+  authorized_at: string | null;
+  terms_confirmed_at: string | null;
+};
+
+export type SourceRuntimeState = {
+  source_id: string;
+  origin: string | null;
+  readiness:
+    | "ready"
+    | "disabled"
+    | "terms_required"
+    | "retry_later"
+    | "failed"
+    | "never_run";
+  can_run: boolean;
+  last_success_at: string | null;
+  last_failure_at: string | null;
+  last_failure_code: string | null;
+  last_failure_message: string | null;
+  last_http_status: number | null;
+  retry_after_at: string | null;
+};
+
+export type AgentSession = {
+  id: string;
+  process_instance_id: string;
+  client_name: string;
+  client_version: string | null;
+  transport: "stdio";
+  status: "pending" | "approved" | "revoked" | "expired" | "exited";
+  effective_status: "pending" | "approved" | "revoked" | "expired" | "exited";
+  requested_capabilities: string[];
+  approved_capabilities: string[];
+  approval_source: "ui" | "interactive_tty" | null;
+  approved_at: string | null;
+  last_heartbeat_at: string;
+  expires_at: string;
+  revoked_at: string | null;
+  expired_at: string | null;
+  exited_at: string | null;
+  version: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AgentAction = {
+  id: string;
+  session_id: string;
+  operation_id: string;
+  correlation_id: string;
+  event_sequence: number;
+  event_status:
+    | "reserved"
+    | "succeeded"
+    | "failed"
+    | "conflict"
+    | "replayed"
+    | "denied";
+  capability: string;
+  tool_name: string;
+  target_type: string | null;
+  target_id: string | null;
+  request_summary: Record<string, unknown>;
+  result_summary: Record<string, unknown> | null;
+  error_code: string | null;
+  created_at: string;
 };
 
 export type ResearchProjectCreate = {
   name: string;
   description?: string | null;
   source_type: string;
+  source_id?: string | null;
   query: string;
   limit: number;
   cadence: string;

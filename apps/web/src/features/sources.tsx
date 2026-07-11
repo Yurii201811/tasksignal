@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Database, KeyRound } from "lucide-react";
 import { api } from "@/lib/api";
 import { Badge, Card, PageHeader, StateMessage } from "@/components/ui";
+import { DiscourseSourceManager } from "@/features/discourse-source-manager";
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "The request failed.";
@@ -68,6 +69,12 @@ export function Sources() {
           </Card>
         ))}
       </div>
+
+      <DiscourseSourceManager
+        sources={(sources.data ?? []).filter(
+          (source) => source.type === "discourse",
+        )}
+      />
     </div>
   );
 }
@@ -80,6 +87,8 @@ function connectorCopy(type: string) {
     github: "Uses GitHub REST search, optionally with GITHUB_TOKEN on the backend.",
     stackexchange:
       "Uses the Stack Exchange API, optionally with STACK_EXCHANGE_KEY on the backend.",
+    discourse:
+      "Reads bounded public topic search results from one explicitly authorized HTTPS forum.",
   };
   return copy[type] ?? "Custom source connector.";
 }
@@ -91,6 +100,7 @@ function connectorName(type: string, fallback: string) {
     hackernews: "Hacker News API",
     github: "GitHub Issues API",
     stackexchange: "Stack Exchange API",
+    discourse: "Discourse forum",
   };
   return names[type] ?? fallback;
 }
@@ -98,6 +108,9 @@ function connectorName(type: string, fallback: string) {
 function credentialStatus(type: string) {
   if (type === "fixture" || type === "hackernews") {
     return "No secret required for demo usage.";
+  }
+  if (type === "discourse") {
+    return "No source credentials or cookies are accepted. Exact host terms confirmation is required.";
   }
   return "Credential optional or required for live scans. Secrets are backend environment variables, not browser storage.";
 }

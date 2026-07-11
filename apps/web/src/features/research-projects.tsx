@@ -3,7 +3,14 @@
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, CalendarClock, Play, Plus, RefreshCw } from "lucide-react";
+import {
+  ArrowRight,
+  CalendarClock,
+  GitCompareArrows,
+  Play,
+  Plus,
+  RefreshCw,
+} from "lucide-react";
 import { api } from "@/lib/api";
 import {
   Badge,
@@ -99,6 +106,7 @@ export function ResearchProjects() {
     "Find repeated complaints that could become a focused developer-tool MVP.",
   );
   const [sourceType, setSourceType] = useState("hackernews");
+  const [sourceId, setSourceId] = useState("");
   const [query, setQuery] = useState("ask");
   const [limit, setLimit] = useState(30);
   const [cadence, setCadence] = useState("manual");
@@ -114,6 +122,7 @@ export function ResearchProjects() {
     queryKey: ["research-projects"],
     queryFn: api.researchProjects,
   });
+  const sources = useQuery({ queryKey: ["sources"], queryFn: api.sources });
   const scans = useQuery({ queryKey: ["scans"], queryFn: api.scans });
   const create = useMutation({
     mutationFn: api.createResearchProject,
@@ -168,6 +177,7 @@ export function ResearchProjects() {
 
   function updateSource(value: string) {
     setSourceType(value);
+    setSourceId("");
     setQuery(
       sourceOptions.find((source) => source.value === value)?.defaultQuery ??
         "",
@@ -180,6 +190,7 @@ export function ResearchProjects() {
       name: name.trim(),
       description: description.trim() || null,
       source_type: sourceType,
+      source_id: sourceType === "discourse" ? sourceId || null : null,
       query: query.trim(),
       limit,
       cadence,
@@ -196,6 +207,9 @@ export function ResearchProjects() {
   const latestScan = scans.data?.[0];
   const selectedSourcePreset = sourceQueryPresetByType[sourceType];
   const selectedExamples = queryExamplesLabel(sourceType);
+  const discourseSources = (sources.data ?? []).filter(
+    (source) => source.type === "discourse" && source.enabled,
+  );
 
   return (
     <div className="space-y-6">
@@ -255,6 +269,32 @@ export function ResearchProjects() {
                 </Select>
               </label>
             </div>
+            {sourceType === "discourse" ? (
+              <label className="block min-w-0">
+                <span className="text-sm font-semibold text-muted">
+                  Configured forum source
+                </span>
+                <Select
+                  value={sourceId}
+                  onChange={(event) => setSourceId(event.target.value)}
+                  className="mt-2"
+                  required
+                >
+                  <option value="">Choose a configured forum</option>
+                  {discourseSources.map((source) => (
+                    <option key={source.id} value={source.id}>
+                      {source.name}
+                    </option>
+                  ))}
+                </Select>
+                {discourseSources.length === 0 ? (
+                  <span className="mt-1 block text-xs leading-5 text-warning">
+                    Add a public forum on the Sources page first. The API checks
+                    exact-host authorization before saving or running this project.
+                  </span>
+                ) : null}
+              </label>
+            ) : null}
             <label className="block min-w-0">
               <span className="text-sm font-semibold text-muted">
                 Description
@@ -560,6 +600,12 @@ export function ResearchProjects() {
                     Scan detail <ArrowRight size={16} />
                   </Link>
                 ) : null}
+                <Link
+                  href={`/projects/${project.id}`}
+                  className="inline-flex min-h-11 items-center justify-center gap-2 whitespace-nowrap rounded-product border border-border-strong bg-surface px-4 py-2 text-sm font-semibold text-ink hover:bg-surface-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)] motion-safe:active:translate-y-px"
+                >
+                  Run history <GitCompareArrows size={16} />
+                </Link>
               </div>
             </div>
           </Card>

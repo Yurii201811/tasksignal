@@ -11,10 +11,12 @@ import {
   ClipboardCheck,
   Database,
   FolderKanban,
+  GitBranch,
   HardDrive,
   Home,
   Menu,
   Radar,
+  ShieldCheck,
   Search,
   Settings,
   TimerReset,
@@ -41,6 +43,7 @@ const navGroups: {
     label: "Collection",
     items: [
       { href: "/projects", label: "Projects", icon: FolderKanban },
+      { href: "/threads", label: "Threads", icon: GitBranch },
       { href: "/sources", label: "Sources", icon: Database },
       { href: "/scans", label: "Scans", icon: TimerReset },
     ],
@@ -49,6 +52,7 @@ const navGroups: {
     label: "Tools",
     items: [
       { href: "/search", label: "Search", icon: Search },
+      { href: "/sessions", label: "Agent sessions", icon: ShieldCheck },
       { href: "/settings", label: "Integrations", icon: Settings },
     ],
   },

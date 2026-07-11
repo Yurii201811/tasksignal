@@ -38,6 +38,104 @@ describe("decision workbench API", () => {
     );
   });
 
+  it("uses canonical v1 run history and delta routes", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => Response.json([]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.researchProject("project-1");
+    await api.researchProjectRuns("project-1");
+    await api.researchProjectRunDelta("project-1", "run-2");
+
+    expect(fetchMock.mock.calls.map(([input]) => String(input))).toEqual([
+      "http://localhost:8000/api/v1/research-projects/project-1",
+      "http://localhost:8000/api/v1/research-projects/project-1/runs",
+      "http://localhost:8000/api/v1/research-projects/project-1/runs/run-2/delta",
+    ]);
+  });
+
+  it("sends thread filters to the canonical server endpoint", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => Response.json([]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.opportunityThreads({
+      projectId: "project-1",
+      reviewState: "build_candidate",
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:8000/api/v1/opportunity-threads?project_id=project-1&review_state=build_candidate",
+      expect.any(Object),
+    );
+  });
+
+  it("creates and verifies immutable packets through canonical v1 routes", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => Response.json({}));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.createBuildPacket("thread-1", {
+      expected_version: 3,
+      use_configured_ai: false,
+    });
+    await api.verifyBuildPacket("packet-1");
+
+    expect(fetchMock.mock.calls.map(([input]) => String(input))).toEqual([
+      "http://localhost:8000/api/v1/opportunity-threads/thread-1/build-packets",
+      "http://localhost:8000/api/v1/build-packets/packet-1/verify",
+    ]);
+    expect(fetchMock.mock.calls[0][1]).toEqual(
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          expected_version: 3,
+          use_configured_ai: false,
+        }),
+      }),
+    );
+  });
+
+  it("authorizes an exact Discourse origin with explicit terms confirmation", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => Response.json({}));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.authorizeDiscourseSource("source-1", "https://forum.example.com");
+    await api.discourseSourceRuntime("source-1");
+
+    expect(fetchMock.mock.calls[0]).toEqual([
+      "http://localhost:8000/api/v1/sources/source-1/authorization",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({
+          origin: "https://forum.example.com",
+          terms_confirmed: true,
+        }),
+      }),
+    ]);
+    expect(String(fetchMock.mock.calls[1][0])).toBe(
+      "http://localhost:8000/api/v1/sources/source-1/runtime-state",
+    );
+  });
+
+  it("approves and revokes agent sessions with optimistic versions", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => Response.json({}));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.approveAgentSession("session-1", 4, true);
+    await api.revokeAgentSession("session-1", 5);
+    await api.agentSessionActions("session-1");
+
+    expect(fetchMock.mock.calls.map(([input]) => String(input))).toEqual([
+      "http://localhost:8000/api/v1/agent-sessions/session-1/approve",
+      "http://localhost:8000/api/v1/agent-sessions/session-1/revoke",
+      "http://localhost:8000/api/v1/agent-sessions/session-1/actions?limit=100&offset=0",
+    ]);
+    expect(fetchMock.mock.calls[0][1]).toEqual(
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ expected_version: 4, use_configured_ai: true }),
+      }),
+    );
+  });
+
   it("sends the exact opportunity review patch", async () => {
     const fetchMock = vi.fn<typeof fetch>(async () => Response.json({}));
     vi.stubGlobal("fetch", fetchMock);
