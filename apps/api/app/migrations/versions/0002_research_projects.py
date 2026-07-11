@@ -6,9 +6,8 @@ Create Date: 2026-06-03
 """
 
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
-
 from alembic import op
+from sqlalchemy.dialects import postgresql
 
 revision = "0002_research_projects"
 down_revision = "0001_initial_schema"

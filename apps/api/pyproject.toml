@@ -87,6 +87,9 @@ target-version = "py311"
 select = ["E", "F", "I", "UP", "B"]
 ignore = ["E501", "B008"]
 
+[tool.ruff.lint.isort]
+known-third-party = ["alembic", "pgvector", "sqlalchemy"]
+
 [tool.mypy]
 python_version = "3.11"
 plugins = ["pydantic.mypy"]

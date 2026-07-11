@@ -6,7 +6,6 @@ Create Date: 2026-07-11
 """
 
 import sqlalchemy as sa
-
 from alembic import op
 
 revision = "0009_agent_sessions_audit"
