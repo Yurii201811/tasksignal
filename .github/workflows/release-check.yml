@@ -84,6 +84,7 @@ jobs:
       - name: Build, check, and install distribution artifacts
         run: |
           uv build --project apps/api --out-dir release-artifacts/dist
+          rm -f release-artifacts/dist/.gitignore
           uvx --from twine==${TWINE_VERSION} twine check release-artifacts/dist/*
           python scripts/smoke_built_wheel.py \
             --wheel release-artifacts/dist/*.whl
