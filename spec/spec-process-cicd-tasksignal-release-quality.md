@@ -231,4 +231,5 @@ rollback design.
 
 - `docs/release-prep.md`
 - `docs/packaged-installation.md`
+- `spec/spec-process-cicd-publish-release.md`
 - `docs/superpowers/plans/2026-07-11-tasksignal-v1-local-evidence-to-build.md`

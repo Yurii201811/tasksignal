@@ -1,0 +1,565 @@
+name: Publish release
+
+on:
+  push:
+    tags: ["v[0-9]*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  ACTIONLINT_VERSION: "1.7.10"
+  AUTO_CREATE_TABLES: "true"
+  DATABASE_URL: sqlite:////tmp/tasksignal-publish-${{ github.run_id }}-${{ github.run_attempt }}.db
+  IMAGE_NAMESPACE: ghcr.io/yurii201811
+  LLM_PROVIDER: none
+  REGISTRY: ghcr.io
+  TWINE_VERSION: "6.2.0"
+  UV_VERSION: "0.9.26"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    services:
+      postgres:
+        image: >-
+          pgvector/pgvector:pg16@sha256:1d533553fefe4f12e5d80c7b80622ba0c382abb5758856f52983d8789179f0fb
+        env:
+          POSTGRES_DB: tasksignal_release
+          POSTGRES_USER: tasksignal_release
+          POSTGRES_PASSWORD: local-release-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tasksignal_release -d tasksignal_release"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      phase: ${{ steps.version.outputs.phase }}
+      is_prerelease: ${{ steps.version.outputs.is_prerelease }}
+      product_digest: ${{ steps.product.outputs.product_digest }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: apps/api/uv.lock
+      - name: Validate workflow syntax and publication policy
+        run: |
+          go run github.com/rhysd/actionlint/cmd/actionlint@v${ACTIONLINT_VERSION}
+          python3 scripts/release_evidence.py workflow-policy \
+            --workflow .github/workflows/publish.yml
+      - name: Verify tag, default-branch ancestry, and candidate metadata
+        id: version
+        shell: bash
+        run: |
+          mkdir -p release-evidence-input
+          version="${GITHUB_REF_NAME#v}"
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          python3 scripts/release_check.py \
+            --require-clean \
+            --require-ci-run-url \
+            --require-main-ancestry \
+            --version "$version" \
+            --tag "$GITHUB_REF_NAME" \
+            --github-output "$GITHUB_OUTPUT" \
+            | tee release-evidence-input/release-check.txt
+      - name: Record release-product digest
+        id: product
+        shell: bash
+        run: |
+          digest="$(python3 scripts/release_evidence.py product-digest)"
+          printf 'product_digest=%s\n' "$digest" >> "$GITHUB_OUTPUT"
+      - name: Install locked verification dependencies
+        run: |
+          uv sync --project apps/api --extra dev --locked
+          npm --prefix apps/web ci
+      - name: Run release-critical validation
+        run: |
+          make verify
+          make npm-audit 2>&1 | tee release-evidence-input/npm-audit.txt
+          make python-audit 2>&1 | tee release-evidence-input/python-audit.txt
+          make package-check
+      - name: Generate and verify fixture-backed proof
+        run: |
+          apps/api/.venv/bin/python -u scripts/first_run_smoke.py \
+            --proof-dir release-evidence-input/proof
+          apps/api/.venv/bin/python -u scripts/first_run_smoke.py \
+            --verify-proof-dir release-evidence-input/proof
+      - name: Rehearse SQLite migration safety
+        run: >-
+          apps/api/.venv/bin/python scripts/release_evidence.py sqlite-rehearsal
+          --output release-evidence-input/sqlite-migration.json
+      - name: Rehearse PostgreSQL migration safety
+        run: >-
+          uv run --project apps/api --locked --no-dev
+          python scripts/postgres_migration_rehearsal.py
+          | tee release-evidence-input/postgres-migration.json
+        env:
+          TASKSIGNAL_POSTGRES_REHEARSAL_URL: >-
+            postgresql+psycopg://tasksignal_release:local-release-only@127.0.0.1:5432/tasksignal_release
+      - name: Validate phase-specific human evidence
+        run: >-
+          python3 scripts/release_evidence.py validate-manual
+          --version '${{ steps.version.outputs.version }}'
+          --copy-to release-evidence-input
+          --summary-output release-evidence-input/manual-summary.json
+      - name: Finalize exact-SHA release evidence
+        run: |
+          python3 scripts/release_evidence.py finalize \
+            --input-dir release-evidence-input \
+            --output-dir release-evidence \
+            --version '${{ steps.version.outputs.version }}' \
+            --commit "$GITHUB_SHA" \
+            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            --product-digest '${{ steps.product.outputs.product_digest }}' \
+            --manual-summary release-evidence-input/manual-summary.json
+          python3 scripts/release_evidence.py verify \
+            --directory release-evidence \
+            --version '${{ steps.version.outputs.version }}' \
+            --commit "$GITHUB_SHA"
+          test -z "$(git status --porcelain --untracked-files=no)"
+          unexpected="$(git status --porcelain --untracked-files=all \
+            | grep -Ev '^\?\? release-evidence(-input)?/' || true)"
+          test -z "$unexpected"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: release-evidence-${{ github.sha }}
+          path: release-evidence/
+          if-no-files-found: error
+          retention-days: 90
+
+  python-distribution:
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          version: ${{ env.UV_VERSION }}
+      - name: Build reproducible distributions
+        shell: bash
+        run: |
+          export SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
+          printf 'SOURCE_DATE_EPOCH=%s\n' "$SOURCE_DATE_EPOCH" >> "$GITHUB_ENV"
+          mkdir -p dist/packages dist/release-assets
+          uv build --project apps/api --out-dir dist/packages
+          uvx --from twine==${TWINE_VERSION} twine check dist/packages/*
+          python scripts/smoke_built_wheel.py --wheel dist/packages/*.whl
+          cp dist/packages/* dist/release-assets/
+      - name: Generate product-rooted base and MCP SBOM
+        run: >-
+          uv export --quiet --project apps/api --locked --no-dev --extra mcp
+          --format cyclonedx1.5
+          --preview-features sbom-export
+          --output-file dist/release-assets/tasksignal-${{ needs.validate.outputs.version }}.cdx.json
+      - name: Validate SBOM root and record checksums
+        working-directory: dist/release-assets
+        shell: bash
+        run: |
+          python ../../scripts/release_evidence.py validate-sbom \
+            --sbom tasksignal-${{ needs.validate.outputs.version }}.cdx.json \
+            --version '${{ needs.validate.outputs.version }}' \
+            --canonicalize \
+            --source-date-epoch "$SOURCE_DATE_EPOCH"
+          sha256sum tasksignal-* > SHA256SUMS
+          sha256sum --check SHA256SUMS
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: python-release-${{ github.sha }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 90
+
+  attest-python:
+    needs: [validate, python-distribution]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: python-release-${{ github.sha }}
+          path: dist
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: release-evidence-${{ github.sha }}
+          path: release-evidence
+      - name: Attest Python distributions and release metadata
+        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4
+        with:
+          subject-path: |
+            dist/release-assets/*
+            release-evidence/RELEASE_EVIDENCE_MANIFEST.json
+
+  python-compatibility:
+    needs: [validate, python-distribution]
+    name: Wheel / ${{ matrix.os }} / Python ${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-15]
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: python-release-${{ github.sha }}
+          path: dist
+      - name: Install and smoke the exact candidate wheel
+        run: python scripts/smoke_built_wheel.py --wheel dist/packages/*.whl
+
+  stage-containers:
+    needs: [validate, attest-python, python-compatibility]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: release
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: tasksignal-api
+            context: apps/api
+          - image: tasksignal-web
+            context: apps/web
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+      - name: Log in to GHCR
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Derive full-SHA staging metadata
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
+        with:
+          images: ${{ env.IMAGE_NAMESPACE }}/${{ matrix.image }}
+          flavor: latest=false
+          tags: >-
+            type=raw,value=staging-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ needs.validate.outputs.version }}
+      - name: Build and push multi-architecture staging image
+        id: build
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: ${{ matrix.context }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          sbom: true
+          provenance: mode=max
+      - name: Attest staged container provenance
+        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4
+        with:
+          subject-name: ${{ env.IMAGE_NAMESPACE }}/${{ matrix.image }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+      - name: Record staged image digest
+        shell: bash
+        run: |
+          mkdir -p container-digest
+          printf '%s@%s\n' \
+            '${{ env.IMAGE_NAMESPACE }}/${{ matrix.image }}' \
+            '${{ steps.build.outputs.digest }}' \
+            > 'container-digest/${{ matrix.image }}.txt'
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: container-digest-${{ matrix.image }}-${{ github.sha }}
+          path: container-digest/
+          if-no-files-found: error
+          retention-days: 90
+
+  promote-containers:
+    needs: [validate, stage-containers, publish-pypi]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: release
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+      - name: Log in to GHCR
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: container-digest-*-${{ github.sha }}
+          path: container-digests
+          merge-multiple: true
+      - name: Promote immutable version and full-SHA tags
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+          IS_PRERELEASE: ${{ needs.validate.outputs.is_prerelease }}
+        shell: bash
+        run: |
+          test "$(find container-digests -type f -name '*.txt' | wc -l | tr -d ' ')" = 2
+          inspect_digest() {
+            docker buildx imagetools inspect "$1" 2>/dev/null \
+              | awk '$1 == "Digest:" { print $2; exit }'
+          }
+          promote_immutable() {
+            source_ref="$1"
+            target_ref="$2"
+            source_digest="${source_ref##*@}"
+            if existing="$(inspect_digest "$target_ref")"; then
+              test "$existing" = "$source_digest" || {
+                echo "Refusing to move immutable tag $target_ref" >&2
+                return 1
+              }
+              return 0
+            fi
+            docker buildx imagetools create --tag "$target_ref" "$source_ref"
+          }
+          preflight_immutable() {
+            source_ref="$1"
+            target_ref="$2"
+            source_digest="${source_ref##*@}"
+            if existing="$(inspect_digest "$target_ref")"; then
+              test "$existing" = "$source_digest" || {
+                echo "Preflight refused immutable tag $target_ref" >&2
+                return 1
+              }
+            fi
+          }
+          mkdir -p container-release
+          source_refs=()
+          while IFS= read -r digest_file; do
+            source_ref="$(cat "$digest_file")"
+            [[ "$source_ref" =~ ^ghcr\.io/yurii201811/tasksignal-(api|web)@sha256:[0-9a-f]{64}$ ]]
+            source_refs+=("$source_ref")
+          done < <(find container-digests -type f -name '*.txt' | LC_ALL=C sort)
+          for source_ref in "${source_refs[@]}"; do
+            image="${source_ref%@*}"
+            preflight_immutable "$source_ref" "$image:$VERSION"
+            preflight_immutable "$source_ref" "$image:sha-${{ github.sha }}"
+          done
+          while IFS= read -r digest_file; do
+            source_ref="$(cat "$digest_file")"
+            image="${source_ref%@*}"
+            promote_immutable "$source_ref" "$image:$VERSION"
+            promote_immutable "$source_ref" "$image:sha-${{ github.sha }}"
+            cp "$digest_file" container-release/
+          done < <(find container-digests -type f -name '*.txt' | LC_ALL=C sort)
+          if [[ "$IS_PRERELEASE" == "false" ]]; then
+            while IFS= read -r digest_file; do
+              source_ref="$(cat "$digest_file")"
+              image="${source_ref%@*}"
+              docker buildx imagetools create --tag "$image:latest" "$source_ref"
+            done < <(find container-digests -type f -name '*.txt' | LC_ALL=C sort)
+          fi
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: container-release-${{ github.sha }}
+          path: container-release/
+          if-no-files-found: error
+          retention-days: 90
+
+  pypi-decision:
+    needs: [validate, python-distribution, stage-containers]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      publish: ${{ steps.pypi_guard.outputs.publish }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: python-release-${{ github.sha }}
+          path: dist
+      - name: Fail closed or allow exact-hash PyPI recovery
+        id: pypi_guard
+        run: >-
+          python3 scripts/release_evidence.py pypi-guard
+          --version '${{ needs.validate.outputs.version }}'
+          --packages-dir dist/packages
+          --github-output "$GITHUB_OUTPUT"
+
+  publish-pypi:
+    needs: [validate, attest-python, pypi-decision]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: pypi
+      url: https://pypi.org/project/tasksignal/${{ needs.validate.outputs.version }}/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: python-release-${{ github.sha }}
+          path: dist
+      - name: Publish through PyPI Trusted Publishing
+        if: needs.pypi-decision.outputs.publish == 'true'
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
+        with:
+          packages-dir: dist/packages/
+
+  github-release:
+    needs: [validate, attest-python, promote-containers, publish-pypi]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: python-release-${{ github.sha }}
+          path: dist
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: release-evidence-${{ github.sha }}
+          path: release-evidence
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: container-release-${{ github.sha }}
+          path: container-release
+      - name: Create, verify, and publish the draft GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.validate.outputs.version }}
+          IS_PRERELEASE: ${{ needs.validate.outputs.is_prerelease }}
+        shell: bash
+        run: |
+          mkdir -p release-assets
+          cp dist/release-assets/* container-release/* release-assets/
+          cp release-evidence/RELEASE_EVIDENCE_MANIFEST.json \
+            release-assets/RELEASE_EVIDENCE_MANIFEST.json
+          cp release-evidence/postgres-migration.json \
+            release-assets/postgres-migration.json
+          cp release-evidence/sqlite-migration.json \
+            release-assets/sqlite-migration.json
+          cp release-evidence/proof/MANIFEST.json \
+            release-assets/first-run-proof-MANIFEST.json
+          (
+            cd release-assets
+            find . -maxdepth 1 -type f ! -name RELEASE_SHA256SUMS -print0 \
+              | LC_ALL=C sort -z \
+              | xargs -0 sha256sum > RELEASE_SHA256SUMS
+            sha256sum --check RELEASE_SHA256SUMS
+          )
+          verify_remote_assets() {
+            remote_dir="$(mktemp -d)"
+            gh release download "$GITHUB_REF_NAME" --dir "$remote_dir"
+            diff \
+              <(find release-assets -maxdepth 1 -type f -exec basename {} \; | LC_ALL=C sort) \
+              <(find "$remote_dir" -maxdepth 1 -type f -exec basename {} \; | LC_ALL=C sort)
+            cmp release-assets/RELEASE_SHA256SUMS "$remote_dir/RELEASE_SHA256SUMS"
+            (cd "$remote_dir" && sha256sum --check RELEASE_SHA256SUMS)
+            rm -rf "$remote_dir"
+          }
+          complete_matching_draft() {
+            remote_dir="$(mktemp -d)"
+            gh release download "$GITHUB_REF_NAME" --dir "$remote_dir"
+            while IFS= read -r remote_asset; do
+              name="$(basename "$remote_asset")"
+              local_asset="release-assets/$name"
+              test -f "$local_asset" || {
+                echo "Draft contains unknown asset: $name" >&2
+                return 1
+              }
+              cmp "$local_asset" "$remote_asset" || {
+                echo "Draft asset does not match candidate: $name" >&2
+                return 1
+              }
+            done < <(find "$remote_dir" -maxdepth 1 -type f | LC_ALL=C sort)
+            missing_assets=()
+            while IFS= read -r local_asset; do
+              name="$(basename "$local_asset")"
+              if [[ ! -f "$remote_dir/$name" ]]; then
+                missing_assets+=("$local_asset")
+              fi
+            done < <(find release-assets -maxdepth 1 -type f | LC_ALL=C sort)
+            rm -rf "$remote_dir"
+            if (( ${#missing_assets[@]} )); then
+              gh release upload "$GITHUB_REF_NAME" "${missing_assets[@]}"
+            fi
+          }
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            draft="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$GITHUB_REF_NAME" --jq .draft)"
+            if [[ "$draft" == "false" ]]; then
+              remote_prerelease="$(gh api \
+                "repos/$GITHUB_REPOSITORY/releases/tags/$GITHUB_REF_NAME" \
+                --jq .prerelease)"
+              test "$remote_prerelease" = "$IS_PRERELEASE"
+              verify_remote_assets
+              exit 0
+            fi
+            asset_count="$(gh api \
+              "repos/$GITHUB_REPOSITORY/releases/tags/$GITHUB_REF_NAME" \
+              --jq '.assets | length')"
+            if [[ "$asset_count" != "0" ]]; then
+              complete_matching_draft
+              verify_remote_assets
+              gh release edit "$GITHUB_REF_NAME" --draft=false \
+                --prerelease="$IS_PRERELEASE"
+              exit 0
+            fi
+          else
+            flags=(--verify-tag --generate-notes --title "TaskSignal ${VERSION}")
+            if [[ "$IS_PRERELEASE" == "true" ]]; then
+              flags+=(--prerelease --latest=false)
+            fi
+            gh release create "$GITHUB_REF_NAME" --draft "${flags[@]}"
+          fi
+          gh release upload "$GITHUB_REF_NAME" release-assets/*
+          verify_remote_assets
+          gh release edit "$GITHUB_REF_NAME" --draft=false \
+            --prerelease="$IS_PRERELEASE"

@@ -69,13 +69,47 @@ Trusted PyPI publishing, GHCR publication, and platform provenance remain
 separate maintainer-authorized release actions. Never add long-lived publishing
 tokens to this verification workflow.
 
+The tag-only `Publish release` workflow repeats the release gates and preserves
+`release-evidence-<sha>` before any registry write. That artifact binds the exact
+tag SHA and Actions run to the proof manifest, audit logs, fresh/copied-v0.2
+SQLite record, four-case PostgreSQL record, phase-specific manual evidence, and
+the SHA-256 of every included file. Publication jobs consume that artifact; they
+do not merely assume the independent `Release readiness` workflow passed.
+
+The `pypi` and `release` environments must have required-reviewer rules before a
+tag is pushed. PyPI uses Trusted Publishing through GitHub OIDC; GHCR uses the
+scoped workflow token. Both container images are built first at unique full-SHA
+staging references. The workflow then publishes or exact-hash-skips PyPI,
+promotes the already-built digests to immutable version and full-SHA image tags,
+and finally uploads a complete draft GitHub release. The draft becomes public
+only after its remote filename and checksum inventory verifies. A retry refuses
+to move a version/full-SHA image tag or overwrite a mismatched PyPI artifact.
+A matching partial draft is completed by uploading only missing assets; any
+unknown or mismatched draft asset fails closed. Any stable version receives
+`latest`; alpha, beta, and RC tags never do.
+
+All workflow actions are pinned to reviewed commit SHAs. Repository build code
+runs without OIDC; attestation and PyPI jobs only download previously built
+artifacts. The release SBOM names TaskSignal and its version as the CycloneDX
+root component, and the release evidence manifest is attested with the Python
+assets.
+
 ## Migration and Product Evidence
 
-Before an RC or GA release, attach evidence for fresh and copied-v0.2 SQLite and
-PostgreSQL upgrades. Keep the pre-upgrade SQLite backup and migration record.
-Do not claim rollback by downgrading or deleting additive v1 tables.
+Every publication run records fresh and copied-v0.2 SQLite and PostgreSQL
+upgrades. Keep the pre-upgrade SQLite backup and migration record. Do not claim
+rollback by downgrading or deleting additive v1 tables.
 
-Also record:
+The local 2026-07-11 PostgreSQL 16 + pgvector rehearsal passed fresh, copied
+`0006_decision_workbench`, nonempty-unversioned refusal, and foreign-revision
+refusal cases with cleanup verified. The dedicated Actions workflow is
+configured, but its candidate-SHA run is still required as durable evidence.
+
+For RC and GA, add `release-evidence/<version>/manual-gates.json` and its hashed
+reports as documented in [`release-evidence/README.md`](../release-evidence/README.md).
+The workflow recomputes the release-product digest, so changing API/UI code,
+fixtures, migrations, dependencies, release scripts, or the packet skill makes
+old manual evidence stale. Record:
 
 - desktop and narrow Browser flows;
 - accessibility checks, including keyboard and reduced-motion behavior;
@@ -84,8 +118,15 @@ Also record:
   packet generation, and packet-manifest verification;
 - Docker/GHCR image digests and PyPI provenance after publication is approved.
 
-GA remains blocked until three independent indie builders complete the
-fixture-to-packet flow without maintainer help and that evidence is recorded.
+GA remains machine-blocked until three independent indie builders complete the
+fixture-to-packet flow without maintainer help and three distinct, completed,
+hash-verified evidence records are present.
+
+Repository settings remain external gates. Before publication, verify protected
+release tags, required reviewers with self-review/admin bypass disabled where
+available, deployment tag restrictions, the exact `pypi` Trusted Publisher
+workflow/environment, and immutable GitHub Releases. Workflow YAML cannot prove
+those settings are enabled.
 
 ## Evidence Template
 

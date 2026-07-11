@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -28,7 +29,7 @@ def write_release_files(
     web_lock_root_version = web_lock_root_version or web_version
     api_dir = root / "apps" / "api"
     web_dir = root / "apps" / "web"
-    (api_dir / "app").mkdir(parents=True)
+    (api_dir / "app" / "core").mkdir(parents=True)
     web_dir.mkdir(parents=True)
     (api_dir / "pyproject.toml").write_text(
         f'[project]\nname = "tasksignal"\nversion = "{api_version}"\n',
@@ -40,6 +41,10 @@ def write_release_files(
     )
     (api_dir / "app" / "main.py").write_text(
         f'app = FastAPI(version="{fastapi_version}")\n',
+        encoding="utf-8",
+    )
+    (api_dir / "app" / "core" / "version.py").write_text(
+        f'def installed_tasksignal_version():\n    return "{api_version}"\n',
         encoding="utf-8",
     )
     (web_dir / "package.json").write_text(
@@ -102,6 +107,79 @@ def test_npm_version_mapping_for_canonical_releases(
     assert release_check.npm_version_for_python(python_version) == npm_version
 
 
+@pytest.mark.parametrize(
+    ("value", "phase", "is_prerelease"),
+    [
+        ("1.0.0a1", "alpha", True),
+        ("1.0.0b2", "beta", True),
+        ("1.0.0rc3", "rc", True),
+        ("1.0.0", "stable", False),
+        ("1.2.3", "stable", False),
+    ],
+)
+def test_parse_release_version_accepts_only_canonical_release_versions(
+    value: str,
+    phase: str,
+    is_prerelease: bool,
+) -> None:
+    parsed = release_check.parse_release_version(value)
+
+    assert parsed.value == value
+    assert parsed.phase == phase
+    assert parsed.is_prerelease is is_prerelease
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "v1.0.0",
+        "1.0",
+        "1.0.0.dev1",
+        "1.0.0.post1",
+        "1.0.0+local",
+        "1.0.0-alpha.1",
+        "01.0.0",
+    ],
+)
+def test_parse_release_version_rejects_noncanonical_or_unsupported_versions(
+    value: str,
+) -> None:
+    with pytest.raises(ValueError, match="canonical TaskSignal release"):
+        release_check.parse_release_version(value)
+
+
+def test_tag_must_exactly_match_the_canonical_python_version() -> None:
+    assert release_check.check_release_tag("v1.0.0a1", "1.0.0a1") == []
+    assert release_check.check_release_tag("v1.0.0-alpha.1", "1.0.0a1") == [
+        "Release tag v1.0.0-alpha.1 must exactly equal v1.0.0a1."
+    ]
+
+
+def test_main_ancestry_gate_fails_closed_for_an_off_main_release(monkeypatch) -> None:
+    monkeypatch.setattr(
+        release_check.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(args[0], 1, "", "not ancestor"),
+    )
+
+    failures = release_check.check_main_ancestry(
+        require_main_ancestry=True,
+        commit_sha="a" * 40,
+    )
+
+    assert failures == [f"Release commit {'a' * 40} is not reachable from origin/main."]
+
+
+def test_source_checkout_fallback_is_a_checked_version_source(tmp_path: Path) -> None:
+    path = tmp_path / "version.py"
+    path.write_text(
+        'def installed_tasksignal_version():\n    return "1.2.3rc1"\n',
+        encoding="utf-8",
+    )
+
+    assert release_check.source_fallback_version(path) == "1.2.3rc1"
+
+
 def test_project_version_check_accepts_pep440_to_npm_prerelease_mapping(
     tmp_path,
     monkeypatch,
@@ -136,6 +214,19 @@ def test_project_version_check_rejects_fastapi_and_lock_mismatch(tmp_path, monke
     assert "api_lock=1.2.5" in message
     assert "web_lock_top=1.2.6" in message
     assert "web_lock_root=1.2.7" in message
+
+
+def test_project_version_check_rejects_source_fallback_mismatch(tmp_path, monkeypatch) -> None:
+    write_release_files(tmp_path)
+    (tmp_path / "apps/api/app/core/version.py").write_text(
+        'def installed_tasksignal_version():\n    return "1.2.4"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(release_check, "ROOT", tmp_path)
+
+    _version, failures = release_check.check_project_versions("1.2.3")
+
+    assert "source_fallback=1.2.4" in " ".join(failures)
 
 
 def test_fastapi_version_ignores_unrelated_version_keywords(tmp_path) -> None:
@@ -191,6 +282,7 @@ def test_fastapi_version_rejects_duplicate_constructors(tmp_path) -> None:
         ("apps/api/pyproject.toml", "[project\n"),
         ("apps/api/uv.lock", "package = [\n"),
         ("apps/api/app/main.py", "app = FastAPI(\n"),
+        ("apps/api/app/core/version.py", "def installed_tasksignal_version(\n"),
         ("apps/web/package.json", "{\n"),
         ("apps/web/package-lock.json", "{\n"),
     ],
