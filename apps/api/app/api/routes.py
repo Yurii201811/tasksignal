@@ -1,32 +1,54 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import re
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from secrets import compare_digest
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
-from sqlalchemy import select
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.version import TASKSIGNAL_VERSION
 from app.db.session import get_db
 from app.models.all_models import (
+    AgentAction,
+    AgentSession,
+    BuildPacket,
     Cluster,
     ClusterItem,
-    ItemEmbedding,
+    DiscourseSourceState,
     ItemSignal,
-    Label,
     LocalWorkspaceSettings,
     NormalizedItem,
     Opportunity,
+    OpportunityDecisionEvent,
+    OpportunityThread,
     ResearchProject,
+    ResearchProjectRun,
+    ScanItem,
     ScanJob,
     Source,
 )
 from app.schemas.api import (
+    AgentActionOut,
+    AgentSessionApprove,
+    AgentSessionCreate,
+    AgentSessionLeaseUpdate,
+    AgentSessionOut,
+    AgentSessionRevoke,
+    BuildPacketArtifactOut,
+    BuildPacketCreate,
+    BuildPacketOut,
+    BuildPacketSummaryOut,
+    BuildPacketVerificationOut,
+    DetachSnapshotOut,
+    DetachSnapshotRequest,
     DueRunOut,
     EnhancementOut,
     EvaluationOut,
@@ -37,44 +59,126 @@ from app.schemas.api import (
     LabelOut,
     LocalWorkspaceOut,
     LocalWorkspaceUpdate,
+    OpportunityDecisionUpdate,
     OpportunityOut,
     OpportunityReviewUpdate,
+    OpportunitySnapshotOut,
+    OpportunityThreadOut,
+    OpportunityThreadSummaryOut,
     ProcessSummary,
     ReadinessOut,
     ResearchProjectCreate,
     ResearchProjectOut,
+    ResearchProjectUpdate,
+    ResearchRunOut,
+    RunDeltaOut,
     ScanCreate,
     ScanOut,
-    SearchRequest,
+    SemanticSearchOut,
+    SemanticSearchRequest,
+    SourceAuthorizationCreate,
+    SourceAuthorizationOut,
     SourceCreate,
     SourceOut,
+    SourceRuntimeStateOut,
     TaskPackOut,
 )
-from app.services.embeddings.service import EmbeddingService, cosine_similarity
+from app.services.agent_actions import redacted_agent_action
+from app.services.agent_sessions import (
+    AgentSessionError,
+    SessionAuthenticationError,
+    SessionCapabilityError,
+    SessionStateError,
+    SessionVersionConflict,
+    approve_session,
+    effective_session_status,
+    expire_session_if_needed,
+    heartbeat_session,
+    mark_session_exited,
+    register_session,
+    revoke_session,
+    verify_session_secret,
+)
+from app.services.build_packets import (
+    BUILD_PACKET_SCHEMA_VERSION,
+    BUILD_PACKET_TEMPLATE_VERSION,
+    MANIFEST_FILENAME,
+    BuildPacketMetadata,
+    build_packet_artifacts,
+    deterministic_zip_bytes,
+    verify_packet_artifacts,
+)
+from app.services.build_packets.enhancement import (
+    ENHANCEMENT_TEMPLATE_VERSION,
+    InvalidBuildPacketEnhancement,
+    build_enhancement_prompt,
+    manifest_with_enhancement,
+    parse_enhanced_documents,
+)
+from app.services.discourse_sources.service import (
+    ImmutableDiscourseOrigin,
+    InvalidDiscourseOrigin,
+    InvalidDiscourseSource,
+    authorize_discourse_source,
+    discourse_readiness,
+    revoke_discourse_source,
+    runtime_state_snapshot,
+)
 from app.services.evidence_review.service import (
+    EvidenceLabelVersionConflict,
+    append_evidence_label,
     calculate_evidence_readiness,
     evaluation_summary,
+    get_agent_review_snapshots,
     get_label_history,
     get_review_snapshots,
+    unresolved_sensitive_risk,
 )
-from app.services.evidence_review.types import EvidenceReviewSnapshot, ReviewState
-from app.services.generation.enhancement import EnhancementUnavailable, enhance_prompt
+from app.services.evidence_review.types import (
+    EvidenceReadinessLevel,
+    EvidenceReviewSnapshot,
+    ReviewState,
+)
+from app.services.generation.enhancement import (
+    EnhancementUnavailable,
+    configured_provider,
+    enhance_prompt,
+)
 from app.services.generation.service import generate_opportunity
 from app.services.ingestion.connectors import connector_display_name, connector_failure_message
 from app.services.ingestion.normalization import safe_source_url
+from app.services.opportunity_threads.service import (
+    DetachNotAllowed,
+    ThreadVersionConflict,
+    clone_snapshot,
+    set_thread_decision,
+)
+from app.services.opportunity_threads.service import (
+    detach_snapshot as detach_thread_snapshot,
+)
+from app.services.research_memory.service import (
+    IncompleteRunError,
+    calculate_run_delta,
+    get_project_run,
+    list_project_runs,
+)
+from app.services.research_projects.service import next_run_at_from
 from app.services.scoring.service import score_opportunity
+from app.services.search.service import semantic_search as search_semantically
 from app.workers.demo_pipeline import ensure_sources, process_demo, stats
 from app.workers.scan_pipeline import (
     CONNECTOR_FACTORIES,
+    SCAN_WRITE_LOCK,
+    acquire_database_scan_write_lock_with_retry,
     canonical_source,
     connector_for_source,
     process_scan,
 )
 
-router = APIRouter(prefix="/api")
+router = APIRouter()
 
 PUBLIC_SCAN_API_SOURCES = {"fixture", "hackernews"}
-OPERATOR_SCAN_SOURCES = {"github", "reddit", "stackexchange"}
+OPERATOR_SCAN_SOURCES = {"discourse", "github", "reddit", "stackexchange"}
 SOURCE_CONFIG_SECRET_KEY_PARTS = {
     "accesstoken",
     "apikey",
@@ -88,13 +192,6 @@ SOURCE_CONFIG_SECRET_KEY_PARTS = {
     "secret",
     "token",
 }
-CADENCE_INTERVAL_HOURS = {
-    "manual": None,
-    "hourly": 1,
-    "daily": 24,
-    "weekly": 24 * 7,
-}
-
 DECISION_CHECK_LABELS = {
     "enough_evidence": "Enough evidence",
     "source_diversity": "Source diversity",
@@ -122,6 +219,16 @@ INTEGRATION_CATALOG = [
         "rate_limit_note": "Uses the public Firebase API; keep limits modest for interactive scans.",
         "privacy_note": "Stores normalized public story fields and source URLs.",
         "next_step": "Create a project with ask, new, top, best, show, or job.",
+    },
+    {
+        "id": "discourse",
+        "name": "Discourse forums",
+        "kind": "source",
+        "required_env": [],
+        "optional_env": [],
+        "rate_limit_note": "Each authorized public forum has bounded requests and persisted Retry-After state.",
+        "privacy_note": "Public topics only; cookies, credentials, raw author identities, and private categories are excluded.",
+        "next_step": "Create a Discourse source, confirm that forum's terms, then bind it to a project.",
     },
     {
         "id": "github",
@@ -333,6 +440,16 @@ def integration_status(entry: dict, db: Session) -> IntegrationOut:
     if integration_id == "codex_export":
         status_value = "available"
         credential_state = "not_required"
+    elif source_type == "discourse":
+        discourse_sources = db.scalars(
+            select(Source).where(Source.type == "discourse")
+        ).all()
+        ready = any(
+            discourse_readiness(source, source.discourse_state).can_run
+            for source in discourse_sources
+        )
+        status_value = "ready" if ready else "terms_required"
+        credential_state = "not_required"
     elif integration_id == "ollama":
         status_value = "ready" if settings.llm_provider == "ollama" else "available"
         credential_state = "configured" if settings.llm_provider == "ollama" else "not_required"
@@ -375,6 +492,56 @@ def research_project_to_out(project: ResearchProject) -> ResearchProjectOut:
     return ResearchProjectOut.model_validate(project)
 
 
+def research_run_to_out(run: ResearchProjectRun) -> ResearchRunOut:
+    scan = run.scan
+    return ResearchRunOut(
+        id=run.id,
+        project_id=run.project_id,
+        scan_id=run.scan_id,
+        sequence=run.sequence,
+        source_type=run.source_type,
+        source_origin=run.source_origin,
+        query=run.query,
+        requested_limit=run.requested_limit,
+        lineage_status="complete" if run.lineage_complete else "incomplete",
+        scan_status=scan.status,
+        started_at=scan.started_at,
+        finished_at=scan.finished_at,
+        items_found=scan.items_found,
+        items_saved=scan.items_saved,
+        signals_detected=scan.signals_detected,
+        clusters_created=scan.clusters_created,
+        opportunities_created=scan.opportunities_created,
+        created_at=run.created_at,
+    )
+
+
+def untracked_research_run_to_out(
+    project: ResearchProject,
+    scan: ScanJob,
+) -> ResearchRunOut:
+    return ResearchRunOut(
+        id=scan.id,
+        project_id=project.id,
+        scan_id=scan.id,
+        sequence=None,
+        source_type=scan.source_type,
+        source_origin=None,
+        query=scan.query,
+        requested_limit=None,
+        lineage_status="untracked",
+        scan_status=scan.status,
+        started_at=scan.started_at,
+        finished_at=scan.finished_at,
+        items_found=scan.items_found,
+        items_saved=scan.items_saved,
+        signals_detected=scan.signals_detected,
+        clusters_created=scan.clusters_created,
+        opportunities_created=scan.opportunities_created,
+        created_at=scan.started_at,
+    )
+
+
 def source_to_out(source: Source) -> SourceOut:
     return SourceOut(
         id=source.id,
@@ -384,6 +551,78 @@ def source_to_out(source: Source) -> SourceOut:
         enabled=source.enabled,
         created_at=source.created_at,
     )
+
+
+def discourse_source_or_error(db: Session, source_id: UUID) -> Source:
+    source = db.get(Source, source_id)
+    if source is None:
+        raise HTTPException(status_code=404, detail="Source not found")
+    if canonical_source(source.type) != "discourse":
+        raise HTTPException(
+            status_code=409,
+            detail="Only Discourse sources support host authorization.",
+        )
+    return source
+
+
+def source_authorization_to_out(
+    source: Source,
+    state: DiscourseSourceState | None,
+) -> SourceAuthorizationOut:
+    return SourceAuthorizationOut(
+        source_id=source.id,
+        source_type=canonical_source(source.type),
+        origin=state.origin if state is not None else None,
+        host=state.host if state is not None else None,
+        port=state.port if state is not None else None,
+        authorized=bool(
+            state is not None
+            and state.authorized_at is not None
+            and state.terms_confirmed_at is not None
+        ),
+        authorized_at=as_utc(state.authorized_at) if state is not None else None,
+        terms_confirmed_at=(
+            as_utc(state.terms_confirmed_at) if state is not None else None
+        ),
+    )
+
+
+def validate_project_source_binding(
+    db: Session,
+    *,
+    source_type: str,
+    source_id: UUID | None,
+) -> Source | None:
+    if source_type == "discourse" and source_id is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Discourse projects require an authorized source_id.",
+        )
+    if source_id is None:
+        return None
+
+    source = db.get(Source, source_id)
+    if source is None:
+        raise HTTPException(status_code=404, detail="Configured source not found")
+    if canonical_source(source.type) != source_type:
+        raise HTTPException(
+            status_code=409,
+            detail="Configured source type does not match the research project source_type.",
+        )
+    if not source.enabled:
+        raise HTTPException(status_code=409, detail="Configured source is disabled.")
+    if source_type == "discourse":
+        state = db.get(DiscourseSourceState, source.id)
+        if (
+            state is None
+            or state.authorized_at is None
+            or state.terms_confirmed_at is None
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="Discourse source terms have not been authorized.",
+            )
+    return source
 
 
 def local_workspace_to_out(workspace: LocalWorkspaceSettings) -> LocalWorkspaceOut:
@@ -424,6 +663,20 @@ def reject_sensitive_source_config(config: dict) -> None:
         )
 
 
+def source_payload_values(payload: SourceCreate) -> dict:
+    reject_sensitive_source_config(payload.config_json)
+    source_type = canonical_source(payload.type)
+    if source_type == "discourse" and payload.config_json:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Discourse hosts use the typed authorization endpoint; "
+                "config_json must remain empty."
+            ),
+        )
+    return {**payload.model_dump(), "type": source_type}
+
+
 def get_or_create_local_workspace(db: Session) -> LocalWorkspaceSettings:
     workspace = db.get(LocalWorkspaceSettings, 1)
     if workspace is not None:
@@ -436,26 +689,6 @@ def get_or_create_local_workspace(db: Session) -> LocalWorkspaceSettings:
     return workspace
 
 
-def interval_hours_for_project(
-    cadence: str,
-    explicit_interval: int | None,
-) -> int | None:
-    if explicit_interval:
-        return max(1, min(24 * 31, explicit_interval))
-    return CADENCE_INTERVAL_HOURS.get(cadence.strip().lower())
-
-
-def next_run_at_from(
-    start: datetime,
-    cadence: str,
-    explicit_interval: int | None,
-) -> datetime | None:
-    interval = interval_hours_for_project(cadence, explicit_interval)
-    if interval is None:
-        return None
-    return start + timedelta(hours=interval)
-
-
 def due_project_query(now: datetime):
     return (
         select(ResearchProject)
@@ -466,18 +699,6 @@ def due_project_query(now: datetime):
         )
         .order_by(ResearchProject.next_run_at.asc())
     )
-
-
-def mark_project_ran(project: ResearchProject, scan: ScanJob, now: datetime) -> None:
-    project.last_scan_id = scan.id
-    project.last_run_at = now
-    project.next_run_at = next_run_at_from(
-        now,
-        project.cadence,
-        project.schedule_interval_hours,
-    )
-    project.run_count += 1
-    project.updated_at = now
 
 
 def readiness_payload(db: Session) -> ReadinessOut:
@@ -537,13 +758,22 @@ def item_to_out(
     item: NormalizedItem,
     signal: ItemSignal | None = None,
     review: EvidenceReviewSnapshot | None = None,
+    observation: ScanItem | None = None,
+    agent_review: EvidenceReviewSnapshot | None = None,
 ) -> ItemOut:
     review = review or EvidenceReviewSnapshot()
+    agent_review = agent_review or EvidenceReviewSnapshot()
     return ItemOut(
         id=item.id,
-        source=item.source,
-        external_id=item.external_id,
-        url=item.url,
+        source=(observation.observed_source if observation else None) or item.source,
+        external_id=(
+            (observation.observed_external_id if observation else None)
+            or item.external_id
+        ),
+        url=safe_source_url(
+            (observation.observed_url if observation else None) or item.url,
+            fallback="",
+        ),
         title=item.title,
         body=item.body,
         score=item.score,
@@ -558,8 +788,20 @@ def item_to_out(
         review_label=review.review_label,
         review_note=review.review_note,
         reviewed_at=review.reviewed_at,
+        review_version=review.version,
         review_history_count=review.history_count,
+        agent_review_label=agent_review.review_label,
+        agent_reviewed_at=agent_review.reviewed_at,
+        agent_review_history_count=agent_review.history_count,
+        agent_review_version=agent_review.version,
+        agent_session_id=agent_review.agent_session_id,
     )
+
+
+def as_utc(value: datetime | None) -> datetime | None:
+    if value is None or value.tzinfo is not None:
+        return value
+    return value.replace(tzinfo=UTC)
 
 
 def items_to_out(
@@ -567,8 +809,16 @@ def items_to_out(
     rows: list[tuple[NormalizedItem, ItemSignal | None]],
 ) -> list[ItemOut]:
     snapshots = get_review_snapshots(db, [item.id for item, _signal in rows])
+    agent_snapshots = get_agent_review_snapshots(
+        db, [item.id for item, _signal in rows]
+    )
     return [
-        item_to_out(item, signal, snapshots.get(item.id))
+        item_to_out(
+            item,
+            signal,
+            snapshots.get(item.id),
+            agent_review=agent_snapshots.get(item.id),
+        )
         for item, signal in rows
     ]
 
@@ -577,24 +827,137 @@ def opportunity_to_out(db: Session, opportunity: Opportunity) -> OpportunityOut:
     rows = cluster_signal_rows(db, opportunity.cluster_id)
     items = [item for item, _signal in rows]
     snapshots = get_review_snapshots(db, [item.id for item in items])
+    agent_snapshots = get_agent_review_snapshots(db, [item.id for item in items])
+    evidence_scan_id = opportunity.scan_id
+    if evidence_scan_id is None:
+        evidence_scan_id = db.scalar(
+            select(Opportunity.scan_id)
+            .where(
+                Opportunity.thread_id == opportunity.thread_id,
+                Opportunity.scan_id.is_not(None),
+            )
+            .order_by(Opportunity.created_at.desc(), Opportunity.id.desc())
+            .limit(1)
+        )
+    observations = (
+        {
+            observation.item_id: observation
+            for observation in db.scalars(
+                select(ScanItem).where(
+                    ScanItem.scan_id == evidence_scan_id,
+                    ScanItem.item_id.in_([item.id for item in items]),
+                )
+            ).all()
+        }
+        if evidence_scan_id is not None and items
+        else {}
+    )
     evidence = [
-        item_to_out(item, signal, snapshots.get(item.id))
+        item_to_out(
+            item,
+            signal,
+            snapshots.get(item.id),
+            observations.get(item.id),
+            agent_snapshots.get(item.id),
+        )
         for item, signal in rows
     ]
     top_source = max(
-        {item.source for item in items},
-        key=lambda source: sum(item.source == source for item in items),
+        {item.source for item in evidence},
+        key=lambda source: sum(item.source == source for item in evidence),
         default="fixture",
     )
+    values = {
+        column.name: getattr(opportunity, column.name) for column in Opportunity.__table__.columns
+    }
+    thread = db.get(OpportunityThread, opportunity.thread_id)
+    if thread is not None:
+        values.update(
+            review_state=thread.review_state,
+            review_note=thread.review_note,
+            decision_updated_at=as_utc(thread.decision_updated_at),
+        )
+    detach_event = db.scalar(
+        select(OpportunityDecisionEvent)
+        .where(
+            OpportunityDecisionEvent.event_type == "snapshot_detached",
+            OpportunityDecisionEvent.snapshot_id == opportunity.id,
+        )
+        .order_by(
+            OpportunityDecisionEvent.created_at.desc(),
+            OpportunityDecisionEvent.id.desc(),
+        )
+        .limit(1)
+    )
     return OpportunityOut(
-        **{
-            column.name: getattr(opportunity, column.name)
-            for column in Opportunity.__table__.columns
-        },
+        **values,
+        detached=detach_event is not None,
+        detached_from_thread_id=(detach_event.thread_id if detach_event is not None else None),
         evidence_items=evidence,
         signal_count=len(evidence),
         top_source=top_source,
         evidence_readiness=calculate_evidence_readiness(items, snapshots),
+    )
+
+
+def opportunity_snapshot_to_out(
+    db: Session,
+    opportunity: Opportunity,
+) -> OpportunitySnapshotOut:
+    return OpportunitySnapshotOut(**opportunity_to_out(db, opportunity).model_dump())
+
+
+def opportunity_thread_summary_to_out(
+    db: Session,
+    thread: OpportunityThread,
+) -> OpportunityThreadSummaryOut:
+    snapshot_count = db.scalar(
+        select(func.count()).select_from(Opportunity).where(Opportunity.thread_id == thread.id)
+    )
+    current = (
+        db.get(Opportunity, thread.current_snapshot_id)
+        if thread.current_snapshot_id is not None
+        else None
+    )
+    return OpportunityThreadSummaryOut(
+        id=thread.id,
+        project_id=thread.project_id,
+        lineage_status=thread.lineage_status,
+        review_state=thread.review_state,
+        review_note=thread.review_note,
+        decision_updated_at=as_utc(thread.decision_updated_at),
+        version=thread.version,
+        snapshot_count=snapshot_count or 0,
+        current_snapshot=(
+            opportunity_snapshot_to_out(db, current) if current is not None else None
+        ),
+        created_at=thread.created_at,
+        updated_at=thread.updated_at,
+    )
+
+
+def opportunity_thread_to_out(
+    db: Session,
+    thread: OpportunityThread,
+) -> OpportunityThreadOut:
+    summary = opportunity_thread_summary_to_out(db, thread)
+    snapshots = db.scalars(
+        select(Opportunity)
+        .where(Opportunity.thread_id == thread.id)
+        .order_by(Opportunity.created_at.desc(), Opportunity.id.desc())
+    ).all()
+    events = db.scalars(
+        select(OpportunityDecisionEvent)
+        .where(OpportunityDecisionEvent.thread_id == thread.id)
+        .order_by(
+            OpportunityDecisionEvent.created_at.asc(),
+            OpportunityDecisionEvent.id.asc(),
+        )
+    ).all()
+    return OpportunityThreadOut(
+        **summary.model_dump(),
+        snapshots=[opportunity_snapshot_to_out(db, snapshot) for snapshot in snapshots],
+        decision_history=list(events),
     )
 
 
@@ -961,6 +1324,12 @@ def test_integration(
             status="available",
             detail="This integration is configured through exports or local runtime settings.",
         )
+    if source_type == "discourse":
+        return IntegrationTestOut(
+            id=source_type,
+            status="available",
+            detail="Test an exact authorized Discourse source from its source readiness view.",
+        )
 
     scan_source_for_operator(source_type, x_operator_scan_token)
     try:
@@ -988,8 +1357,7 @@ def create_source(
     db: Session = Depends(get_db),
 ) -> SourceOut:
     require_operator_token(x_operator_scan_token, "Creating sources")
-    reject_sensitive_source_config(payload.config_json)
-    source = Source(**payload.model_dump())
+    source = Source(**source_payload_values(payload))
     db.add(source)
     db.commit()
     db.refresh(source)
@@ -1004,15 +1372,111 @@ def update_source(
     db: Session = Depends(get_db),
 ) -> SourceOut:
     require_operator_token(x_operator_scan_token, "Updating sources")
-    reject_sensitive_source_config(payload.config_json)
     source = db.get(Source, source_id)
     if source is None:
         raise HTTPException(status_code=404, detail="Source not found")
-    for key, value in payload.model_dump().items():
+    values = source_payload_values(payload)
+    if values["type"] != canonical_source(source.type):
+        raise HTTPException(
+            status_code=409,
+            detail="A source connector type is immutable; create a new source instead.",
+        )
+    for key, value in values.items():
         setattr(source, key, value)
     db.commit()
     db.refresh(source)
     return source_to_out(source)
+
+
+@router.get(
+    "/sources/{source_id}/authorization",
+    response_model=SourceAuthorizationOut,
+)
+def get_source_authorization(
+    source_id: UUID,
+    db: Session = Depends(get_db),
+) -> SourceAuthorizationOut:
+    source = discourse_source_or_error(db, source_id)
+    return source_authorization_to_out(
+        source,
+        db.get(DiscourseSourceState, source.id),
+    )
+
+
+@router.put(
+    "/sources/{source_id}/authorization",
+    response_model=SourceAuthorizationOut,
+)
+def authorize_source_host(
+    source_id: UUID,
+    payload: SourceAuthorizationCreate,
+    x_operator_scan_token: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> SourceAuthorizationOut:
+    require_operator_token(x_operator_scan_token, "Authorizing Discourse sources")
+    source = discourse_source_or_error(db, source_id)
+    try:
+        state = authorize_discourse_source(
+            db,
+            source=source,
+            origin=payload.origin,
+            terms_confirmed=payload.terms_confirmed,
+        )
+        db.commit()
+    except InvalidDiscourseOrigin as exc:
+        db.rollback()
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except (ImmutableDiscourseOrigin, InvalidDiscourseSource) as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="That exact Discourse host is already authorized as another source.",
+        ) from exc
+    db.refresh(state)
+    return source_authorization_to_out(source, state)
+
+
+@router.delete(
+    "/sources/{source_id}/authorization",
+    response_model=SourceAuthorizationOut,
+)
+def revoke_source_authorization(
+    source_id: UUID,
+    x_operator_scan_token: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> SourceAuthorizationOut:
+    require_operator_token(x_operator_scan_token, "Revoking Discourse sources")
+    source = discourse_source_or_error(db, source_id)
+    state = db.get(DiscourseSourceState, source.id)
+    if state is not None:
+        revoke_discourse_source(state)
+        db.commit()
+        db.refresh(state)
+    return source_authorization_to_out(source, state)
+
+
+@router.get(
+    "/sources/{source_id}/runtime-state",
+    response_model=SourceRuntimeStateOut,
+)
+@router.get(
+    "/sources/{source_id}/readiness",
+    response_model=SourceRuntimeStateOut,
+    include_in_schema=False,
+)
+def get_source_runtime_state(
+    source_id: UUID,
+    db: Session = Depends(get_db),
+) -> SourceRuntimeStateOut:
+    source = discourse_source_or_error(db, source_id)
+    snapshot = runtime_state_snapshot(
+        source,
+        db.get(DiscourseSourceState, source.id),
+    )
+    return SourceRuntimeStateOut(**snapshot.__dict__)
 
 
 @router.delete("/sources/{source_id}")
@@ -1026,7 +1490,14 @@ def delete_source(
     if source is None:
         raise HTTPException(status_code=404, detail="Source not found")
     db.delete(source)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Source is referenced by a research project and cannot be deleted.",
+        ) from exc
     return {"deleted": True}
 
 
@@ -1039,6 +1510,7 @@ def create_scan(payload: ScanCreate, db: Session = Depends(get_db)) -> ScanJob:
             source=source_type,
             query=payload.query,
             limit=payload.limit,
+            source_id=payload.source_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -1075,12 +1547,18 @@ def create_research_project(
             status_code=400,
             detail=f"Unsupported source '{payload.source_type}'. Supported sources: {supported}.",
         )
+    validate_project_source_binding(
+        db,
+        source_type=source_type,
+        source_id=payload.source_id,
+    )
 
     labels = [label.strip() for label in payload.labels if label.strip()]
     project = ResearchProject(
         name=payload.name.strip(),
         description=payload.description.strip() if payload.description else None,
         source_type=source_type,
+        source_id=payload.source_id,
         query=payload.query.strip(),
         limit=payload.limit,
         cadence=payload.cadence.strip() or "manual",
@@ -1099,6 +1577,131 @@ def create_research_project(
     return research_project_to_out(project)
 
 
+@router.patch("/research-projects/{project_id}", response_model=ResearchProjectOut)
+def update_research_project(
+    project_id: UUID,
+    payload: ResearchProjectUpdate,
+    db: Session = Depends(get_db),
+) -> ResearchProjectOut:
+    db.commit()
+    acquire_database_scan_write_lock_with_retry(db)
+    project = db.scalar(
+        select(ResearchProject)
+        .where(ResearchProject.id == project_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if project is None:
+        db.rollback()
+        raise HTTPException(status_code=404, detail="Research project not found")
+    if (
+        payload.expected_version is not None
+        and payload.expected_version != project.version
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Research project version conflict: "
+                f"expected {payload.expected_version}, current {project.version}."
+            ),
+        )
+
+    supplied = payload.model_fields_set - {"expected_version"}
+    required_fields = {
+        "name",
+        "source_type",
+        "query",
+        "limit",
+        "cadence",
+        "labels",
+        "enabled",
+    }
+    null_required = [
+        field for field in required_fields if field in supplied and getattr(payload, field) is None
+    ]
+    if null_required:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Fields cannot be null: {', '.join(sorted(null_required))}",
+        )
+
+    candidate_source_type = (
+        canonical_source(payload.source_type or "")
+        if "source_type" in supplied
+        else project.source_type
+    )
+    candidate_source_id = (
+        payload.source_id if "source_id" in supplied else project.source_id
+    )
+    if (
+        "source_type" in supplied
+        and "source_id" not in supplied
+        and candidate_source_type != project.source_type
+    ):
+        candidate_source_id = None
+    if supplied & {"source_type", "source_id"}:
+        if candidate_source_type not in CONNECTOR_FACTORIES:
+            supported = ", ".join(sorted(CONNECTOR_FACTORIES))
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Unsupported source '{candidate_source_type}'. "
+                    f"Supported sources: {supported}."
+                ),
+            )
+        validate_project_source_binding(
+            db,
+            source_type=candidate_source_type,
+            source_id=candidate_source_id,
+        )
+
+    if "name" in supplied:
+        name = payload.name.strip() if payload.name else ""
+        if not name:
+            raise HTTPException(status_code=422, detail="Project name cannot be empty")
+        project.name = name
+    if "description" in supplied:
+        project.description = payload.description.strip() if payload.description else None
+    if "source_type" in supplied:
+        project.source_type = candidate_source_type
+    if supplied & {"source_type", "source_id"}:
+        project.source_id = candidate_source_id
+    if "query" in supplied:
+        project.query = (payload.query or "").strip()
+    if "limit" in supplied:
+        project.limit = payload.limit or project.limit
+    if "cadence" in supplied:
+        cadence = payload.cadence.strip() if payload.cadence else ""
+        if not cadence:
+            raise HTTPException(status_code=422, detail="Cadence cannot be empty")
+        project.cadence = cadence
+    if "schedule_interval_hours" in supplied:
+        project.schedule_interval_hours = payload.schedule_interval_hours
+    if "labels" in supplied:
+        labels = [label.strip() for label in (payload.labels or []) if label.strip()]
+        project.labels_json = list(dict.fromkeys(labels))[:12]
+    if "enabled" in supplied:
+        project.enabled = bool(payload.enabled)
+
+    now = datetime.now(UTC)
+    if supplied & {"cadence", "schedule_interval_hours", "enabled"}:
+        project.next_run_at = (
+            next_run_at_from(
+                now,
+                project.cadence,
+                project.schedule_interval_hours,
+            )
+            if project.enabled
+            else None
+        )
+    if supplied:
+        project.updated_at = now
+        project.version += 1
+        db.commit()
+        db.refresh(project)
+    return research_project_to_out(project)
+
+
 @router.post("/research-projects/run-due", response_model=DueRunOut)
 def run_due_research_projects(
     x_operator_scan_token: str | None = Header(default=None),
@@ -1112,6 +1715,18 @@ def run_due_research_projects(
     for project in projects:
         try:
             source_type = scan_source_for_operator(project.source_type, x_operator_scan_token)
+            configured_source = validate_project_source_binding(
+                db,
+                source_type=source_type,
+                source_id=project.source_id,
+            )
+            if source_type == "discourse" and configured_source is not None:
+                readiness = discourse_readiness(
+                    configured_source,
+                    db.get(DiscourseSourceState, configured_source.id),
+                )
+                if not readiness.can_run:
+                    raise HTTPException(status_code=409, detail=readiness.status)
         except HTTPException:
             skipped += 1
             continue
@@ -1121,8 +1736,8 @@ def run_due_research_projects(
             source=source_type,
             query=project.query,
             limit=project.limit,
+            research_project=project,
         )
-        mark_project_ran(project, scan, datetime.now(UTC))
         scans.append(scan)
 
     db.commit()
@@ -1142,6 +1757,66 @@ def get_research_project(
     return research_project_to_out(project)
 
 
+@router.get(
+    "/research-projects/{project_id}/runs",
+    response_model=list[ResearchRunOut],
+)
+def get_research_project_runs(
+    project_id: UUID,
+    db: Session = Depends(get_db),
+) -> list[ResearchRunOut]:
+    project = db.get(ResearchProject, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Research project not found")
+
+    runs = list_project_runs(db, project_id)
+    output = [research_run_to_out(run) for run in runs]
+    tracked_scan_ids = {run.scan_id for run in runs}
+    if project.last_scan_id and project.last_scan_id not in tracked_scan_ids:
+        legacy_scan = db.get(ScanJob, project.last_scan_id)
+        if legacy_scan is not None:
+            output.append(untracked_research_run_to_out(project, legacy_scan))
+    return output
+
+
+@router.get(
+    "/research-projects/{project_id}/runs/{run_id}/delta",
+    response_model=RunDeltaOut,
+)
+def get_research_project_run_delta(
+    project_id: UUID,
+    run_id: UUID,
+    db: Session = Depends(get_db),
+) -> RunDeltaOut:
+    project = db.get(ResearchProject, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Research project not found")
+    run = get_project_run(db, project_id, run_id)
+    if run is None:
+        if project.last_scan_id == run_id:
+            raise HTTPException(
+                status_code=409,
+                detail="Legacy run lineage is untracked and cannot be compared safely.",
+            )
+        raise HTTPException(status_code=404, detail="Research run not found")
+    try:
+        delta = calculate_run_delta(db, run)
+    except IncompleteRunError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return RunDeltaOut(
+        project_id=delta.project_id,
+        run_id=delta.run_id,
+        scan_id=delta.scan_id,
+        sequence=delta.sequence,
+        previous_run_id=delta.previous_run_id,
+        evidence_changes=delta.evidence_changes,
+        signal_changes=delta.signal_changes,
+        generated_snapshots=delta.generated_snapshots,
+        opportunity_changes=delta.opportunity_changes,
+        warnings=[],
+    )
+
+
 @router.post("/research-projects/{project_id}/run", response_model=ScanOut)
 def run_research_project(
     project_id: UUID,
@@ -1155,15 +1830,28 @@ def run_research_project(
         raise HTTPException(status_code=409, detail="Research project is disabled")
 
     source_type = scan_source_for_operator(project.source_type, x_operator_scan_token)
+    configured_source = validate_project_source_binding(
+        db,
+        source_type=source_type,
+        source_id=project.source_id,
+    )
+    if source_type == "discourse" and configured_source is not None:
+        readiness = discourse_readiness(
+            configured_source,
+            db.get(DiscourseSourceState, configured_source.id),
+        )
+        if not readiness.can_run:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Discourse source is not ready: {readiness.status}.",
+            )
     scan = process_scan(
         db,
         source=source_type,
         query=project.query,
         limit=project.limit,
+        research_project=project,
     )
-    mark_project_ran(project, scan, datetime.now(UTC))
-    db.commit()
-    db.refresh(scan)
     return scan
 
 
@@ -1189,7 +1877,13 @@ def get_item(item_id: UUID, db: Session = Depends(get_db)) -> ItemOut:
         raise HTTPException(status_code=404, detail="Item not found")
     item, signal = row
     snapshots = get_review_snapshots(db, [item.id])
-    return item_to_out(item, signal, snapshots.get(item.id))
+    agent_snapshots = get_agent_review_snapshots(db, [item.id])
+    return item_to_out(
+        item,
+        signal,
+        snapshots.get(item.id),
+        agent_review=agent_snapshots.get(item.id),
+    )
 
 
 @router.post("/process/demo", response_model=ProcessSummary)
@@ -1215,7 +1909,774 @@ def run_demo(
 @router.post("/process/cluster")
 @router.post("/process/generate-opportunities")
 def process_stage() -> dict:
-    return {"status": "available in the combined demo pipeline", "endpoint": "/api/process/demo"}
+    return {
+        "status": "available in the combined demo pipeline",
+        "endpoint": "/api/v1/process/demo",
+    }
+
+
+@router.get(
+    "/opportunity-threads",
+    response_model=list[OpportunityThreadSummaryOut],
+)
+def list_opportunity_threads(
+    project_id: UUID | None = None,
+    review_state: ReviewState | None = None,
+    db: Session = Depends(get_db),
+) -> list[OpportunityThreadSummaryOut]:
+    query = select(OpportunityThread).order_by(
+        OpportunityThread.updated_at.desc(),
+        OpportunityThread.id.desc(),
+    )
+    if project_id is not None:
+        query = query.where(OpportunityThread.project_id == project_id)
+    if review_state is not None:
+        query = query.where(OpportunityThread.review_state == review_state.value)
+    return [opportunity_thread_summary_to_out(db, thread) for thread in db.scalars(query).all()]
+
+
+@router.get(
+    "/opportunity-threads/{thread_id}",
+    response_model=OpportunityThreadOut,
+)
+def get_opportunity_thread(
+    thread_id: UUID,
+    db: Session = Depends(get_db),
+) -> OpportunityThreadOut:
+    thread = db.get(OpportunityThread, thread_id)
+    if thread is None:
+        raise HTTPException(status_code=404, detail="Opportunity thread not found")
+    return opportunity_thread_to_out(db, thread)
+
+
+@router.patch(
+    "/opportunity-threads/{thread_id}/decision",
+    response_model=OpportunityThreadOut,
+)
+def update_opportunity_thread_decision(
+    thread_id: UUID,
+    payload: OpportunityDecisionUpdate,
+    db: Session = Depends(get_db),
+) -> OpportunityThreadOut:
+    thread = db.get(OpportunityThread, thread_id)
+    if thread is None:
+        raise HTTPException(status_code=404, detail="Opportunity thread not found")
+    try:
+        set_thread_decision(
+            db,
+            thread=thread,
+            review_state=payload.review_state.value,
+            review_note=payload.review_note,
+            expected_version=payload.expected_version,
+            actor_type="human",
+        )
+    except ThreadVersionConflict as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    commit_review_write(db, "Could not save the opportunity-thread decision.")
+    return opportunity_thread_to_out(db, thread)
+
+
+@router.post(
+    "/opportunity-threads/{thread_id}/snapshots/{snapshot_id}/detach",
+    response_model=DetachSnapshotOut,
+)
+def detach_opportunity_snapshot(
+    thread_id: UUID,
+    snapshot_id: UUID,
+    payload: DetachSnapshotRequest,
+    db: Session = Depends(get_db),
+) -> DetachSnapshotOut:
+    with SCAN_WRITE_LOCK:
+        acquire_database_scan_write_lock_with_retry(db)
+        thread = db.scalar(
+            select(OpportunityThread)
+            .where(OpportunityThread.id == thread_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if thread is None:
+            db.rollback()
+            raise HTTPException(status_code=404, detail="Opportunity thread not found")
+        snapshot = db.get(Opportunity, snapshot_id)
+        if snapshot is None:
+            db.rollback()
+            raise HTTPException(status_code=404, detail="Opportunity snapshot not found")
+        try:
+            new_thread = detach_thread_snapshot(
+                db,
+                thread=thread,
+                snapshot=snapshot,
+                expected_version=payload.expected_version,
+            )
+        except (DetachNotAllowed, ThreadVersionConflict) as exc:
+            db.rollback()
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        commit_review_write(db, "Could not detach the opportunity snapshot.")
+    return DetachSnapshotOut(
+        source_thread=opportunity_thread_to_out(db, thread),
+        new_thread=opportunity_thread_to_out(db, new_thread),
+    )
+
+
+def canonical_packet_json(value: object) -> str:
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        indent=2,
+        sort_keys=True,
+        separators=(",", ": "),
+    ) + "\n"
+
+
+def packet_sha256(content: str) -> str:
+    return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+
+def resolve_packet_run(
+    db: Session,
+    thread: OpportunityThread,
+    snapshot: Opportunity,
+) -> ResearchProjectRun | None:
+    run = db.get(ResearchProjectRun, snapshot.run_id) if snapshot.run_id else None
+    if run is None and snapshot.scan_id is not None:
+        run = db.scalar(
+            select(ResearchProjectRun).where(ResearchProjectRun.scan_id == snapshot.scan_id)
+        )
+    if run is None:
+        cluster = db.get(Cluster, snapshot.cluster_id)
+        if cluster is not None and cluster.scan_id is not None:
+            run = db.scalar(
+                select(ResearchProjectRun).where(
+                    ResearchProjectRun.scan_id == cluster.scan_id
+                )
+            )
+    if run is None or thread.project_id is None or run.project_id != thread.project_id:
+        return None
+    return run
+
+
+def packet_source_snapshot(
+    db: Session,
+    thread: OpportunityThread,
+    snapshot: Opportunity,
+) -> tuple[dict, list[dict], dict, str]:
+    output = opportunity_to_out(db, snapshot)
+    readiness = output.evidence_readiness
+    evidence_ids = [item.id for item in output.evidence_items]
+    if unresolved_sensitive_risk(
+        get_review_snapshots(db, evidence_ids),
+        get_agent_review_snapshots(db, evidence_ids),
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Build packet blocked: current evidence includes sensitive_risk.",
+        )
+    if readiness.level not in {
+        EvidenceReadinessLevel.MEDIUM,
+        EvidenceReadinessLevel.STRONG,
+    }:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Build packet requires medium or strong evidence readiness; "
+                f"current readiness is {readiness.level.value}."
+            ),
+        )
+
+    item_rows = {
+        item.id: item
+        for item in db.scalars(
+            select(NormalizedItem).where(
+                NormalizedItem.id.in_([item.id for item in output.evidence_items])
+            )
+        ).all()
+    }
+    provenance_run = resolve_packet_run(db, thread, snapshot)
+    provenance_scan_id = (
+        snapshot.scan_id
+        or (provenance_run.scan_id if provenance_run is not None else None)
+    )
+    observations = (
+        {
+            observation.item_id: observation
+            for observation in db.scalars(
+                select(ScanItem).where(
+                    ScanItem.scan_id == provenance_scan_id,
+                    ScanItem.item_id.in_([item.id for item in output.evidence_items]),
+                )
+            ).all()
+        }
+        if provenance_scan_id is not None
+        else {}
+    )
+    evidence = [
+        {
+            "id": str(item.id),
+            "source": (
+                observations[item.id].observed_source
+                if item.id in observations and observations[item.id].observed_source
+                else item.source
+            ),
+            "external_id": (
+                observations[item.id].observed_external_id
+                if item.id in observations and observations[item.id].observed_external_id
+                else item.external_id
+            ),
+            "title": item.title,
+            "excerpt": evidence_excerpt(item),
+            "source_url": safe_source_url(
+                (
+                    observations[item.id].observed_url
+                    if item.id in observations and observations[item.id].observed_url
+                    else item.url
+                ),
+                fallback="",
+            ),
+            "evidence_hash": (
+                item_rows[item.id].text_hash if item.id in item_rows else None
+            ),
+            "scan_id": str(provenance_scan_id) if provenance_scan_id else None,
+            "run_id": str(provenance_run.id) if provenance_run else None,
+            "project_id": str(thread.project_id) if thread.project_id else None,
+            "created_at": as_utc(item.created_at).isoformat(),
+            "signal_type": item.signal_type,
+            "review_label": item.review_label.value if item.review_label else None,
+        }
+        for item in output.evidence_items
+    ]
+    decision_event = db.scalar(
+        select(OpportunityDecisionEvent)
+        .where(
+            OpportunityDecisionEvent.thread_id == thread.id,
+            OpportunityDecisionEvent.event_type.in_(
+                ["decision_changed", "legacy_backfill"]
+            ),
+            OpportunityDecisionEvent.next_state == thread.review_state,
+        )
+        .order_by(
+            OpportunityDecisionEvent.created_at.desc(),
+            OpportunityDecisionEvent.id.desc(),
+        )
+        .limit(1)
+    )
+    decision = (
+        {
+            "id": str(decision_event.id),
+            "event_type": decision_event.event_type,
+            "actor_type": decision_event.actor_type,
+            "agent_session_id": (
+                str(decision_event.agent_session_id)
+                if decision_event.agent_session_id
+                else None
+            ),
+            "snapshot_id": (
+                str(decision_event.snapshot_id) if decision_event.snapshot_id else None
+            ),
+            "related_thread_id": (
+                str(decision_event.related_thread_id)
+                if decision_event.related_thread_id
+                else None
+            ),
+            "previous_state": decision_event.previous_state,
+            "next_state": decision_event.next_state,
+            "created_at": as_utc(decision_event.created_at).isoformat(),
+        }
+        if decision_event is not None
+        else None
+    )
+    safe_snapshot = {
+        "title": snapshot.title,
+        "problem_statement": snapshot.problem_statement,
+        "target_user": snapshot.target_user,
+        "current_workaround": snapshot.current_workaround,
+        "suggested_mvp": snapshot.suggested_mvp,
+        "why_now": snapshot.why_now,
+        "feasibility_score": snapshot.feasibility_score,
+        "opportunity_score": snapshot.opportunity_score,
+        "competition_notes": snapshot.competition_notes,
+        "review_state": thread.review_state,
+        "readiness": readiness.level.value,
+        "evidence_hash": snapshot.evidence_hash,
+        "content_hash": snapshot.content_hash,
+        "match_method": snapshot.match_method,
+        "match_confidence": snapshot.match_confidence,
+        "decision": decision,
+    }
+    source_snapshot = {
+        "thread_version": thread.version,
+        "lineage_status": thread.lineage_status,
+        "opportunity": safe_snapshot,
+        "evidence": evidence,
+        "readiness": readiness.model_dump(mode="json"),
+    }
+    signature = packet_sha256(canonical_packet_json(source_snapshot))
+    return safe_snapshot, evidence, source_snapshot, signature
+
+
+def packet_artifact_out(path: str, content: str) -> BuildPacketArtifactOut:
+    return BuildPacketArtifactOut(
+        path=path,
+        content=content,
+        byte_count=len(content.encode("utf-8")),
+        sha256=packet_sha256(content),
+    )
+
+
+def packet_to_out(packet: BuildPacket) -> BuildPacketOut:
+    originals = dict(packet.artifacts_json)
+    enhanced = dict(packet.enhanced_artifacts_json or {})
+    manifest_content = canonical_packet_json(packet.manifest_json)
+    files = {
+        **originals,
+        **enhanced,
+        MANIFEST_FILENAME: manifest_content,
+    }
+    if not all(isinstance(path, str) and isinstance(content, str) for path, content in files.items()):
+        raise HTTPException(status_code=500, detail="Stored build packet artifacts are invalid.")
+    return BuildPacketOut(
+        id=packet.id,
+        project_id=packet.project_id,
+        run_id=packet.run_id,
+        thread_id=packet.thread_id,
+        snapshot_id=packet.snapshot_id,
+        lineage_status=packet.lineage_status,
+        generation_mode=packet.generation_mode,
+        schema_version=packet.schema_version,
+        tasksignal_version=packet.tasksignal_version,
+        template_version=packet.template_version,
+        generated_at=packet.generated_at,
+        enhancement_status=packet.enhancement_status,
+        enhancement_provider=packet.enhancement_provider,
+        enhancement_model=packet.enhancement_model,
+        enhancement_template_version=packet.enhancement_template_version,
+        artifacts=[packet_artifact_out(path, content) for path, content in sorted(files.items())],
+        manifest=packet.manifest_json,
+        manifest_sha256=packet.manifest_sha256,
+        created_at=packet.created_at,
+    )
+
+
+def packet_summary_to_out(packet: BuildPacket) -> BuildPacketSummaryOut:
+    originals = packet.artifacts_json if isinstance(packet.artifacts_json, dict) else {}
+    enhanced = (
+        packet.enhanced_artifacts_json
+        if isinstance(packet.enhanced_artifacts_json, dict)
+        else {}
+    )
+    contents = [
+        content
+        for content in [
+            *originals.values(),
+            *enhanced.values(),
+            canonical_packet_json(packet.manifest_json),
+        ]
+        if isinstance(content, str)
+    ]
+    return BuildPacketSummaryOut(
+        id=packet.id,
+        project_id=packet.project_id,
+        run_id=packet.run_id,
+        thread_id=packet.thread_id,
+        snapshot_id=packet.snapshot_id,
+        lineage_status=packet.lineage_status,
+        generation_mode=packet.generation_mode,
+        schema_version=packet.schema_version,
+        tasksignal_version=packet.tasksignal_version,
+        template_version=packet.template_version,
+        generated_at=packet.generated_at,
+        enhancement_status=packet.enhancement_status,
+        enhancement_provider=packet.enhancement_provider,
+        enhancement_model=packet.enhancement_model,
+        artifact_count=len(originals) + len(enhanced) + 1,
+        total_bytes=sum(len(content.encode("utf-8")) for content in contents),
+        manifest_sha256=packet.manifest_sha256,
+        created_at=packet.created_at,
+    )
+
+
+def verify_packet_record(packet: BuildPacket) -> BuildPacketVerificationOut:
+    originals = dict(packet.artifacts_json) if isinstance(packet.artifacts_json, dict) else {}
+    enhanced = (
+        dict(packet.enhanced_artifacts_json)
+        if isinstance(packet.enhanced_artifacts_json, dict)
+        else {}
+    )
+    manifest = packet.manifest_json if isinstance(packet.manifest_json, dict) else {}
+    verification = verify_packet_artifacts(originals, manifest, enhanced)
+    errors = list(verification.errors)
+    if not isinstance(packet.manifest_json, dict):
+        errors.append("MANIFEST.json must contain an object")
+    manifest_content = canonical_packet_json(packet.manifest_json)
+    if packet_sha256(manifest_content) != packet.manifest_sha256:
+        errors.append("MANIFEST.json sha256 mismatch")
+    source_snapshot = (
+        packet.source_snapshot_json if isinstance(packet.source_snapshot_json, dict) else {}
+    )
+    if not isinstance(packet.source_snapshot_json, dict):
+        errors.append("source snapshot must contain an object")
+    if (
+        manifest.get("source_snapshot_sha256")
+        != packet_sha256(canonical_packet_json(packet.source_snapshot_json))
+    ):
+        errors.append("source snapshot sha256 mismatch")
+    opportunity_snapshot = source_snapshot.get("opportunity")
+    decision = (
+        opportunity_snapshot.get("decision")
+        if isinstance(opportunity_snapshot, dict)
+        else None
+    )
+    expected_decision_id = decision.get("id") if isinstance(decision, dict) else None
+    expected_decision_hash = (
+        packet_sha256(canonical_packet_json(decision))
+        if isinstance(decision, dict)
+        else None
+    )
+    if manifest.get("decision_event_id") != expected_decision_id:
+        errors.append("manifest metadata mismatch for decision_event_id")
+    if manifest.get("decision_sha256") != expected_decision_hash:
+        errors.append("manifest metadata mismatch for decision_sha256")
+
+    expected_metadata = {
+        "packet_id": str(packet.id),
+        "project_id": str(packet.project_id) if packet.project_id else None,
+        "run_id": str(packet.run_id) if packet.run_id else None,
+        "thread_id": str(packet.thread_id),
+        "snapshot_id": str(packet.snapshot_id),
+        "lineage_status": packet.lineage_status,
+        "schema_version": packet.schema_version,
+        "tasksignal_version": packet.tasksignal_version,
+        "template_version": packet.template_version,
+        "generation_mode": packet.generation_mode,
+        "generated_at": as_utc(packet.generated_at).isoformat().replace("+00:00", "Z"),
+    }
+    for key, expected in expected_metadata.items():
+        if manifest.get(key) != expected:
+            errors.append(f"manifest metadata mismatch for {key}")
+    enhancement = manifest.get("enhancement")
+    if not isinstance(enhancement, dict) or enhancement.get("status") != packet.enhancement_status:
+        errors.append("manifest metadata mismatch for enhancement_status")
+    elif packet.enhancement_status != "not_requested":
+        if enhancement.get("provider") != packet.enhancement_provider:
+            errors.append("manifest metadata mismatch for enhancement_provider")
+        if enhancement.get("model") != packet.enhancement_model:
+            errors.append("manifest metadata mismatch for enhancement_model")
+        if enhancement.get("template_version") != packet.enhancement_template_version:
+            errors.append("manifest metadata mismatch for enhancement_template_version")
+
+    missing: list[str] = []
+    unexpected: list[str] = []
+    mismatched: list[str] = []
+    for error in errors:
+        if error.startswith(("missing packet file(s): ", "missing enhanced packet file(s): ")):
+            missing.extend(error.split(": ", 1)[1].split(", "))
+        elif error.startswith(("manifest is missing artifact(s): ", "manifest is missing enhanced artifact(s): ")):
+            missing.extend(error.split(": ", 1)[1].split(", "))
+        elif error.startswith(("manifested file is missing: ", "manifested enhanced file is missing: ")):
+            missing.append(error.split(": ", 1)[1])
+        elif error.startswith(("unexpected packet file(s): ", "unexpected enhanced packet file(s): ")):
+            unexpected.extend(error.split(": ", 1)[1].split(", "))
+        elif error.startswith(("byte count mismatch for ", "sha256 mismatch for ")):
+            mismatched.append(error.rsplit(" for ", 1)[1])
+        elif error == "MANIFEST.json sha256 mismatch":
+            mismatched.append(MANIFEST_FILENAME)
+    return BuildPacketVerificationOut(
+        packet_id=packet.id,
+        valid=not errors,
+        errors=list(dict.fromkeys(errors)),
+        missing_files=sorted(set(missing)),
+        unexpected_files=sorted(set(unexpected)),
+        mismatched_files=sorted(set(mismatched)),
+    )
+
+
+def enhancement_failure_code(exc: Exception) -> str:
+    if isinstance(exc, EnhancementUnavailable):
+        return "unavailable"
+    if isinstance(exc, httpx.TimeoutException):
+        return "timeout"
+    if isinstance(exc, httpx.HTTPError):
+        return "provider_error"
+    if isinstance(exc, InvalidBuildPacketEnhancement):
+        return "invalid_response"
+    return "invalid_response"
+
+
+@router.post(
+    "/opportunity-threads/{thread_id}/build-packets",
+    response_model=BuildPacketOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_build_packet(
+    thread_id: UUID,
+    payload: BuildPacketCreate,
+    x_operator_scan_token: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> BuildPacketOut:
+    if payload.use_configured_ai:
+        require_operator_token(x_operator_scan_token, "Configured-AI packet generation")
+
+    thread = db.get(OpportunityThread, thread_id)
+    if thread is None:
+        raise HTTPException(status_code=404, detail="Opportunity thread not found")
+    if thread.review_state != ReviewState.BUILD_CANDIDATE.value:
+        raise HTTPException(
+            status_code=409,
+            detail="Build packet requires review_state=build_candidate.",
+        )
+    if payload.expected_version is not None and thread.version != payload.expected_version:
+        raise HTTPException(status_code=409, detail="Opportunity thread version conflict.")
+    if thread.current_snapshot_id is None:
+        raise HTTPException(status_code=409, detail="Opportunity thread has no current snapshot.")
+    snapshot = db.get(Opportunity, thread.current_snapshot_id)
+    if snapshot is None or snapshot.thread_id != thread.id:
+        raise HTTPException(status_code=409, detail="Opportunity thread snapshot is invalid.")
+    initial_thread_version = thread.version
+    initial_snapshot_id = snapshot.id
+
+    safe_snapshot, evidence, source_snapshot, eligibility_signature = packet_source_snapshot(
+        db, thread, snapshot
+    )
+    run = resolve_packet_run(db, thread, snapshot)
+    project_id = thread.project_id if run is not None else None
+    run_id = run.id if run is not None else None
+    packet_id = uuid4()
+    generated_at = datetime.now(UTC)
+    generated = build_packet_artifacts(
+        safe_snapshot,
+        evidence,
+        BuildPacketMetadata(
+            packet_id=packet_id,
+            project_id=project_id,
+            run_id=run_id,
+            thread_id=thread.id,
+            snapshot_id=initial_snapshot_id,
+            tasksignal_version=TASKSIGNAL_VERSION,
+            schema_version=BUILD_PACKET_SCHEMA_VERSION,
+            template_version=BUILD_PACKET_TEMPLATE_VERSION,
+        ),
+        generated_at,
+    )
+
+    enhanced_artifacts: dict[str, str] | None = None
+    enhancement_status = "not_requested"
+    enhancement_provider: str | None = None
+    enhancement_model: str | None = None
+    enhancement_template_version: str | None = None
+    decision = safe_snapshot.get("decision")
+    manifest = {
+        **generated.manifest,
+        "source_snapshot_sha256": eligibility_signature,
+        "lineage_status": thread.lineage_status,
+        "decision_event_id": decision.get("id") if isinstance(decision, dict) else None,
+        "decision_sha256": (
+            packet_sha256(canonical_packet_json(decision))
+            if isinstance(decision, dict)
+            else None
+        ),
+    }
+    if payload.use_configured_ai:
+        provider_hint = configured_provider()
+        provider_metadata = provider_hint if provider_hint != "none" else "unconfigured"
+        model_metadata = settings.llm_model.strip() or "unconfigured"
+        try:
+            provider, model, raw_enhancement = enhance_prompt(
+                build_enhancement_prompt(generated.artifacts)
+            )
+            enhanced_artifacts = parse_enhanced_documents(raw_enhancement)
+            enhancement_status = "generated"
+            enhancement_provider = provider
+            enhancement_model = model
+            manifest = manifest_with_enhancement(
+                manifest,
+                status="generated",
+                provider=provider,
+                model=model,
+                enhanced_artifacts=enhanced_artifacts,
+            )
+        except (
+            AttributeError,
+            EnhancementUnavailable,
+            InvalidBuildPacketEnhancement,
+            TypeError,
+            ValueError,
+            httpx.HTTPError,
+        ) as exc:
+            enhancement_status = "fallback"
+            enhancement_provider = provider_metadata
+            enhancement_model = model_metadata
+            manifest = manifest_with_enhancement(
+                manifest,
+                status="fallback",
+                provider=provider_metadata,
+                model=model_metadata,
+                failure_code=enhancement_failure_code(exc),
+            )
+        enhancement_template_version = ENHANCEMENT_TEMPLATE_VERSION
+        db.rollback()
+
+    generated_verification = verify_packet_artifacts(
+        generated.artifacts,
+        manifest,
+        enhanced_artifacts,
+    )
+    if not generated_verification.valid:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="Generated build packet failed local integrity validation.",
+        )
+
+    db.rollback()
+    with SCAN_WRITE_LOCK:
+        acquire_database_scan_write_lock_with_retry(db)
+        fresh_thread = db.scalar(
+            select(OpportunityThread)
+            .where(OpportunityThread.id == thread_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if (
+            fresh_thread is None
+            or fresh_thread.review_state != ReviewState.BUILD_CANDIDATE.value
+            or fresh_thread.current_snapshot_id != initial_snapshot_id
+            or fresh_thread.version != initial_thread_version
+        ):
+            db.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail="Build packet eligibility changed during generation.",
+            )
+        fresh_snapshot = db.get(Opportunity, initial_snapshot_id)
+        if fresh_snapshot is None:
+            db.rollback()
+            raise HTTPException(status_code=409, detail="Opportunity snapshot changed.")
+        _, _, _, fresh_signature = packet_source_snapshot(db, fresh_thread, fresh_snapshot)
+        if fresh_signature != eligibility_signature:
+            db.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail="Build packet eligibility changed during generation.",
+            )
+
+        manifest_content = canonical_packet_json(manifest)
+        packet = BuildPacket(
+            id=packet_id,
+            project_id=project_id,
+            run_id=run_id,
+            thread_id=fresh_thread.id,
+            snapshot_id=fresh_snapshot.id,
+            lineage_status=fresh_thread.lineage_status,
+            generation_mode=(
+                "configured_ai" if payload.use_configured_ai else "deterministic"
+            ),
+            schema_version=BUILD_PACKET_SCHEMA_VERSION,
+            tasksignal_version=TASKSIGNAL_VERSION,
+            template_version=BUILD_PACKET_TEMPLATE_VERSION,
+            source_snapshot_json=source_snapshot,
+            artifacts_json=generated.artifacts,
+            manifest_json=manifest,
+            manifest_sha256=packet_sha256(manifest_content),
+            enhancement_status=enhancement_status,
+            enhanced_artifacts_json=enhanced_artifacts,
+            enhancement_provider=enhancement_provider,
+            enhancement_model=enhancement_model,
+            enhancement_template_version=enhancement_template_version,
+            generated_at=generated_at,
+        )
+        db.add(packet)
+        commit_review_write(db, "Could not store the immutable build packet.")
+        db.refresh(packet)
+    return packet_to_out(packet)
+
+
+@router.get(
+    "/opportunity-threads/{thread_id}/build-packets",
+    response_model=list[BuildPacketSummaryOut],
+)
+def list_build_packets(
+    thread_id: UUID,
+    limit: int = 20,
+    offset: int = 0,
+    db: Session = Depends(get_db),
+) -> list[BuildPacketSummaryOut]:
+    if limit < 1 or limit > 100 or offset < 0:
+        raise HTTPException(
+            status_code=422,
+            detail="Build packet pagination requires limit 1-100 and offset >= 0.",
+        )
+    if db.get(OpportunityThread, thread_id) is None:
+        raise HTTPException(status_code=404, detail="Opportunity thread not found")
+    packets = db.scalars(
+        select(BuildPacket)
+        .where(BuildPacket.thread_id == thread_id)
+        .order_by(BuildPacket.created_at.desc(), BuildPacket.id.desc())
+        .offset(offset)
+        .limit(limit)
+    ).all()
+    return [packet_summary_to_out(packet) for packet in packets]
+
+
+@router.get("/build-packets/{packet_id}", response_model=BuildPacketOut)
+def get_build_packet(packet_id: UUID, db: Session = Depends(get_db)) -> BuildPacketOut:
+    packet = db.get(BuildPacket, packet_id)
+    if packet is None:
+        raise HTTPException(status_code=404, detail="Build packet not found")
+    return packet_to_out(packet)
+
+
+@router.get(
+    "/build-packets/{packet_id}/verify",
+    response_model=BuildPacketVerificationOut,
+)
+def verify_build_packet(
+    packet_id: UUID,
+    db: Session = Depends(get_db),
+) -> BuildPacketVerificationOut:
+    packet = db.get(BuildPacket, packet_id)
+    if packet is None:
+        raise HTTPException(status_code=404, detail="Build packet not found")
+    return verify_packet_record(packet)
+
+
+@router.get(
+    "/build-packets/{packet_id}/download",
+    response_class=Response,
+    responses={
+        200: {
+            "description": "Verified immutable build-packet archive.",
+            "content": {
+                "application/zip": {
+                    "schema": {"type": "string", "format": "binary"}
+                }
+            },
+        }
+    },
+)
+def download_build_packet(packet_id: UUID, db: Session = Depends(get_db)) -> Response:
+    packet = db.get(BuildPacket, packet_id)
+    if packet is None:
+        raise HTTPException(status_code=404, detail="Build packet not found")
+    verification = verify_packet_record(packet)
+    if not verification.valid:
+        raise HTTPException(
+            status_code=409,
+            detail="Build packet integrity verification failed before download.",
+        )
+    archive = deterministic_zip_bytes(
+        packet.artifacts_json,
+        packet.manifest_json,
+        packet.enhanced_artifacts_json,
+    )
+    return Response(
+        archive,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="tasksignal-packet-{packet.id}.zip"',
+            "Content-Length": str(len(archive)),
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 @router.get("/opportunities", response_model=list[OpportunityOut])
@@ -1223,9 +2684,16 @@ def list_opportunities(
     review_state: ReviewState | None = None,
     db: Session = Depends(get_db),
 ) -> list[OpportunityOut]:
-    query = select(Opportunity).order_by(Opportunity.opportunity_score.desc())
+    query = (
+        select(Opportunity)
+        .join(
+            OpportunityThread,
+            OpportunityThread.id == Opportunity.thread_id,
+        )
+        .order_by(Opportunity.opportunity_score.desc())
+    )
     if review_state is not None:
-        query = query.where(Opportunity.review_state == review_state.value)
+        query = query.where(OpportunityThread.review_state == review_state.value)
     return [opportunity_to_out(db, item) for item in db.scalars(query).all()]
 
 
@@ -1249,12 +2717,22 @@ def update_opportunity_review(
     opportunity = db.get(Opportunity, opportunity_id)
     if opportunity is None:
         raise HTTPException(status_code=404, detail="Opportunity not found")
-    note = payload.review_note.strip() if payload.review_note else None
-    opportunity.review_state = payload.review_state.value
-    opportunity.review_note = note or None
-    opportunity.decision_updated_at = datetime.now(UTC)
+    thread = db.get(OpportunityThread, opportunity.thread_id)
+    if thread is None:
+        raise HTTPException(status_code=409, detail="Opportunity has no decision thread")
+    try:
+        set_thread_decision(
+            db,
+            thread=thread,
+            review_state=payload.review_state.value,
+            review_note=payload.review_note,
+            expected_version=None,
+            actor_type="human",
+        )
+    except ThreadVersionConflict as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     commit_review_write(db, "Could not save the opportunity decision.")
-    db.refresh(opportunity)
     return opportunity_to_out(db, opportunity)
 
 
@@ -1286,21 +2764,29 @@ def regenerate_opportunity(opportunity_id: UUID, db: Session = Depends(get_db)) 
     score = score_opportunity(generation_items, candidate_text)
     generated = generate_opportunity(source_title, source_summary, generation_items, score)
 
-    opportunity.title = generated["title"]
-    opportunity.problem_statement = generated["problem_statement"]
-    opportunity.target_user = generated["target_user"]
-    opportunity.current_workaround = generated["current_workaround"]
-    opportunity.suggested_mvp = generated["suggested_mvp"]
-    opportunity.why_now = generated["why_now"]
-    opportunity.feasibility_score = generated["feasibility_score"]
-    opportunity.opportunity_score = generated["opportunity_score"]
-    opportunity.competition_notes = generated["competition_notes"]
-    opportunity.scoring_breakdown_json = {**score, "common_phrases": generated["common_phrases"]}
-    opportunity.generated_prompt = generated["generated_prompt"]
-    opportunity.updated_at = datetime.now(UTC)
+    regenerated = clone_snapshot(
+        db,
+        source=opportunity,
+        method="regenerated",
+        overrides={
+            "title": generated["title"],
+            "problem_statement": generated["problem_statement"],
+            "target_user": generated["target_user"],
+            "current_workaround": generated["current_workaround"],
+            "suggested_mvp": generated["suggested_mvp"],
+            "why_now": generated["why_now"],
+            "feasibility_score": generated["feasibility_score"],
+            "opportunity_score": generated["opportunity_score"],
+            "competition_notes": generated["competition_notes"],
+            "scoring_breakdown_json": {
+                **score,
+                "common_phrases": generated["common_phrases"],
+            },
+            "generated_prompt": generated["generated_prompt"],
+        },
+    )
     db.commit()
-    db.refresh(opportunity)
-    return opportunity_to_out(db, opportunity)
+    return opportunity_to_out(db, regenerated)
 
 
 @router.post("/opportunities/{opportunity_id}/enhance", response_model=EnhancementOut)
@@ -1326,10 +2812,13 @@ def enhance_opportunity_prompt(
         ) from exc
 
     if apply:
-        opportunity.generated_prompt = enhanced_prompt
-        opportunity.updated_at = datetime.now(UTC)
+        clone_snapshot(
+            db,
+            source=opportunity,
+            method="enhanced",
+            overrides={"generated_prompt": enhanced_prompt},
+        )
         db.commit()
-        db.refresh(opportunity)
 
     return EnhancementOut(
         provider=provider,
@@ -1344,7 +2833,16 @@ def get_prompt(opportunity_id: UUID, db: Session = Depends(get_db)) -> dict:
     opportunity = db.get(Opportunity, opportunity_id)
     if opportunity is None:
         raise HTTPException(status_code=404, detail="Opportunity not found")
-    return {"prompt": opportunity.generated_prompt}
+    current = current_thread_snapshot(db, opportunity)
+    return {"prompt": current.generated_prompt}
+
+
+def current_thread_snapshot(db: Session, opportunity: Opportunity) -> Opportunity:
+    """Resolve compatibility artifacts to a thread's latest immutable snapshot."""
+    thread = db.get(OpportunityThread, opportunity.thread_id)
+    if thread is None or thread.current_snapshot_id is None:
+        return opportunity
+    return db.get(Opportunity, thread.current_snapshot_id) or opportunity
 
 
 @router.get("/opportunities/{opportunity_id}/export.md")
@@ -1352,10 +2850,11 @@ def export_prompt(opportunity_id: UUID, db: Session = Depends(get_db)) -> Respon
     opportunity = db.get(Opportunity, opportunity_id)
     if opportunity is None:
         raise HTTPException(status_code=404, detail="Opportunity not found")
+    current = current_thread_snapshot(db, opportunity)
     return Response(
-        opportunity.generated_prompt,
+        current.generated_prompt,
         media_type="text/markdown",
-        headers={"Content-Disposition": f'attachment; filename="{opportunity_id}.md"'},
+        headers={"Content-Disposition": f'attachment; filename="{current.id}.md"'},
     )
 
 
@@ -1364,11 +2863,12 @@ def export_evidence_bundle(opportunity_id: UUID, db: Session = Depends(get_db)) 
     opportunity = db.get(Opportunity, opportunity_id)
     if opportunity is None:
         raise HTTPException(status_code=404, detail="Opportunity not found")
-    bundle = evidence_bundle_markdown(opportunity_to_out(db, opportunity))
+    current = current_thread_snapshot(db, opportunity)
+    bundle = evidence_bundle_markdown(opportunity_to_out(db, current))
     return Response(
         bundle,
         media_type="text/markdown",
-        headers={"Content-Disposition": f'attachment; filename="evidence-{opportunity_id}.md"'},
+        headers={"Content-Disposition": f'attachment; filename="evidence-{current.id}.md"'},
     )
 
 
@@ -1377,7 +2877,8 @@ def get_task_pack(opportunity_id: UUID, db: Session = Depends(get_db)) -> TaskPa
     opportunity = db.get(Opportunity, opportunity_id)
     if opportunity is None:
         raise HTTPException(status_code=404, detail="Opportunity not found")
-    return task_pack_json(opportunity_to_out(db, opportunity))
+    current = current_thread_snapshot(db, opportunity)
+    return task_pack_json(opportunity_to_out(db, current))
 
 
 @router.get("/opportunities/{opportunity_id}/task-pack.md")
@@ -1385,48 +2886,349 @@ def export_task_pack(opportunity_id: UUID, db: Session = Depends(get_db)) -> Res
     opportunity = db.get(Opportunity, opportunity_id)
     if opportunity is None:
         raise HTTPException(status_code=404, detail="Opportunity not found")
-    pack = task_pack_markdown(opportunity_to_out(db, opportunity))
+    current = current_thread_snapshot(db, opportunity)
+    pack = task_pack_markdown(opportunity_to_out(db, current))
     return Response(
         pack,
         media_type="text/markdown",
         headers={
-            "Content-Disposition": f'attachment; filename="tasksignal-task-pack-{opportunity_id}.md"'
+            "Content-Disposition": f'attachment; filename="tasksignal-task-pack-{current.id}.md"'
         },
     )
 
 
-@router.post("/search/semantic")
-def semantic_search(payload: SearchRequest, db: Session = Depends(get_db)) -> dict:
-    embedder = EmbeddingService()
-    query_vector = embedder.embed_texts([payload.query])[0]
-    rows = db.execute(select(NormalizedItem, ItemEmbedding).join(ItemEmbedding)).all()
-    ranked = sorted(
-        [
-            {
-                "item": item_to_out(item).model_dump(mode="json"),
-                "similarity": round(cosine_similarity(query_vector, embedding.embedding), 3),
-            }
-            for item, embedding in rows
-        ],
-        key=lambda entry: entry["similarity"],
-        reverse=True,
+@router.post("/search", response_model=SemanticSearchOut)
+@router.post(
+    "/search/semantic",
+    response_model=SemanticSearchOut,
+    include_in_schema=False,
+)
+def semantic_search_route(
+    payload: SemanticSearchRequest,
+    db: Session = Depends(get_db),
+) -> SemanticSearchOut:
+    return search_semantically(db, payload)
+
+
+def agent_session_to_out(session: AgentSession) -> AgentSessionOut:
+    return AgentSessionOut(
+        id=session.id,
+        process_instance_id=session.process_instance_id,
+        client_name=session.client_name,
+        client_version=session.client_version,
+        transport=session.transport,
+        status=session.status,
+        effective_status=effective_session_status(session),
+        requested_capabilities=list(session.requested_capabilities_json),
+        approved_capabilities=list(session.approved_capabilities_json),
+        approval_source=session.approval_source,
+        approved_at=as_utc(session.approved_at),
+        last_heartbeat_at=as_utc(session.last_heartbeat_at),
+        expires_at=as_utc(session.expires_at),
+        revoked_at=as_utc(session.revoked_at),
+        expired_at=as_utc(session.expired_at),
+        exited_at=as_utc(session.exited_at),
+        version=session.version,
+        created_at=as_utc(session.created_at),
+        updated_at=as_utc(session.updated_at),
     )
-    return {"items": ranked[: payload.limit], "opportunities": []}
+
+
+def bearer_session_secret(authorization: str | None) -> str:
+    prefix = "Bearer "
+    if (
+        authorization is None
+        or not authorization.startswith(prefix)
+        or not authorization[len(prefix) :]
+    ):
+        raise HTTPException(
+            status_code=401,
+            detail="Agent session authentication failed.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return authorization[len(prefix) :]
+
+
+def session_lifecycle_error(db: Session, exc: AgentSessionError) -> None:
+    if isinstance(exc, SessionAuthenticationError):
+        db.rollback()
+        raise HTTPException(
+            status_code=401,
+            detail="Agent session authentication failed.",
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from exc
+    if isinstance(exc, SessionStateError) and any(
+        session.status == "expired"
+        for session in [*db.new, *db.dirty]
+        if isinstance(session, AgentSession)
+    ):
+        db.commit()
+    else:
+        db.rollback()
+    status_code = 403 if isinstance(exc, SessionCapabilityError) else 409
+    raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+
+def lock_agent_session(db: Session, session_id: UUID) -> AgentSession | None:
+    return db.scalar(
+        select(AgentSession)
+        .where(AgentSession.id == session_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+
+
+@router.post(
+    "/agent-sessions",
+    response_model=AgentSessionOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_agent_session(
+    payload: AgentSessionCreate,
+    db: Session = Depends(get_db),
+) -> AgentSessionOut:
+    with SCAN_WRITE_LOCK:
+        acquire_database_scan_write_lock_with_retry(db)
+        try:
+            session = register_session(
+                db,
+                secret_hash=payload.secret_hash,
+                client_name=payload.client_name,
+                client_version=payload.client_version,
+                process_instance_id=payload.process_instance_id,
+                transport=payload.transport,
+                requested_capabilities=payload.requested_capabilities,
+            )
+            db.commit()
+            db.refresh(session)
+        except IntegrityError as exc:
+            db.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail="Agent session registration conflicts with existing process state.",
+            ) from exc
+        except AgentSessionError as exc:
+            db.rollback()
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return agent_session_to_out(session)
+
+
+@router.get("/agent-sessions", response_model=list[AgentSessionOut])
+def list_agent_sessions(
+    x_operator_scan_token: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> list[AgentSessionOut]:
+    require_operator_token(x_operator_scan_token, "Listing agent sessions")
+    with SCAN_WRITE_LOCK:
+        acquire_database_scan_write_lock_with_retry(db)
+        sessions = db.scalars(
+            select(AgentSession).order_by(
+                AgentSession.created_at.desc(),
+                AgentSession.id.desc(),
+            )
+        ).all()
+        changed = False
+        for session in sessions:
+            changed = expire_session_if_needed(session) or changed
+        if changed:
+            db.commit()
+    return [agent_session_to_out(session) for session in sessions]
+
+
+@router.get("/agent-sessions/{session_id}", response_model=AgentSessionOut)
+def get_agent_session(
+    session_id: UUID,
+    x_operator_scan_token: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> AgentSessionOut:
+    require_operator_token(x_operator_scan_token, "Reading agent sessions")
+    with SCAN_WRITE_LOCK:
+        acquire_database_scan_write_lock_with_retry(db)
+        session = lock_agent_session(db, session_id)
+        if session is None:
+            db.rollback()
+            raise HTTPException(status_code=404, detail="Agent session not found")
+        if expire_session_if_needed(session):
+            db.commit()
+            db.refresh(session)
+    return agent_session_to_out(session)
+
+
+@router.post("/agent-sessions/{session_id}/approve", response_model=AgentSessionOut)
+def approve_agent_session(
+    session_id: UUID,
+    payload: AgentSessionApprove,
+    x_operator_scan_token: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> AgentSessionOut:
+    require_operator_token(x_operator_scan_token, "Approving agent sessions")
+    with SCAN_WRITE_LOCK:
+        acquire_database_scan_write_lock_with_retry(db)
+        session = lock_agent_session(db, session_id)
+        if session is None:
+            db.rollback()
+            raise HTTPException(status_code=404, detail="Agent session not found")
+        try:
+            approve_session(
+                session,
+                expected_version=payload.expected_version,
+                approval_source="ui",
+                include_configured_ai=payload.use_configured_ai,
+            )
+        except AgentSessionError as exc:
+            session_lifecycle_error(db, exc)
+        db.commit()
+        db.refresh(session)
+    return agent_session_to_out(session)
+
+
+@router.post("/agent-sessions/{session_id}/heartbeat", response_model=AgentSessionOut)
+def heartbeat_agent_session(
+    session_id: UUID,
+    payload: AgentSessionLeaseUpdate,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> AgentSessionOut:
+    raw_secret = bearer_session_secret(authorization)
+    with SCAN_WRITE_LOCK:
+        acquire_database_scan_write_lock_with_retry(db)
+        session = lock_agent_session(db, session_id)
+        if session is None or not verify_session_secret(raw_secret, session.secret_hash):
+            db.rollback()
+            raise HTTPException(
+                status_code=401,
+                detail="Agent session authentication failed.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        try:
+            heartbeat_session(
+                session,
+                raw_secret=raw_secret,
+                expected_version=payload.expected_version,
+            )
+        except AgentSessionError as exc:
+            session_lifecycle_error(db, exc)
+        db.commit()
+        db.refresh(session)
+    return agent_session_to_out(session)
+
+
+@router.post("/agent-sessions/{session_id}/revoke", response_model=AgentSessionOut)
+def revoke_agent_session(
+    session_id: UUID,
+    payload: AgentSessionRevoke,
+    x_operator_scan_token: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> AgentSessionOut:
+    require_operator_token(x_operator_scan_token, "Revoking agent sessions")
+    with SCAN_WRITE_LOCK:
+        acquire_database_scan_write_lock_with_retry(db)
+        session = lock_agent_session(db, session_id)
+        if session is None:
+            db.rollback()
+            raise HTTPException(status_code=404, detail="Agent session not found")
+        try:
+            revoke_session(session, expected_version=payload.expected_version)
+        except SessionVersionConflict:
+            # A human revoke is terminal and wins a race with a routine heartbeat.
+            revoke_session(session, expected_version=session.version)
+        except AgentSessionError as exc:
+            session_lifecycle_error(db, exc)
+        db.commit()
+        db.refresh(session)
+    return agent_session_to_out(session)
+
+
+@router.post("/agent-sessions/{session_id}/exit", response_model=AgentSessionOut)
+def exit_agent_session(
+    session_id: UUID,
+    payload: AgentSessionLeaseUpdate,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> AgentSessionOut:
+    raw_secret = bearer_session_secret(authorization)
+    with SCAN_WRITE_LOCK:
+        acquire_database_scan_write_lock_with_retry(db)
+        session = lock_agent_session(db, session_id)
+        if session is None or not verify_session_secret(raw_secret, session.secret_hash):
+            db.rollback()
+            raise HTTPException(
+                status_code=401,
+                detail="Agent session authentication failed.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        try:
+            mark_session_exited(
+                session,
+                expected_version=payload.expected_version,
+            )
+        except AgentSessionError as exc:
+            session_lifecycle_error(db, exc)
+        db.commit()
+        db.refresh(session)
+    return agent_session_to_out(session)
+
+
+@router.get(
+    "/agent-sessions/{session_id}/actions",
+    response_model=list[AgentActionOut],
+)
+def list_agent_session_actions(
+    session_id: UUID,
+    limit: int = 100,
+    offset: int = 0,
+    x_operator_scan_token: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> list[AgentActionOut]:
+    require_operator_token(x_operator_scan_token, "Reading agent action audit")
+    if limit < 1 or limit > 200 or offset < 0:
+        raise HTTPException(status_code=422, detail="Invalid audit pagination.")
+    if db.get(AgentSession, session_id) is None:
+        raise HTTPException(status_code=404, detail="Agent session not found")
+    events = db.scalars(
+        select(AgentAction)
+        .where(AgentAction.session_id == session_id)
+        .order_by(
+            AgentAction.created_at.desc(),
+            AgentAction.operation_id.desc(),
+            AgentAction.event_sequence.desc(),
+            AgentAction.id.desc(),
+        )
+        .offset(offset)
+        .limit(limit)
+    ).all()
+    return [AgentActionOut.model_validate(redacted_agent_action(event)) for event in events]
 
 
 @router.post("/labels", response_model=LabelOut)
 def create_label(payload: LabelCreate, db: Session = Depends(get_db)) -> LabelOut:
-    if db.get(NormalizedItem, payload.item_id) is None:
-        raise HTTPException(status_code=404, detail="Item not found")
-    note = payload.user_note.strip() if payload.user_note else None
-    label = Label(
-        item_id=payload.item_id,
-        label=payload.label.value,
-        user_note=note or None,
-    )
-    db.add(label)
-    commit_review_write(db, "Could not save the evidence review.")
-    db.refresh(label)
+    with SCAN_WRITE_LOCK:
+        acquire_database_scan_write_lock_with_retry(db)
+        if db.get(NormalizedItem, payload.item_id) is None:
+            db.rollback()
+            raise HTTPException(status_code=404, detail="Item not found")
+        try:
+            label = append_evidence_label(
+                db,
+                item_id=payload.item_id,
+                label=payload.label,
+                user_note=payload.user_note,
+                actor_type="human",
+                agent_session_id=None,
+                expected_version=payload.expected_version,
+            )
+        except EvidenceLabelVersionConflict as exc:
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "evidence_label_version_conflict",
+                    "expected_version": exc.expected_version,
+                    "current_version": exc.current_version,
+                },
+            ) from exc
+        commit_review_write(db, "Could not save the evidence review.")
+        db.refresh(label)
     return LabelOut.model_validate(label)
 
 

@@ -1,6 +1,117 @@
 # Deployment
 
-## Local Docker
+TaskSignal v1 supports one local operator. The hosted configuration is a
+protected single-operator preview, not a team or production service.
+
+## Supported Runtime Boundary
+
+- Python 3.11 through 3.14 on macOS and Linux.
+- Windows through WSL only for v1; native Windows is not a release target.
+- SQLite by default in packaged local mode.
+- PostgreSQL for source-checkout, Compose, and explicitly managed hosted
+  deployments.
+- Stdio MCP only. HTTP MCP and OAuth are not supported.
+- Full Next.js UI from a source checkout or a versioned container image when one
+  is published. The Python wheel does not contain Node.js or the web app.
+
+The repository includes build and CI configuration for this boundary. Treat a
+configured job as intent, not passing evidence; record the actual run before a
+release claim.
+
+## Packaged Local Mode
+
+The `tasksignal` distribution contains the FastAPI app, CLI, public fixtures, and
+Alembic migrations. This documentation does not claim that it is already
+published to PyPI. Install it from the source checkout while validating a
+candidate:
+
+```bash
+uv tool install './apps/api'
+# Add stdio MCP only when needed:
+uv tool install './apps/api[mcp]'
+```
+
+Initialize, migrate, diagnose, and serve:
+
+```bash
+tasksignal init
+tasksignal migrate
+tasksignal doctor
+tasksignal serve
+```
+
+`init` creates platform-specific data/config paths and a permission-`0600`
+secret config without printing generated values. Environment variables override
+file values. For an isolated or portable test, set:
+
+```bash
+export TASKSIGNAL_DATA_DIR=/absolute/path/to/tasksignal-data
+export TASKSIGNAL_CONFIG_FILE=/absolute/path/to/tasksignal-config.env
+```
+
+`migrate` reads Alembic revisions from the installed package. A stale SQLite
+database is copied to a timestamped permission-`0600` backup before upgrade.
+Unknown revisions and nonempty unversioned schemas are refused. Inspect and
+fingerprint such a schema, compare it with a named historical revision, then use
+the explicit acknowledgement-gated stamp workflow only when that comparison is
+complete.
+
+`serve` sets table auto-creation off, refuses a schema that is not at the
+packaged head, and accepts only `localhost`, `127.0.0.1`, or `::1`. Use the
+noun-first CLI groups against the local service:
+
+```text
+tasksignal projects ...
+tasksignal runs ...
+tasksignal opportunities ...
+tasksignal evidence ...
+tasksignal packets ...
+tasksignal sessions ...
+```
+
+The API URL precedence is `--api-url`, `TASKSIGNAL_API_URL`, legacy
+`TASKSIGNAL_API_BASE`, then `http://127.0.0.1:8000`. Plain HTTP is accepted only
+for exact loopback hosts; remote API targets require HTTPS.
+
+## Packaged MCP
+
+Install the `mcp` extra, initialize and migrate, then run:
+
+```bash
+tasksignal mcp
+```
+
+Keep stdio attached directly to the local MCP client. Do not put it behind a
+network bridge. Reads are immediate; writes require explicit UI or interactive-
+TTY approval for that process. A 30-second heartbeat renews a 60-second lease,
+and configured-AI packet generation requires separate capability approval.
+
+The MCP process and API must point to the same local database/config. The raw
+session secret remains in MCP process memory and is erased on shutdown; only its
+hash is stored.
+
+## Source Checkout
+
+```bash
+make setup
+cp .env.example .env
+make doctor
+make dev
+```
+
+`make dev` prints the API and web commands; run them in separate terminals. The
+native API loads `apps/api/.env`, while the web app uses
+`apps/web/.env.local`. The root `.env` is repository-tooling input and is not
+implicitly loaded by either process.
+
+Use `make setup-ml` only when the optional local semantic-model stack is wanted.
+The `ml` extra is outside the base+MCP audited dependency surface and must be
+assessed separately. The 2026-07-11 all-extras audit reports `torch 2.12.0`
+under `CVE-2025-3000` with no fix version; keep the deterministic fallback and
+do not install the ML extra in a release-supported environment until that
+finding is resolved or explicitly accepted.
+
+## Local Docker Compose
 
 ```bash
 cp .env.example .env
@@ -8,142 +119,132 @@ make migrate
 make up
 ```
 
-Docker Compose publishes PostgreSQL, FastAPI, and Next.js on `127.0.0.1` by default. Opportunity decisions and evidence labels are unauthenticated local-operator writes. Do not expose them publicly or to a team until authentication, workspace isolation, retention, and deletion controls exist.
+Compose publishes PostgreSQL, FastAPI, and Next.js on `127.0.0.1` by default.
+`make migrate` rebuilds the API image so current packaged migrations are present,
+then upgrades the explicit Compose PostgreSQL URL before serving.
 
-`AUTO_CREATE_TABLES=true` creates missing tables but does not migrate an existing PostgreSQL schema. `make migrate` runs Alembic inside the Compose API service, rebuilds that image so the current migrations are present, and uses the explicit Compose PostgreSQL URL. Run it before `make up` when upgrading a migration-managed Compose database.
+Table auto-creation can create missing tables in local development but does not
+migrate an existing PostgreSQL schema. Do not use it as an upgrade mechanism. A
+legacy unversioned volume needs inspection and an explicit stamp/migration plan;
+do not delete it automatically.
 
-The repository-root `.env` is not loaded by the native API or by
-`make migrate-native`, and it does not select the Compose migration database;
-the Compose service definition supplies its PostgreSQL URL. For a native or
-externally hosted database, put the intended `DATABASE_URL` in `apps/api/.env`
-(or export it in that terminal), then run `make migrate-native`. That target
-runs from `apps/api`, where the API settings loader reads `apps/api/.env`.
-Verify the target URL before migrating production or another shared database.
+The local workspace profile is one singleton row. Decisions, labels, Discourse
+authorization, packet creation, and agent sessions do not become safe multi-user
+operations merely because the stack is containerized.
 
-A legacy unversioned Compose volume requires schema inspection and an explicit
-Alembic stamp/migration plan; do not delete the volume automatically.
+## Versioned Container Images
 
-The default deployment target is a single local operator. Configure the local
-workspace from Settings or with `scripts/tasksignal_cli.py configure-workspace`;
-do not add public multi-user access until authentication, tenant isolation,
-retention, and admin deletion paths are designed.
+The repository keeps the Next.js UI available through source checkout and
+container builds. A release can publish a versioned Docker/GHCR image only after
+the image, Python artifact, GitHub release, CI evidence, proof manifest, and
+migration record are pinned to the same commit SHA.
+
+Published image records name the immutable manifest-list digest. Version and
+`sha-<full-commit>` tags resolve to that digest; only stable releases update
+`latest`. Treat the digest, rather than any mutable convenience tag, as the
+deployment authority.
+
+Until such an image is published for the target version, build from the verified
+source checkout instead of treating an unversioned or `latest` image as release
+evidence.
 
 ## Hosted Single-Operator Preview
 
-The card-free preview topology uses two Vercel projects and a Neon Free
-PostgreSQL database:
-
-- frontend project root: `apps/web`;
-- API source root: `apps/api`, packaged by `scripts/prepare_vercel_api.sh` into
-  the gitignored `.vercel-api` deployment root so only runtime code, locked
-  dependencies, configuration, and the canonical public fixtures enter the
-  upload boundary;
-- database: Neon Free PostgreSQL through the Vercel Marketplace integration.
-
-Health and CORS preflight stay public, while
-`REQUIRE_OPERATOR_TOKEN_FOR_ALL_API=true` requires the configured
-`OPERATOR_SCAN_TOKEN` as `X-Operator-Scan-Token` for every `/api/` read, write,
-and Markdown export. Enter the same token in the frontend unlock banner or
-Settings page; it stays in that browser's local storage. The shared API client
-adds it as a header, including protected downloads, without placing it in URLs.
-
-Provision Neon for the API project, run `alembic upgrade head` once against its
-unpooled migration URL, provide a long random `OPERATOR_SCAN_TOKEN`, and keep
-`PUBLIC_SCAN_SOURCES=fixture` for the preview. Pin the API function to the same
-region as the provisioned database (`iad1` for the current Vercel Marketplace
-resource); its Hobby duration is configured to the 60-second maximum for
-fixture processing.
-
-Neon Free currently has no time limit or card requirement, but its storage,
-compute, and transfer quotas still make this a disposable personal preview, not
-a durable multi-user production system. Delete the database and API project
-when the evaluation window ends.
-
-## Vercel Frontend
-
-- Root: `apps/web`
-- Install command: `npm ci`
-- Build command: `npm run build`
-- Environment: `NEXT_PUBLIC_API_BASE_URL=https://tasksignal-api-yurii201811.vercel.app`
-- Stable origin: `https://tasksignal-yurii201811.vercel.app`
-
-## Vercel API and Neon Database
-
-- Prepare command: `scripts/prepare_vercel_api.sh`
-- Deployment root: `.vercel-api` (generated and gitignored)
-- Source root: `apps/api`
-- Framework preset: FastAPI
-- Entrypoint: `app.main:app`
-- Function region: Washington, D.C. (`iad1`), matching the current Neon resource
-- Environment: Neon pooled `DATABASE_URL` plus the hosted guardrails below
-
-Vercel installs the API package from the copied `pyproject.toml` and `uv.lock`.
-The prepare script recreates `.vercel-api` before every deployment and copies
-only the runtime package, deployment manifests, and public fixtures. It never
-copies local environment files, tests, SQLite databases, frontend files, or
-other repository content. Keep migrations outside request startup: use the
-Neon unpooled URL for `alembic upgrade head`, then use the pooled URL in the
-serverless API.
-
-## Optional Render Backend
-
-Use the repository-root `render.yaml` so repo-level fixtures stay available.
-Render supplies PostgreSQL through `DATABASE_URL`; TaskSignal normalizes the
-provider URL to the installed psycopg3 driver. The hosted core intentionally
-omits the optional ML extra and uses deterministic embeddings/clustering. As of
-2026-07-10, Render account setup required a payment card even for this free
-Blueprint, so it is not the primary card-free preview path.
-
-## Hosted Demo Guardrails
-
-For a protected single-operator preview, start narrow:
+The preview topology can use a Vercel Next.js project, a separately deployed
+FastAPI backend, and a managed PostgreSQL database. Keep health and CORS
+preflight public, and set:
 
 ```env
 AUTO_CREATE_TABLES=false
 PUBLIC_SCAN_SOURCES=fixture
-CORS_ALLOWED_ORIGINS=https://tasksignal-yurii201811.vercel.app
-AUTHOR_HASH_SALT=<long random value>
-DEMO_RESET_TOKEN=<long random value>
-OPERATOR_SCAN_TOKEN=<different long random value>
+CORS_ALLOWED_ORIGINS=https://your-exact-frontend.example
+AUTHOR_HASH_SALT=<long-random-value>
+DEMO_RESET_TOKEN=<different-long-random-value>
+OPERATOR_SCAN_TOKEN=<another-long-random-value>
 REQUIRE_OPERATOR_TOKEN_FOR_ALL_API=true
 REQUIRE_OPERATOR_TOKEN_FOR_WRITES=true
 LLM_PROVIDER=none
 ```
 
-Keep GitHub, Stack Exchange, and Reddit in trusted internal scan jobs rather
-than the browser preview. Review their rate limits, credential
-scope, retention behavior, and source terms before running those jobs. If
-`DEMO_RESET_TOKEN` is set, destructive fixture resets require the matching
-`X-Demo-Reset-Token` header. Hosted API protection requires the operator token
-for reads, exports, and every mutating route, including ordinary fixture
-processing, decisions, evidence reviews, workspace changes, and project
-creation.
+The frontend sends `X-Operator-Scan-Token` as a header for protected JSON and
+downloads; never place it in a URL. One shared operator token is not user
+authentication. Do not invite multiple users, store private sources, or promise
+durability/availability without tenancy, retention, deletion, and operational
+controls.
 
-ChatGPT/Codex subscriptions are not backend API credentials. For subscription
-users, expose task-pack exports and the repo-local
-`skills/tasksignal-opportunity-builder` package. Use `OPENAI_API_KEY` only when
-the deployment intentionally enables OpenAI API-backed prompt enhancement.
+Keep the preview on fixtures unless the operator has reviewed each connector's
+terms, quotas, credentials, and retained fields. Discourse additionally requires
+a saved source and human confirmation for one exact HTTPS origin. Source-host
+authorization is intentionally unavailable to MCP.
 
-## Supabase Postgres
+Run `alembic upgrade head` outside request startup against a verified migration
+URL. Use a pooled URL for request traffic only when the provider recommends it.
+An unknown or unversioned hosted schema requires explicit inspection and
+stamping; do not let application startup guess its lineage.
 
-Enable pgvector:
+### Vercel Frontend
+
+- Project root: `apps/web`
+- Install command: `npm ci`
+- Build command: `npm run build`
+- Environment: `NEXT_PUBLIC_API_BASE_URL=https://your-api.example`
+
+### Vercel API Packaging
+
+- Source root: `apps/api`
+- Prepare command: `scripts/prepare_vercel_api.sh`
+- Generated deployment root: `.vercel-api` (gitignored)
+- Entrypoint: `app.main:app`
+
+The prepare script limits the upload to runtime code, locked dependencies,
+configuration, migrations, and canonical public fixtures. It must not copy local
+environment files, tests, SQLite databases, frontend files, or private exports.
+Keep migrations outside serverless request startup.
+
+### Optional Render Backend
+
+The repository-root `render.yaml` can supply PostgreSQL through `DATABASE_URL`.
+TaskSignal normalizes provider PostgreSQL URLs to the installed psycopg3 driver.
+Confirm current account, billing, quota, and region requirements directly with
+the provider before deployment; do not infer them from this repository.
+
+### Supabase or Other PostgreSQL
+
+Enable pgvector when the selected processing path requires it:
 
 ```sql
 create extension if not exists vector;
 ```
 
-Set the hosted `DATABASE_URL` in `apps/api/.env` or the current shell, verify it,
-then run `make migrate-native` from the repository root.
+Set the exact hosted `DATABASE_URL` in `apps/api/.env` or the current shell,
+verify the target, then run `make migrate-native`. Never point a migration at an
+unverified shared database.
 
-## Scheduled Ingestion
+## Scheduled Research
 
-TaskSignal keeps scheduling explicit. Create saved research projects with
-manual, hourly, daily, weekly, or custom-hour cadence, then call:
+TaskSignal stores cadence and `next_run_at` but does not run a hidden scheduler
+inside the web process. Use an explicit local cron, GitHub Actions job, worker,
+or operator invocation to call:
 
-```bash
-scripts/tasksignal_cli.py run-due
+```text
+POST /api/v1/research-projects/run-due
 ```
 
-Use cron, GitHub Actions, a worker service, or another scheduler to call
-`POST /api/research-projects/run-due`. Store API credentials and
-`TASKSIGNAL_OPERATOR_TOKEN` in scheduler secrets, not in the repository.
+Store connector credentials and `TASKSIGNAL_OPERATOR_TOKEN` in the scheduler's
+secret store. Observe each source's terms, rate limits, `Retry-After`, and
+retention rules. `not observed this run` must never be converted into automatic
+deletion or resolution.
+
+## Model Configuration
+
+No paid model is required. Deterministic build documents and fallback vectors are
+the authoritative base path.
+
+Configured enhancement uses either `LLM_PROVIDER=openai` with `OPENAI_API_KEY`,
+or `LLM_PROVIDER=ollama` with a reachable local Ollama server. It can add
+validated `enhanced/` packet variants but cannot replace deterministic originals.
+In the UI/API, configured-AI calls require the operator token. In MCP, they also
+require the separately selected `use_configured_ai` capability.
+
+ChatGPT or Codex subscriptions are not backend API credentials. TaskSignal does
+not create GitHub issues automatically; `github-issue.md` remains a local draft.

@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 
 from app.api.routes import router
 from app.core.config import settings
+from app.core.version import TASKSIGNAL_VERSION
 from app.db.base import Base
 from app.db.session import engine, ensure_sqlite_schema_compatibility
 from app.models import all_models  # noqa: F401
@@ -42,7 +43,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="TaskSignal API",
         description="AI-assisted problem discovery engine with local fixture demo mode.",
-        version="0.2.0",
+        version=TASKSIGNAL_VERSION,
         lifespan=lifespan,
     )
 
@@ -78,7 +79,8 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    app.include_router(router)
+    app.include_router(router, prefix="/api/v1")
+    app.include_router(router, prefix="/api", include_in_schema=False)
 
     @app.get("/health")
     def health() -> dict:

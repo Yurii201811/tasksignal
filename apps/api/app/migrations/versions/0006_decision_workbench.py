@@ -6,7 +6,6 @@ Create Date: 2026-07-09
 """
 
 import sqlalchemy as sa
-
 from alembic import op
 
 revision = "0006_decision_workbench"

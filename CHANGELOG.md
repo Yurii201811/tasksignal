@@ -4,6 +4,55 @@ All notable public-facing changes to TaskSignal are recorded here.
 
 ## Unreleased
 
+## 1.0.0a1 - 2026-07-11
+
+### Added
+
+- Immutable research runs, precise run deltas, persistent opportunity threads,
+  confidence-gated matching, decision history, and human-only snapshot detach.
+- Typed semantic search across safe evidence excerpts and related threads, plus
+  an allowlisted public Discourse connector with explicit per-host terms approval.
+- Reproducible, hash-verifiable ten-file build packets with authoritative
+  deterministic originals and optional provenance-recorded AI variants.
+- Process-bound Agent Sessions, append-only redacted action audit, and a guarded
+  stdio MCP server with eight read tools, six non-destructive write tools, and
+  `tasksignal://` resources.
+- The installable `tasksignal` Python distribution, safe local init/migrations,
+  noun-first CLI, packaged fixtures/revisions, and an optional `mcp` extra.
+- Workbench UI for run history, thread review, Build Studio, Discourse source
+  authorization, Agent Sessions, and action audit on desktop and narrow screens.
+
+### Changed
+
+- `/api/v1` is canonical; the existing `/api` surface remains a v1.x
+  compatibility alias.
+- Scans embed only missing evidence while clustering every signal-bearing item
+  observed in the immutable run snapshot.
+- Python packaging supports 3.11 through 3.14 on macOS and Linux; Windows is a
+  WSL-only target for v1. The Next.js UI remains source/container distributed.
+
+### Security
+
+- Discourse requests reject IP literals, private/link-local destinations,
+  cross-host redirects, oversized responses, and unapproved exact origins.
+- MCP writes require process approval, heartbeat leases, idempotency keys, and
+  optimistic versions; configured-AI generation requires separate capability.
+- Packaged migrations fail closed for unknown or nonempty unversioned schemas,
+  fingerprint non-table objects, and back up stale SQLite databases before upgrade.
+- Release publication requires exact-SHA evidence, canonical on-main tags,
+  phase-specific RC/GA usability records, immutable digest promotion, exact-hash
+  recovery, least-privilege OIDC jobs, pinned actions, and verified draft assets.
+- Base and MCP dependency audits pass. The separately assessed optional ML
+  stack currently reports `torch 2.12.0` / `CVE-2025-3000` without a fixed
+  version, so it is not part of the alpha's release-supported surface.
+
+### Release status
+
+- This is the first v1 alpha candidate. A local PostgreSQL 16 + pgvector
+  fresh/copied-v0.2/fail-closed rehearsal passes. PyPI/GHCR publication,
+  cross-platform Actions proof, and three independent builder sessions remain
+  unrecorded; GA remains blocked.
+
 ## 0.2.0 - 2026-07-11
 
 ### Added

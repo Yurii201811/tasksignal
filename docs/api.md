@@ -1,97 +1,102 @@
-# API
+# API Reference
 
-Base URL: `http://localhost:8000`
+Base URL: `http://127.0.0.1:8000`
 
-## General
+## Versioning and Protection
 
-`GET /health`
+`/api/v1` is the canonical REST prefix. The same route set remains available
+under `/api` as a compatibility alias throughout v1.x, but only `/api/v1` is
+included in the generated OpenAPI schema. New clients should not use the legacy
+prefix.
 
-Returns service status, selected LLM provider, embedding model, and fixture mode.
+`GET /health` is outside the versioned API and returns process health plus the
+selected model configuration.
 
-`GET /api/stats`
+TaskSignal is a single-operator service, not a user-authentication system. Some
+sensitive operator routes always require `X-Operator-Scan-Token` matching
+`OPERATOR_SCAN_TOKEN`. A hosted preview can additionally set
+`REQUIRE_OPERATOR_TOKEN_FOR_ALL_API=true` to protect every `/api/` request, or
+`REQUIRE_OPERATOR_TOKEN_FOR_WRITES=true` to protect every mutating request.
+Neither setting provides accounts, tenant isolation, or per-user authorization.
 
-Returns item counts, source breakdown, and pain score distribution.
+## Common Response Types
 
-`GET /api/integrations`
+The primary v1 response models are:
 
-Returns source, runtime, and Codex handoff readiness without returning secret
-values. Credential fields are reported as environment variable names only.
+- `ResearchRunOut`: an immutable project-run snapshot and scan counters.
+- `RunDeltaOut`: evidence, signal, generated-snapshot, and opportunity-thread
+  changes relative to the prior complete run.
+- `OpportunityThreadOut`: persistent decision state, current snapshot, immutable
+  snapshot history, and append-only decision history.
+- `SemanticSearchOut`: safe evidence hits and related opportunity-thread hits.
+- `BuildPacketOut`: packet metadata, manifest, and immutable artifacts.
+- `AgentSessionOut`: process-bound approval and lease state.
+- `AgentActionOut`: a redacted append-only agent action event.
 
-`GET /api/readiness`
+All timestamps are UTC JSON datetimes. IDs are UUIDs.
 
-Returns a compact operator-readiness summary with blockers, warnings, project
-count, opportunity count, due-project count, ready public sources, and Codex
-task-pack availability. It reports whether an operator scan token is configured
-as a boolean only and never returns the token value.
+## General and Local Workspace
 
-`GET /api/local-workspace`
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/health` | Service health and selected model configuration. |
+| `GET` | `/api/v1/stats` | Item counts, source breakdown, and pain distribution. |
+| `GET` | `/api/v1/integrations` | Redacted source/runtime/Codex readiness. |
+| `POST` | `/api/v1/integrations/{id}/test` | Small connector or runtime readiness check. Credentialed sources require the operator token. |
+| `GET` | `/api/v1/readiness` | Operator blockers, warnings, counts, and public-source readiness. |
+| `GET` | `/api/v1/local-workspace` | Singleton local-machine workspace profile. |
+| `PATCH` | `/api/v1/local-workspace` | Update the singleton local workspace profile. |
 
-Returns the singleton local-machine workspace profile. This is not a user
-account system; it stores the one local operator's owner/focus label and default
-research workflow settings.
+The local workspace is convenience metadata for one operator. It is not an
+account or authorization boundary.
 
-`PATCH /api/local-workspace`
+## Sources and Discourse Authorization
 
-Updates the singleton local workspace profile.
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/api/v1/sources` | List source metadata with `config_json` redacted. |
+| `POST` | `/api/v1/sources` | Create a source. Requires the operator token. |
+| `PATCH` | `/api/v1/sources/{source_id}` | Update a source without changing its connector type. Requires the operator token. |
+| `DELETE` | `/api/v1/sources/{source_id}` | Delete an unreferenced source. Requires the operator token. |
+| `GET` | `/api/v1/sources/{source_id}/authorization` | Read one Discourse source's exact-origin authorization state. |
+| `PUT` | `/api/v1/sources/{source_id}/authorization` | Confirm terms and authorize one exact HTTPS origin. Requires the operator token. |
+| `DELETE` | `/api/v1/sources/{source_id}/authorization` | Revoke Discourse terms/origin authorization. Requires the operator token. |
+| `GET` | `/api/v1/sources/{source_id}/runtime-state` | Read readiness, last success, sanitized last failure, HTTP status, and `Retry-After` state. |
 
-Request:
+Discourse authorization accepts:
 
 ```json
 {
-  "owner_name": "Local Builder",
-  "workspace_goal": "Find developer-tool opportunities",
-  "default_source_type": "hackernews",
-  "default_query": "ask",
-  "default_limit": 30,
-  "default_cadence": "daily",
-  "default_schedule_interval_hours": null
+  "origin": "https://community.example.com",
+  "terms_confirmed": true
 }
 ```
 
-`POST /api/integrations/{id}/test`
+The origin must be an exact HTTPS origin without credentials, path, query, or
+fragment. IP literals, numeric IP forms, localhost, private/loopback/link-local
+DNS results, and cross-host redirects are rejected. The connector does not send
+cookies or user credentials and does not support private categories. Its
+timeouts, response bytes, redirects, and result count are bounded. Authorization
+is a human/operator operation and is deliberately absent from MCP.
 
-Runs a small connector readiness check. Credentialed source tests require
-`X-Operator-Scan-Token` matching `OPERATOR_SCAN_TOKEN`. Runtime and Codex
-handoff integrations return configuration status rather than making model calls.
+Source registry payloads reject secret-like keys. Connector credentials remain
+environment variables and are never returned by source reads.
 
-## Processing
+## Scans and Processing
 
-`POST /api/process/demo`
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `POST` | `/api/v1/process/demo` | Run the fixture pipeline; repeated non-reset runs deduplicate stored evidence. |
+| `POST` | `/api/v1/scans` | Run one synchronous public scan. |
+| `GET` | `/api/v1/scans` | List scan jobs, newest first. |
+| `GET` | `/api/v1/scans/{scan_id}` | Read status, counts, outcome, and sanitized failure state. |
 
-Runs the full fixture pipeline without deleting existing data by default. The
-demo processor deduplicates existing records, so repeated runs do not duplicate
-normalized items, signals, clusters, or opportunities. Use `?reset=true` to
-clear existing demo records before processing fixtures. When `DEMO_RESET_TOKEN`
-is configured, reset requests must include `X-Demo-Reset-Token`.
+The unauthenticated `POST /scans` surface accepts only `fixture` and
+`hackernews`; `PUBLIC_SCAN_SOURCES` can narrow that set but cannot add a
+credentialed source. Reddit, GitHub Issues, Stack Exchange, and Discourse run
+through trusted project/operator paths.
 
-Response:
-
-```json
-{
-  "raw_items_loaded": 18,
-  "normalized_items_created": 18,
-  "signals_detected": 18,
-  "clusters_created": 5,
-  "opportunities_created": 5
-}
-```
-
-`POST /api/scans`
-
-Runs one synchronous live-source scan and stores a `ScanJob` with `queued`,
-`running`, then `completed` or `failed` state. The endpoint fetches from the
-selected connector, normalizes and deduplicates items, detects problem signals,
-embeds matching items with the local embedding service or deterministic fallback,
-clusters related signals, scores opportunities, and generates prompt-ready cards.
-This public endpoint only accepts public API-safe sources (`fixture` and
-`hackernews`). `PUBLIC_SCAN_SOURCES` can narrow that public allowlist further,
-but it cannot enable credentialed connectors through this unauthenticated
-endpoint. If the configured value excludes every browser-safe source, readiness
-reports a warning and `POST /api/scans` returns a 403 with `Allowed public scan
-sources: none` so operators can distinguish intentional lockdown from a broken
-connector.
-
-Request:
+Example:
 
 ```json
 {
@@ -101,88 +106,31 @@ Request:
 }
 ```
 
-Public scan source values:
+A completed scan can create zero opportunities. Its outcome distinguishes no
+records, already-stored evidence, no problem signals, and signals that did not
+form a ranked cluster. A failed scan retains a sanitized audit record.
 
-- `hackernews`: official Hacker News Firebase API. Query can be `ask`, `new`,
-  `top`, `best`, `show`, or `job`; other query text filters the selected Ask HN
-  feed client-side.
-- `fixture`: fixture connector, mainly for local development; the primary demo
-  path remains `POST /api/process/demo`.
+## Research Projects, Runs, and Deltas
 
-Credentialed connectors remain available to trusted internal jobs that call the
-scan pipeline directly:
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/api/v1/research-projects` | List saved projects. |
+| `POST` | `/api/v1/research-projects` | Create a repeatable source/query/limit workflow. |
+| `GET` | `/api/v1/research-projects/{project_id}` | Read one project and its optimistic-lock version. |
+| `PATCH` | `/api/v1/research-projects/{project_id}` | Update selected fields with optional `expected_version`. |
+| `POST` | `/api/v1/research-projects/{project_id}/run` | Run one enabled project. |
+| `POST` | `/api/v1/research-projects/run-due` | Run every enabled due project that the caller is authorized to run. |
+| `GET` | `/api/v1/research-projects/{project_id}/runs` | List immutable run snapshots, newest first. |
+| `GET` | `/api/v1/research-projects/{project_id}/runs/{run_id}/delta` | Compare one complete run with its prior complete run. |
 
-- `github`: official GitHub Issues search API. `GITHUB_TOKEN` is optional but
-  may expose private results visible to that token, so it is blocked from the
-  public scan API.
-- `stackexchange`: official Stack Exchange advanced search API for Stack
-  Overflow. `STACK_EXCHANGE_KEY` is optional.
-- `reddit`: official Reddit OAuth API. Requires `REDDIT_CLIENT_ID`,
-  `REDDIT_CLIENT_SECRET`, and `REDDIT_USER_AGENT`.
-
-Response:
-
-```json
-{
-  "id": "1d64d8e0-9d20-4e5e-bf7f-3f06e6c4c9e7",
-  "source_id": "7aa8c017-9c5a-4908-a902-0a517460fe14",
-  "source_type": "hackernews",
-  "source_name": "Hacker News",
-  "status": "completed",
-  "query": "ask",
-  "started_at": "2026-05-31T10:00:00Z",
-  "finished_at": "2026-05-31T10:00:05Z",
-  "error_message": null,
-  "items_found": 30,
-  "items_saved": 18,
-  "signals_detected": 4,
-  "clusters_created": 1,
-  "opportunities_created": 1,
-  "outcome_message": "The scan generated 1 ranked opportunity from 4 detected signals."
-}
-```
-
-Completed live-source scans can still create zero opportunities. In that case,
-`status` remains `completed`, found/saved counts remain available, and
-`outcome_message` explains whether the run had no returned records, duplicate
-records, no detected problem signals, or signals that were too unrelated to form
-a ranked opportunity.
-
-Failed live-source scans return the stored scan job with `status: "failed"` and
-`error_message` populated so the dashboard can show the connector or credential
-problem without losing the audit trail. Failed scan `error_message` values are
-user-actionable and avoid echoing secrets or raw credential values. Messages
-include connector-specific guidance for missing credentials, authorization
-failures, and rate limits when applicable.
-
-`GET /api/scans`
-
-Returns recent scan jobs ordered by newest started timestamp first.
-
-`GET /api/scans/{id}`
-
-Returns one scan job with source, query, status, timestamps, found/saved counts,
-signal counts, generated opportunity counts, outcome guidance, and any stored
-redacted error message. The web scan detail page uses this endpoint for
-completed, zero-opportunity, failed, queued, and running scan states.
-
-## Research Projects
-
-`GET /api/research-projects`
-
-Returns saved repeatable research workflows ordered by most recently updated.
-
-`POST /api/research-projects`
-
-Creates a saved workflow.
-
-Request:
+Create example:
 
 ```json
 {
   "name": "Track CI/CD pain",
-  "description": "Find repeated complaints that could become a focused developer-tool MVP.",
+  "description": "Repeated public problems that could become a focused tool.",
   "source_type": "hackernews",
+  "source_id": null,
   "query": "ask",
   "limit": 30,
   "cadence": "manual",
@@ -192,125 +140,228 @@ Request:
 }
 ```
 
-`POST /api/research-projects/{id}/run`
+Project runs snapshot source type/origin, query, requested limit, scan linkage,
+and all observed items. Only missing evidence records are stored, detected, and
+embedded, while clustering can reuse all signal-bearing evidence observed by
+that run. Repeating an identical scan therefore creates an auditable run without
+duplicating evidence or manufacturing a new thread.
 
-Runs the saved source/query/limit and updates the project's `last_scan_id`,
-`last_run_at`, `next_run_at`, and `run_count`. Public scan sources follow the
-same allowlist as `POST /api/scans`. Credentialed sources (`github`, `reddit`,
-`stackexchange`) require `X-Operator-Scan-Token` matching `OPERATOR_SCAN_TOKEN`
-so browser-triggered runs cannot silently spend server-side credentials.
+Delta counts use precise terms:
 
-Cadence values `hourly`, `daily`, and `weekly` set `next_run_at` automatically.
-Use `cadence: "custom"` plus `schedule_interval_hours` for another interval.
-Use `cadence: "manual"` or a null interval for unscheduled workflows.
+- `new`: evidence first stored by this scan.
+- `seen_before`: evidence already stored and observed again.
+- `updated`: the same stable source identity now has different content.
+- `unchanged`: the same stable source identity has the same content.
+- `not_observed_this_run` (shown as “not observed this run”): present in the
+  prior comparison set but absent now; this never means deleted, resolved, or
+  no longer important.
 
-`POST /api/research-projects/run-due`
+Legacy run lineage is reported as `untracked`. The API returns `409` rather than
+inferring a comparison from timestamps. Failed or incomplete runs likewise
+cannot produce a trusted delta.
 
-Runs every enabled saved project whose `next_run_at` is due. Projects that need
-an operator token are skipped when the request lacks a valid
-`X-Operator-Scan-Token`.
+Credentialed project runs and every Discourse project run require the operator
+token. Discourse projects must also reference an authorized, ready source.
 
-Response:
+## Opportunity Threads
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/api/v1/opportunity-threads` | List persistent threads, optionally filtered by `project_id` and `review_state`. |
+| `GET` | `/api/v1/opportunity-threads/{thread_id}` | Read current decision state, snapshots, match provenance, and decision history. |
+| `PATCH` | `/api/v1/opportunity-threads/{thread_id}/decision` | Set a human decision with `expected_version`. |
+| `POST` | `/api/v1/opportunity-threads/{thread_id}/snapshots/{snapshot_id}/detach` | Human-only correction that moves an auto-matched snapshot to a new thread. |
+
+Decision request:
 
 ```json
 {
-  "ran": 1,
-  "skipped": 0,
-  "scans": []
+  "review_state": "build_candidate",
+  "review_note": "Local note excluded from exports",
+  "expected_version": 4
 }
 ```
 
-## Opportunities
+Review states are `new`, `needs_more_evidence`, `promising`, `rejected`,
+`duplicate`, and `build_candidate`.
 
-`GET /api/opportunities`
+Matching never crosses project boundaries. An exact evidence-set hash is an
+immediate match unless multiple candidates make it ambiguous. Otherwise the
+service compares only matching embedding model/backend identities and scores:
 
-Returns ranked opportunity cards with evidence items.
+```text
+0.60 * centroid similarity
++ 0.25 * evidence Jaccard
++ 0.15 * normalized-title Jaccard
+```
 
-`GET /api/opportunities/{id}`
+Automatic matching requires a score of at least `0.82` and a margin of at least
+`0.05` over the next candidate. The response exposes match method, confidence,
+margin, component scores, evidence/content hashes, and model/backend metadata.
 
-Returns a single opportunity, scoring breakdown, and evidence.
+The older snapshot/export routes remain available during v1.x:
 
-The scoring breakdown includes raw component scores, weighted rank-driver notes,
-the score formula, common phrases, and the explanation shown in the dashboard UI.
-Evidence items include detector spans that support the ranking.
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/api/v1/opportunities` | List ranked snapshots; supports the legacy `review_state` filter. |
+| `GET` | `/api/v1/opportunities/{opportunity_id}` | Read one snapshot, score breakdown, readiness, and evidence. |
+| `PATCH` | `/api/v1/opportunities/{opportunity_id}/review` | Legacy decision update; current thread state remains authoritative. |
+| `POST` | `/api/v1/opportunities/{opportunity_id}/regenerate` | Regenerate the deterministic legacy prompt. |
+| `POST` | `/api/v1/opportunities/{opportunity_id}/enhance` | Optional configured-model prompt enhancement; requires the operator token. |
+| `GET` | `/api/v1/opportunities/{opportunity_id}/prompt` | Read the generated Markdown prompt. |
+| `GET` | `/api/v1/opportunities/{opportunity_id}/export.md` | Download the generated prompt. |
+| `GET` | `/api/v1/opportunities/{opportunity_id}/evidence.md` | Download a redacted evidence bundle. |
+| `GET` | `/api/v1/opportunities/{opportunity_id}/task-pack.json` | Read the legacy structured task pack. |
+| `GET` | `/api/v1/opportunities/{opportunity_id}/task-pack.md` | Download the legacy Markdown task pack. |
 
-`GET /api/opportunities/{id}/prompt`
+New decision and build workflows should use opportunity threads and immutable
+build packets.
 
-Returns the generated Markdown prompt. The prompt includes source excerpts,
-ranking rationale, and privacy constraints so exported prompts remain auditable.
+## Semantic Search
 
-`POST /api/opportunities/{id}/enhance?apply=false`
+`POST /api/v1/search`
 
-Optionally improves the generated build prompt through the configured model
-runtime. This endpoint requires `OPERATOR_SCAN_TOKEN` to be configured on the
-API and the matching `X-Operator-Scan-Token` request header before any model
-provider call is attempted. It is also disabled unless `LLM_PROVIDER=openai`
-with `OPENAI_API_KEY`, or `LLM_PROVIDER=ollama` with a reachable local Ollama
-server, is configured. With `apply=true`, the enhanced prompt replaces the
-stored generated prompt.
-
-`GET /api/opportunities/{id}/export.md`
-
-Downloads the prompt as Markdown.
-
-`GET /api/opportunities/{id}/evidence.md`
-
-Downloads a compact evidence bundle as Markdown. The bundle includes the
-opportunity summary, score breakdown, rank drivers, evidence item titles,
-detector excerpts, source URLs when safe, and caveats. It omits raw usernames,
-author hashes, credential fields, and raw connector payloads.
-
-`GET /api/opportunities/{id}/task-pack.json`
-
-Returns a structured Codex task pack with objective, suggested MVP, generated
-prompt, source URLs, acceptance criteria, and privacy constraints.
-
-`GET /api/opportunities/{id}/task-pack.md`
-
-Downloads the same task pack as Markdown for Codex, other coding agents, issue
-drafting, or local review workflows.
-
-## Decision Workbench
-
-- `GET /api/opportunities?review_state=<state>` optionally filters by `new`, `needs_more_evidence`, `promising`, `rejected`, `duplicate`, or `build_candidate`.
-- `PATCH /api/opportunities/{id}/review` saves one of those six `review_state` values and an optional local `review_note` of at most 1,000 characters.
-- `POST /api/labels` appends one recognized evidence review—`true_signal`, `false_positive`, `unclear`, `duplicate`, `not_actionable`, or `sensitive_risk`—with an optional 500-character note.
-- `GET /api/items/{id}/labels` returns complete newest-first history, including legacy unrecognized labels.
-- `GET /api/evaluation` reports reviewable/reviewed counts, coverage, reviewed-positive precision, label counts, and source/signal breakdowns.
-
-Decision and evidence review notes are local annotations and are omitted from evidence and task-pack exports. These write endpoints are unauthenticated local-operator actions, not public collaboration APIs.
-
-## Search
-
-`POST /api/search/semantic`
+`POST /api/v1/search/semantic` remains a hidden compatibility alias.
 
 Request:
 
 ```json
-{"query": "weekly spreadsheet report", "limit": 8}
+{
+  "query": "weekly spreadsheet report",
+  "limit": 8,
+  "project_id": null,
+  "source": null,
+  "signal_type": null,
+  "review_state": null
+}
 ```
 
-## Sources, Scans, Labels
+The response has `evidence_hits` and `opportunity_threads`. Evidence hits contain
+a bounded safe excerpt, match score, safe URL, signal/review state, evidence
+hash, and observed scan/run/project provenance. Thread hits add readiness,
+decision state, current snapshot provenance, and matched evidence IDs.
 
-Current MVP endpoints include singleton local workspace settings, source
-list/create/update/delete, synchronous scan create/list/read, saved research
-project create/list/read/run/run-due, and label create. Opportunities are
-generated by processing pipelines and exposed through read/export/regenerate/
-enhance endpoints; scans and labels do not have full CRUD in this release.
-Scheduling is explicit through `run-due` so operators can use cron, GitHub
-Actions, a worker, or the local CLI without hiding background jobs inside the web
-process.
+Search never returns raw connector JSON, author hashes, local review notes,
+credentials, or source configuration. Source text is marked as untrusted
+evidence. Only embeddings with the active model/backend identity participate.
 
-`GET /api/sources` returns source metadata with `config_json` redacted. Connector
-credentials must be supplied through environment variables or trusted scheduler
-secrets, not source registry records.
+## Evidence Review and Evaluation
 
-`POST /api/sources`, `PATCH /api/sources/{id}`, and `DELETE /api/sources/{id}`
-are operator actions. They require `OPERATOR_SCAN_TOKEN` to be configured on the
-API and the matching `X-Operator-Scan-Token` request header. Source create/update
-requests reject secret-like `config_json` keys such as token, secret, password,
-authorization, cookie, private key, API key, or client secret names.
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `POST` | `/api/v1/labels` | Append a human evidence label, optionally with `expected_version`. |
+| `GET` | `/api/v1/items/{item_id}/labels` | Return complete newest-first human/agent label history. |
+| `GET` | `/api/v1/evaluation` | Return human-confirmed coverage and selection-biased precision summaries. |
 
-`POST /api/opportunities/{id}/enhance` is also an operator action because it can
-spend configured model credentials or local model runtime capacity. It requires
-the same `OPERATOR_SCAN_TOKEN` and `X-Operator-Scan-Token` gate.
+Recognized labels are `true_signal`, `false_positive`, `unclear`, `duplicate`,
+`not_actionable`, and `sensitive_risk`. Labels store `actor_type`; agent labels
+also retain session provenance. Human readiness and precision calculations use
+human-confirmed labels so an agent cannot grade its own work.
+
+## Immutable Build Packets
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `POST` | `/api/v1/opportunity-threads/{thread_id}/build-packets` | Create one immutable packet. |
+| `GET` | `/api/v1/opportunity-threads/{thread_id}/build-packets` | List packet summaries with pagination. |
+| `GET` | `/api/v1/build-packets/{packet_id}` | Read packet metadata, manifest, and artifacts. |
+| `GET` | `/api/v1/build-packets/{packet_id}/verify` | Verify inventory, hashes, metadata, decision, and source-snapshot lineage. |
+| `GET` | `/api/v1/build-packets/{packet_id}/download` | Download a deterministic ZIP only after verification passes. |
+
+Create request:
+
+```json
+{
+  "expected_version": 4,
+  "use_configured_ai": false
+}
+```
+
+Eligibility requires the current thread to be `build_candidate`, medium or
+strong evidence readiness, and no current `sensitive_risk`. The deterministic
+packet contains nine authoritative artifacts plus `MANIFEST.json`:
+
+```text
+README.md
+MANIFEST.json
+opportunity.json
+evidence.md
+task-pack.md
+product-requirements.md
+validation-plan.md
+github-issue.md
+implementation-plan.md
+agent-brief.md
+```
+
+The manifest hashes and counts the other nine files; its separately stored digest
+avoids a recursive self-hash. Optional configured-AI generation requires the
+operator token. Validated `enhanced/` variants may be included, but deterministic
+originals remain authoritative and fallback metadata is retained. Packet
+creation rechecks eligibility before commit to prevent a concurrent decision or
+snapshot change from slipping through.
+
+The packet excludes local decision notes, raw identities, raw connector payloads,
+and secrets. `github-issue.md` is a draft artifact only; no external issue is
+created.
+
+## Agent Sessions and Audit
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `POST` | `/api/v1/agent-sessions` | Register one stdio process using a SHA-256 secret hash. |
+| `GET` | `/api/v1/agent-sessions` | List sessions. Requires the operator token. |
+| `GET` | `/api/v1/agent-sessions/{session_id}` | Read effective lease state. Requires the operator token. |
+| `POST` | `/api/v1/agent-sessions/{session_id}/approve` | Human UI approval with `expected_version`; configured AI is separately selectable. Requires the operator token. |
+| `POST` | `/api/v1/agent-sessions/{session_id}/heartbeat` | Renew the process lease using its in-memory bearer secret. |
+| `POST` | `/api/v1/agent-sessions/{session_id}/revoke` | Human revoke; terminal and operator-token protected. |
+| `POST` | `/api/v1/agent-sessions/{session_id}/exit` | Mark process exit using its in-memory bearer secret. |
+| `GET` | `/api/v1/agent-sessions/{session_id}/actions` | Read paginated redacted audit events. Requires the operator token. |
+
+The normal `tasksignal mcp` runtime performs this lifecycle locally. A raw
+session secret exists only in that process; the database stores its namespaced
+hash. Heartbeats run every 30 seconds against a 60-second lease. Approval ends on
+revoke, expiry, or process exit.
+
+Audit events are append-only and expose safe request/result summaries, status,
+capability, target, correlation/operation IDs, and safe error codes. They do not
+expose session secrets, idempotency keys, credentials, local notes, raw source
+payloads, or raw identities.
+
+## MCP Surface
+
+`tasksignal mcp` exposes stdio MCP from the optional `mcp` extra.
+
+Read tools:
+
+- `list_projects`
+- `list_project_runs`
+- `compare_project_runs`
+- `search_opportunities`
+- `get_opportunity_thread`
+- `get_evaluation`
+- `get_build_packet`
+- `verify_build_packet`
+
+Write tools:
+
+- `create_project`
+- `update_project`
+- `run_project`
+- `set_opportunity_decision`
+- `append_evidence_label`
+- `create_build_packet`
+
+Every write requires the approved process session, an idempotency key, and an
+expected version. Configured-AI packet generation additionally requires the
+`use_configured_ai` capability. Conflicts and replays return structured results.
+
+Resources:
+
+- `tasksignal://projects/{project_id}/runs/{run_id}/delta`
+- `tasksignal://opportunity-threads/{thread_id}`
+- `tasksignal://build-packets/{packet_id}/artifacts/{artifact_name}`
+
+MCP does not expose deletion/reset, source-host authorization, credentials,
+retention changes, arbitrary URL fetching, shell/filesystem operations, direct
+GitHub writes, HTTP transport, or OAuth.

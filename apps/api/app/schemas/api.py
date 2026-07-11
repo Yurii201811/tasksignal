@@ -1,7 +1,8 @@
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.services.evidence_review.types import (
     EvidenceReadinessLevel,
@@ -23,8 +24,46 @@ class SourceOut(SourceCreate):
     model_config = ConfigDict(from_attributes=True)
 
 
+class SourceAuthorizationCreate(BaseModel):
+    origin: str = Field(min_length=1, max_length=500)
+    terms_confirmed: Literal[True]
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+
+class SourceAuthorizationOut(BaseModel):
+    source_id: UUID
+    source_type: str
+    origin: str | None
+    host: str | None
+    port: int | None
+    authorized: bool
+    authorized_at: datetime | None
+    terms_confirmed_at: datetime | None
+
+
+class SourceRuntimeStateOut(BaseModel):
+    source_id: UUID
+    origin: str | None
+    readiness: Literal[
+        "ready",
+        "disabled",
+        "terms_required",
+        "retry_later",
+        "failed",
+        "never_run",
+    ]
+    can_run: bool
+    last_success_at: datetime | None
+    last_failure_at: datetime | None
+    last_failure_code: str | None
+    last_failure_message: str | None
+    last_http_status: int | None
+    retry_after_at: datetime | None
+
+
 class ScanCreate(BaseModel):
     source: str = "hackernews"
+    source_id: UUID | None = None
     query: str = ""
     limit: int = Field(default=30, ge=1, le=100)
 
@@ -101,6 +140,7 @@ class ResearchProjectCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     description: str | None = Field(default=None, max_length=500)
     source_type: str = "hackernews"
+    source_id: UUID | None = None
     query: str = Field(default="", max_length=300)
     limit: int = Field(default=30, ge=1, le=100)
     cadence: str = Field(default="manual", max_length=60)
@@ -109,11 +149,26 @@ class ResearchProjectCreate(BaseModel):
     enabled: bool = True
 
 
+class ResearchProjectUpdate(BaseModel):
+    expected_version: int | None = Field(default=None, ge=1)
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    description: str | None = Field(default=None, max_length=500)
+    source_type: str | None = Field(default=None, max_length=60)
+    source_id: UUID | None = None
+    query: str | None = Field(default=None, max_length=300)
+    limit: int | None = Field(default=None, ge=1, le=100)
+    cadence: str | None = Field(default=None, max_length=60)
+    schedule_interval_hours: int | None = Field(default=None, ge=1, le=24 * 31)
+    labels: list[str] | None = Field(default=None, max_length=12)
+    enabled: bool | None = None
+
+
 class ResearchProjectOut(BaseModel):
     id: UUID
     name: str
     description: str | None
     source_type: str
+    source_id: UUID | None
     query: str
     limit: int
     cadence: str
@@ -125,9 +180,73 @@ class ResearchProjectOut(BaseModel):
     last_run_at: datetime | None
     next_run_at: datetime | None
     run_count: int
+    version: int = Field(ge=1)
     created_at: datetime
     updated_at: datetime
     model_config = ConfigDict(from_attributes=True)
+
+
+class ResearchRunOut(BaseModel):
+    id: UUID
+    project_id: UUID
+    scan_id: UUID
+    sequence: int | None
+    source_type: str | None
+    source_origin: str | None = None
+    query: str | None
+    requested_limit: int | None
+    lineage_status: Literal["complete", "incomplete", "untracked"]
+    scan_status: str
+    started_at: datetime
+    finished_at: datetime | None
+    items_found: int
+    items_saved: int
+    signals_detected: int
+    clusters_created: int
+    opportunities_created: int
+    created_at: datetime
+
+
+class RunDeltaCountsOut(BaseModel):
+    new: int = Field(description="Evidence records first stored by this scan.")
+    seen_before: int = Field(description="Evidence records stored before this scan.")
+    updated: int = Field(
+        description="Stable source identities whose content changed since the prior complete run."
+    )
+    unchanged: int = Field(
+        description="Stable source identities unchanged since the prior complete run."
+    )
+    not_observed_this_run: int = Field(
+        description="Prior stable identities absent from this run; this never implies deletion."
+    )
+    model_config = ConfigDict(from_attributes=True)
+
+
+class GeneratedSnapshotsOut(BaseModel):
+    clusters: int
+    opportunities: int
+    model_config = ConfigDict(from_attributes=True)
+
+
+class OpportunityThreadDeltaCountsOut(BaseModel):
+    new: int = Field(ge=0)
+    updated: int = Field(ge=0)
+    unchanged: int = Field(ge=0)
+    not_observed_this_run: int = Field(ge=0)
+    model_config = ConfigDict(from_attributes=True)
+
+
+class RunDeltaOut(BaseModel):
+    project_id: UUID
+    run_id: UUID
+    scan_id: UUID
+    sequence: int
+    previous_run_id: UUID | None
+    evidence_changes: RunDeltaCountsOut
+    signal_changes: RunDeltaCountsOut
+    generated_snapshots: GeneratedSnapshotsOut
+    opportunity_changes: OpportunityThreadDeltaCountsOut | None = None
+    warnings: list[str] = Field(default_factory=list)
 
 
 class DueRunOut(BaseModel):
@@ -162,7 +281,13 @@ class ItemOut(BaseModel):
     review_label: EvidenceReviewLabel | None = None
     review_note: str | None = None
     reviewed_at: datetime | None = None
+    review_version: int | None = None
     review_history_count: int = 0
+    agent_review_label: EvidenceReviewLabel | None = None
+    agent_reviewed_at: datetime | None = None
+    agent_review_history_count: int = 0
+    agent_review_version: int | None = None
+    agent_session_id: UUID | None = None
 
 
 class EvidenceReadinessChecksOut(BaseModel):
@@ -226,6 +351,7 @@ class LabelCreate(BaseModel):
     item_id: UUID
     label: EvidenceReviewLabel
     user_note: str | None = Field(default=None, max_length=500)
+    expected_version: int | None = Field(default=None, ge=0)
 
 
 class LabelOut(BaseModel):
@@ -233,6 +359,9 @@ class LabelOut(BaseModel):
     item_id: UUID
     label: str
     user_note: str | None
+    actor_type: Literal["human", "agent"]
+    agent_session_id: UUID | None
+    version: int = Field(ge=1)
     created_at: datetime
     model_config = ConfigDict(from_attributes=True)
 
@@ -244,7 +373,22 @@ class OpportunityReviewUpdate(BaseModel):
 
 class OpportunityOut(BaseModel):
     id: UUID
+    thread_id: UUID | None = None
+    run_id: UUID | None = None
+    scan_id: UUID | None = None
     cluster_id: UUID
+    evidence_hash: str | None = None
+    content_hash: str | None = None
+    match_method: str | None = None
+    match_confidence: float | None = None
+    match_margin: float | None = None
+    centroid_similarity: float | None = None
+    evidence_jaccard: float | None = None
+    title_jaccard: float | None = None
+    embedding_model: str | None = None
+    embedding_backend: str | None = None
+    detached: bool = False
+    detached_from_thread_id: UUID | None = None
     title: str
     problem_statement: str
     target_user: str
@@ -268,6 +412,61 @@ class OpportunityOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class OpportunitySnapshotOut(OpportunityOut):
+    pass
+
+
+class OpportunityDecisionUpdate(BaseModel):
+    review_state: ReviewState
+    review_note: str | None = Field(default=None, max_length=1000)
+    expected_version: int = Field(ge=1)
+
+
+class DetachSnapshotRequest(BaseModel):
+    expected_version: int = Field(ge=1)
+
+
+class OpportunityDecisionEventOut(BaseModel):
+    id: UUID
+    thread_id: UUID
+    event_type: str
+    actor_type: str
+    agent_session_id: UUID | None
+    snapshot_id: UUID | None
+    related_thread_id: UUID | None
+    previous_state: ReviewState | None
+    next_state: ReviewState | None
+    previous_note: str | None
+    next_note: str | None
+    details_json: dict
+    created_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+
+class OpportunityThreadSummaryOut(BaseModel):
+    id: UUID
+    project_id: UUID | None
+    lineage_status: Literal["complete", "untracked"]
+    review_state: ReviewState
+    review_note: str | None
+    decision_updated_at: datetime | None
+    version: int
+    snapshot_count: int
+    current_snapshot: OpportunitySnapshotOut | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class OpportunityThreadOut(OpportunityThreadSummaryOut):
+    snapshots: list[OpportunitySnapshotOut] = Field(default_factory=list)
+    decision_history: list[OpportunityDecisionEventOut] = Field(default_factory=list)
+
+
+class DetachSnapshotOut(BaseModel):
+    source_thread: OpportunityThreadOut
+    new_thread: OpportunityThreadOut
+
+
 class ProcessSummary(BaseModel):
     raw_items_loaded: int
     normalized_items_created: int
@@ -276,9 +475,212 @@ class ProcessSummary(BaseModel):
     opportunities_created: int
 
 
-class SearchRequest(BaseModel):
-    query: str
-    limit: int = 10
+class SemanticSearchRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=500)
+    limit: int = Field(default=10, ge=1, le=20)
+    project_id: UUID | None = None
+    source: str | None = Field(default=None, max_length=60)
+    signal_type: str | None = Field(default=None, max_length=80)
+    review_state: ReviewState | None = None
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    @field_validator("source", "signal_type")
+    @classmethod
+    def reject_blank_filter(cls, value: str | None) -> str | None:
+        if value is not None and not value:
+            raise ValueError("Search filters cannot be blank")
+        return value
+
+
+class EvidenceSearchObservationOut(BaseModel):
+    source: str
+    source_url: str
+    scan_id: UUID
+    run_id: UUID | None
+    project_id: UUID | None
+
+
+class EvidenceSearchProvenanceOut(BaseModel):
+    evidence_hash: str
+    scan_ids: list[UUID] = Field(default_factory=list)
+    run_ids: list[UUID] = Field(default_factory=list)
+    project_ids: list[UUID] = Field(default_factory=list)
+    observations: list[EvidenceSearchObservationOut] = Field(default_factory=list)
+
+
+class EvidenceSearchHitOut(BaseModel):
+    id: UUID
+    source: str
+    title: str
+    excerpt: str
+    source_url: str
+    match_score: float = Field(ge=0.0, le=1.0)
+    signal_type: str | None
+    review_label: EvidenceReviewLabel | None
+    created_at: datetime
+    untrusted_evidence: bool = True
+    provenance: EvidenceSearchProvenanceOut
+
+
+class OpportunityThreadSearchProvenanceOut(BaseModel):
+    snapshot_id: UUID
+    run_id: UUID | None
+    scan_id: UUID | None
+    evidence_hash: str
+    content_hash: str
+    match_method: str
+    match_confidence: float | None
+
+
+class OpportunityThreadHitOut(BaseModel):
+    id: UUID
+    project_id: UUID | None
+    title: str
+    summary: str
+    match_score: float = Field(ge=0.0, le=1.0)
+    matched_evidence_ids: list[UUID]
+    matched_evidence_count: int = Field(ge=1)
+    review_state: ReviewState
+    lineage_status: Literal["complete", "untracked"]
+    evidence_readiness: EvidenceReadinessOut
+    provenance: OpportunityThreadSearchProvenanceOut
+
+
+class SemanticSearchOut(BaseModel):
+    evidence_hits: list[EvidenceSearchHitOut] = Field(default_factory=list)
+    opportunity_threads: list[OpportunityThreadHitOut] = Field(default_factory=list)
+
+
+class SearchRequest(SemanticSearchRequest):
+    """Backward-compatible Python type name for the former semantic route."""
+
+
+class BuildPacketCreate(BaseModel):
+    use_configured_ai: bool = False
+    expected_version: int | None = Field(default=None, ge=1)
+
+
+class BuildPacketArtifactOut(BaseModel):
+    path: str
+    content: str
+    byte_count: int = Field(ge=0)
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class BuildPacketOut(BaseModel):
+    id: UUID
+    project_id: UUID | None
+    run_id: UUID | None
+    thread_id: UUID
+    snapshot_id: UUID
+    lineage_status: Literal["complete", "untracked"]
+    generation_mode: Literal["deterministic", "configured_ai"]
+    schema_version: str
+    tasksignal_version: str
+    template_version: str
+    generated_at: datetime
+    enhancement_status: Literal["not_requested", "generated", "fallback"]
+    enhancement_provider: str | None
+    enhancement_model: str | None
+    enhancement_template_version: str | None
+    artifacts: list[BuildPacketArtifactOut] = Field(default_factory=list)
+    manifest: dict
+    manifest_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    created_at: datetime
+
+
+class BuildPacketSummaryOut(BaseModel):
+    id: UUID
+    project_id: UUID | None
+    run_id: UUID | None
+    thread_id: UUID
+    snapshot_id: UUID
+    lineage_status: Literal["complete", "untracked"]
+    generation_mode: Literal["deterministic", "configured_ai"]
+    schema_version: str
+    tasksignal_version: str
+    template_version: str
+    generated_at: datetime
+    enhancement_status: Literal["not_requested", "generated", "fallback"]
+    enhancement_provider: str | None
+    enhancement_model: str | None
+    artifact_count: int = Field(ge=0)
+    total_bytes: int = Field(ge=0)
+    manifest_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    created_at: datetime
+
+
+class BuildPacketVerificationOut(BaseModel):
+    packet_id: UUID
+    valid: bool
+    errors: list[str] = Field(default_factory=list)
+    missing_files: list[str] = Field(default_factory=list)
+    unexpected_files: list[str] = Field(default_factory=list)
+    mismatched_files: list[str] = Field(default_factory=list)
+
+
+class AgentSessionCreate(BaseModel):
+    process_instance_id: UUID
+    client_name: str = Field(min_length=1, max_length=128)
+    client_version: str | None = Field(default=None, min_length=1, max_length=64)
+    transport: Literal["stdio"] = "stdio"
+    secret_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    requested_capabilities: list[str] = Field(min_length=6, max_length=7)
+
+
+class AgentSessionApprove(BaseModel):
+    expected_version: int = Field(ge=1)
+    use_configured_ai: bool = False
+    model_config = ConfigDict(extra="forbid")
+
+
+class AgentSessionLeaseUpdate(BaseModel):
+    expected_version: int | None = Field(default=None, ge=1)
+
+
+class AgentSessionRevoke(BaseModel):
+    expected_version: int = Field(ge=1)
+
+
+class AgentSessionOut(BaseModel):
+    id: UUID
+    process_instance_id: UUID
+    client_name: str
+    client_version: str | None
+    transport: Literal["stdio"]
+    status: Literal["pending", "approved", "revoked", "expired", "exited"]
+    effective_status: Literal["pending", "approved", "revoked", "expired", "exited"]
+    requested_capabilities: list[str] = Field(default_factory=list)
+    approved_capabilities: list[str] = Field(default_factory=list)
+    approval_source: Literal["ui", "interactive_tty"] | None
+    approved_at: datetime | None
+    last_heartbeat_at: datetime
+    expires_at: datetime
+    revoked_at: datetime | None
+    expired_at: datetime | None
+    exited_at: datetime | None
+    version: int = Field(ge=1)
+    created_at: datetime
+    updated_at: datetime
+
+
+class AgentActionOut(BaseModel):
+    id: UUID
+    session_id: UUID
+    operation_id: UUID
+    correlation_id: UUID
+    event_sequence: int = Field(ge=1)
+    event_status: Literal[
+        "reserved", "succeeded", "failed", "conflict", "replayed", "denied"
+    ]
+    capability: str
+    tool_name: str
+    target_type: str | None
+    target_id: str | None
+    request_summary: dict = Field(default_factory=dict)
+    result_summary: dict | None
+    error_code: str | None
+    created_at: datetime
 
 
 class TaskPackOut(BaseModel):

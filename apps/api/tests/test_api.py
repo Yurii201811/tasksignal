@@ -492,7 +492,7 @@ def test_public_scan_error_is_clear_when_no_public_scan_sources_are_enabled(
     assert "browser-safe source" in detail
 
 
-def test_process_demo_is_idempotent_without_reset(client) -> None:
+def test_process_demo_reuses_evidence_while_creating_a_fresh_scan_snapshot(client) -> None:
     first = client.post("/api/process/demo").json()
     second = client.post("/api/process/demo").json()
 
@@ -500,7 +500,8 @@ def test_process_demo_is_idempotent_without_reset(client) -> None:
     assert first["opportunities_created"] >= 5
     assert second["raw_items_loaded"] >= 17
     assert second["normalized_items_created"] == 0
-    assert second["opportunities_created"] == 0
+    assert second["signals_detected"] == first["signals_detected"]
+    assert second["opportunities_created"] == first["opportunities_created"]
     assert len(client.get("/api/opportunities").json()) >= 5
     assert client.get("/api/stats").json()["problem_signals"] == first["signals_detected"]
 
@@ -541,12 +542,16 @@ def test_regenerate_opportunity_rebuilds_prompt_from_evidence(client) -> None:
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["id"] == opportunity["id"]
+    assert payload["id"] != opportunity["id"]
+    assert payload["thread_id"] == opportunity["thread_id"]
+    assert payload["match_method"] == "regenerated"
     assert payload["updated_at"] >= opportunity["updated_at"]
     assert payload["generated_prompt"].startswith("# Build")
     assert "Top source excerpts" in payload["generated_prompt"]
     assert payload["scoring_breakdown_json"]["common_phrases"]
     assert payload["problem_statement"].count("People repeatedly describe") == 1
+    original = client.get(f"/api/opportunities/{opportunity['id']}").json()
+    assert original["content_hash"] == opportunity["content_hash"]
 
 
 def test_prompt_enhancement_requires_configured_runtime(client, monkeypatch) -> None:

@@ -5,12 +5,31 @@ import re
 from datetime import UTC, datetime
 from html import unescape
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlparse
 
 from app.core.config import settings
 from app.services.ingestion.types import RawFetchedItem
 
 TAG_RE = re.compile(r"<[^>]+>")
+SENSITIVE_URL_PARAMETER_KEYS = {
+    "accesskey",
+    "accesstoken",
+    "apikey",
+    "auth",
+    "authorization",
+    "code",
+    "cookie",
+    "credential",
+    "key",
+    "password",
+    "secret",
+    "sig",
+    "signature",
+    "token",
+    "xamzcredential",
+    "xamzsecuritytoken",
+    "xamzsignature",
+}
 
 
 def clean_text(value: str | None) -> str:
@@ -45,6 +64,16 @@ def text_hash(title: str, body: str) -> str:
     return hashlib.sha256(normalized.encode()).hexdigest()
 
 
+def _has_sensitive_url_parameters(value: str) -> bool:
+    for key, _value in parse_qsl(value.lstrip("?#"), keep_blank_values=True):
+        normalized_key = re.sub(r"[^a-z0-9]", "", key.casefold())
+        if normalized_key in SENSITIVE_URL_PARAMETER_KEYS or normalized_key.endswith(
+            ("apikey", "credential", "password", "secret", "signature", "token")
+        ):
+            return True
+    return False
+
+
 def safe_source_url(value: Any, fallback: str = "") -> str:
     if not isinstance(value, str):
         return fallback
@@ -54,7 +83,18 @@ def safe_source_url(value: Any, fallback: str = "") -> str:
         return fallback
 
     parsed = urlparse(candidate)
-    if parsed.scheme in {"http", "https"} and parsed.netloc:
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.netloc
+        or parsed.username is not None
+        or parsed.password is not None
+    ):
+        return fallback
+    if _has_sensitive_url_parameters(parsed.query) or _has_sensitive_url_parameters(
+        parsed.fragment
+    ):
+        return fallback
+    if parsed.hostname:
         return candidate
     return fallback
 
@@ -104,6 +144,13 @@ def normalize(raw: RawFetchedItem) -> dict[str, Any]:
         author = owner.get("display_name") or item.get("author")
         created = parse_datetime(item.get("creation_date") or item.get("created_at"))
         url = safe_source_url(item.get("link"))
+        tags = item.get("tags") or []
+    elif source == "discourse":
+        title = clean_text(item.get("title"))
+        body = clean_text(item.get("body") or item.get("excerpt"))
+        author = None
+        created = parse_datetime(item.get("created_at"))
+        url = safe_source_url(item.get("url"))
         tags = item.get("tags") or []
     else:
         title = clean_text(item.get("title"))

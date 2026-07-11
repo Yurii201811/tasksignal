@@ -5,8 +5,6 @@ Revises:
 Create Date: 2026-05-29
 """
 
-from collections.abc import Sequence
-
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
@@ -83,7 +81,9 @@ def upgrade() -> None:
         sa.Column("pain_score", sa.Float(), nullable=False),
         sa.Column("task_concreteness_score", sa.Float(), nullable=False),
         sa.Column("buying_intent_score", sa.Float(), nullable=False),
-        sa.Column("evidence_spans_json", postgresql.JSONB() if is_postgres else sa.JSON(), nullable=False),
+        sa.Column(
+            "evidence_spans_json", postgresql.JSONB() if is_postgres else sa.JSON(), nullable=False
+        ),
         sa.Column("classifier_version", sa.Text(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     )
@@ -98,7 +98,9 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     )
     if is_postgres:
-        op.execute("ALTER TABLE item_embeddings ALTER COLUMN embedding TYPE vector(384) USING embedding::vector")
+        op.execute(
+            "ALTER TABLE item_embeddings ALTER COLUMN embedding TYPE vector(384) USING embedding::vector"
+        )
         op.execute(
             "CREATE INDEX ix_item_embeddings_vector ON item_embeddings USING ivfflat (embedding vector_cosine_ops) WITH (lists = 16)"
         )
@@ -113,7 +115,9 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
     )
     if is_postgres:
-        op.execute("ALTER TABLE clusters ALTER COLUMN centroid_embedding TYPE vector(384) USING centroid_embedding::vector")
+        op.execute(
+            "ALTER TABLE clusters ALTER COLUMN centroid_embedding TYPE vector(384) USING centroid_embedding::vector"
+        )
     op.create_table(
         "cluster_items",
         sa.Column("cluster_id", sa.Uuid(), sa.ForeignKey("clusters.id"), primary_key=True),
@@ -133,7 +137,11 @@ def upgrade() -> None:
         sa.Column("feasibility_score", sa.Float(), nullable=False),
         sa.Column("opportunity_score", sa.Float(), nullable=False),
         sa.Column("competition_notes", sa.Text(), nullable=False),
-        sa.Column("scoring_breakdown_json", postgresql.JSONB() if is_postgres else sa.JSON(), nullable=False),
+        sa.Column(
+            "scoring_breakdown_json",
+            postgresql.JSONB() if is_postgres else sa.JSON(),
+            nullable=False,
+        ),
         sa.Column("generated_prompt", sa.Text(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
@@ -163,4 +171,3 @@ def downgrade() -> None:
         "sources",
     ]:
         op.drop_table(table)
-

@@ -18,7 +18,7 @@ rsync -a --delete --exclude '__pycache__/' --exclude '*.pyc' \
   "$API_DIR/app/" "$TARGET_DIR/app/"
 rsync -a --delete "$SOURCE_DIR/" "$TARGET_DIR/data/fixtures/"
 
-for file in pyproject.toml uv.lock vercel.json .python-version .vercelignore; do
+for file in pyproject.toml uv.lock README.md LICENSE vercel.json .python-version .vercelignore; do
   rsync -a "$API_DIR/$file" "$TARGET_DIR/$file"
 done
 

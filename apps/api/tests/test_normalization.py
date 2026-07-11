@@ -1,4 +1,6 @@
-from app.services.ingestion.normalization import normalize
+import pytest
+
+from app.services.ingestion.normalization import normalize, safe_source_url
 from app.services.ingestion.types import RawFetchedItem, utc_now
 
 
@@ -59,3 +61,22 @@ def test_normalization_keeps_safe_source_url() -> None:
     )
 
     assert item["url"] == "https://github.com/example/project/issues/456"
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://user:secret@example.com/evidence",
+        "https://example.com/evidence?access_token=do-not-leak",
+        "https://example.com/evidence?X-Amz-Signature=do-not-leak",
+        "https://example.com/evidence?redirect=ok&api_key=do-not-leak",
+        "https://example.com/callback#access_token=do-not-leak",
+    ],
+)
+def test_safe_source_url_rejects_embedded_credentials(url: str) -> None:
+    assert safe_source_url(url, fallback="redacted") == "redacted"
+
+
+def test_safe_source_url_keeps_non_sensitive_query_parameters() -> None:
+    url = "https://news.ycombinator.com/item?id=123&monkey=visible"
+    assert safe_source_url(url) == url

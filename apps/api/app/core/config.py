@@ -1,5 +1,8 @@
+import os
 from functools import lru_cache
+from importlib.resources import files
 from pathlib import Path
+from typing import Any
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -35,6 +38,13 @@ def resolve_project_root(config_file: Path) -> Path:
     return app_package.parent if app_package is not None else resolved.parent
 
 
+def resolve_fixture_dir(project_root: Path) -> Path:
+    source_fixtures = project_root / "data" / "fixtures"
+    if source_fixtures.is_dir():
+        return source_fixtures
+    return Path(str(files("app.resources.fixtures")))
+
+
 class Settings(BaseSettings):
     database_url: str = "sqlite:///./tasksignal.db"
     api_base_url: str = "http://localhost:8000"
@@ -47,7 +57,7 @@ class Settings(BaseSettings):
     auto_create_tables: bool = True
     reddit_client_id: str = ""
     reddit_client_secret: str = ""
-    reddit_user_agent: str = "tasksignal-local-demo/0.2"
+    reddit_user_agent: str = "tasksignal-local-demo/1.0"
     github_token: str = ""
     stack_exchange_key: str = ""
     demo_reset_token: str = ""
@@ -70,12 +80,14 @@ class Settings(BaseSettings):
 
     @property
     def fixture_dir(self) -> Path:
-        return self.project_root / "data" / "fixtures"
+        return resolve_fixture_dir(self.project_root)
 
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    env_file = None if os.getenv("TASKSIGNAL_PACKAGED_MODE") == "1" else ".env"
+    settings_class: Any = Settings
+    return settings_class(_env_file=env_file)
 
 
 settings = get_settings()

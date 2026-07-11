@@ -29,6 +29,18 @@ export const sourceQueryPresets: SourceQueryPreset[] = [
     privacy: "Uses sanitized repository fixture records only.",
   },
   {
+    value: "discourse",
+    label: "Discourse forum",
+    defaultQuery: "manual workflow",
+    credential:
+      "Operator-gated; an exact public HTTPS forum must be authorized first.",
+    examples: ["manual workflow", "pain point", "workaround"],
+    guidance:
+      "Create and authorize one public forum in Sources, then bind that exact source to this project.",
+    privacy:
+      "Stores public topic fields and source URLs; cookies, credentials, private categories, and raw author identities are excluded.",
+  },
+  {
     value: "github",
     label: "GitHub Issues",
     defaultQuery: 'is:issue is:open "manual workflow"',

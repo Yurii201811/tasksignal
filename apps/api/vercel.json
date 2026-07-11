@@ -6,7 +6,7 @@
     "app/main.py": {
       "maxDuration": 60,
       "includeFiles": "data/fixtures/**",
-      "excludeFiles": "{tests/**,alembic/**,**/__pycache__/**}"
+      "excludeFiles": "{tests/**,**/__pycache__/**}"
     }
   }
 }

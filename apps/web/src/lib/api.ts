@@ -1,9 +1,17 @@
 import type {
+  AgentAction,
+  AgentSession,
+  BuildPacket,
+  BuildPacketSummary,
+  BuildPacketVerification,
+  DetachSnapshotResult,
   DueRun,
   Enhancement,
   Evaluation,
   EvidenceReviewCreate,
   Opportunity,
+  OpportunityThread,
+  OpportunityThreadSummary,
   OpportunityReviewUpdate,
   Integration,
   IntegrationTest,
@@ -13,10 +21,15 @@ import type {
   ProcessSummary,
   ResearchProject,
   ResearchProjectCreate,
+  ResearchRun,
+  RunDelta,
   Readiness,
   Scan,
   ScanCreate,
+  SemanticSearch,
   Source,
+  SourceAuthorization,
+  SourceRuntimeState,
   Stats,
   TaskPack,
   ReviewState,
@@ -129,6 +142,14 @@ export const api = {
         : undefined,
     }),
   researchProjects: () => request<ResearchProject[]>("/api/research-projects"),
+  researchProject: (id: string) =>
+    request<ResearchProject>(`/api/v1/research-projects/${id}`),
+  researchProjectRuns: (id: string) =>
+    request<ResearchRun[]>(`/api/v1/research-projects/${id}/runs`),
+  researchProjectRunDelta: (projectId: string, runId: string) =>
+    request<RunDelta>(
+      `/api/v1/research-projects/${projectId}/runs/${runId}/delta`,
+    ),
   createResearchProject: (payload: ResearchProjectCreate) =>
     request<ResearchProject>("/api/research-projects", {
       method: "POST",
@@ -156,13 +177,115 @@ export const api = {
       body: JSON.stringify(payload),
     }),
   semanticSearch: (query: string) =>
-    request<{
-      items: { item: unknown; similarity: number }[];
-      opportunities: unknown[];
-    }>("/api/search/semantic", {
+    request<SemanticSearch>("/api/v1/search", {
       method: "POST",
       body: JSON.stringify({ query, limit: 8 }),
     }),
+  opportunityThreads: (filters?: {
+    projectId?: string;
+    reviewState?: ReviewState;
+  }) => {
+    const params = new URLSearchParams();
+    if (filters?.projectId) params.set("project_id", filters.projectId);
+    if (filters?.reviewState) params.set("review_state", filters.reviewState);
+    const query = params.size > 0 ? `?${params}` : "";
+    return request<OpportunityThreadSummary[]>(
+      `/api/v1/opportunity-threads${query}`,
+    );
+  },
+  opportunityThread: (id: string) =>
+    request<OpportunityThread>(`/api/v1/opportunity-threads/${id}`),
+  updateOpportunityThreadDecision: (
+    id: string,
+    payload: OpportunityReviewUpdate & { expected_version: number },
+  ) =>
+    request<OpportunityThread>(`/api/v1/opportunity-threads/${id}/decision`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+  detachOpportunitySnapshot: (
+    threadId: string,
+    snapshotId: string,
+    expectedVersion: number,
+  ) =>
+    request<DetachSnapshotResult>(
+      `/api/v1/opportunity-threads/${threadId}/snapshots/${snapshotId}/detach`,
+      {
+        method: "POST",
+        body: JSON.stringify({ expected_version: expectedVersion }),
+      },
+    ),
+  buildPackets: (threadId: string) =>
+    request<BuildPacketSummary[]>(
+      `/api/v1/opportunity-threads/${threadId}/build-packets`,
+    ),
+  createBuildPacket: (
+    threadId: string,
+    payload: { expected_version: number; use_configured_ai: boolean },
+  ) =>
+    request<BuildPacket>(
+      `/api/v1/opportunity-threads/${threadId}/build-packets`,
+      { method: "POST", body: JSON.stringify(payload) },
+    ),
+  buildPacket: (packetId: string) =>
+    request<BuildPacket>(`/api/v1/build-packets/${packetId}`),
+  verifyBuildPacket: (packetId: string) =>
+    request<BuildPacketVerification>(
+      `/api/v1/build-packets/${packetId}/verify`,
+    ),
+  downloadBuildPacket: (packetId: string) =>
+    download(
+      `/api/v1/build-packets/${packetId}/download`,
+      `tasksignal-packet-${packetId}.zip`,
+    ),
+  createDiscourseSource: (name: string) =>
+    request<Source>("/api/v1/sources", {
+      method: "POST",
+      body: JSON.stringify({
+        name,
+        type: "discourse",
+        config_json: {},
+        enabled: true,
+      }),
+    }),
+  discourseSourceAuthorization: (sourceId: string) =>
+    request<SourceAuthorization>(`/api/v1/sources/${sourceId}/authorization`),
+  authorizeDiscourseSource: (sourceId: string, origin: string) =>
+    request<SourceAuthorization>(`/api/v1/sources/${sourceId}/authorization`, {
+      method: "PUT",
+      body: JSON.stringify({ origin, terms_confirmed: true }),
+    }),
+  revokeDiscourseSource: (sourceId: string) =>
+    request<SourceAuthorization>(`/api/v1/sources/${sourceId}/authorization`, {
+      method: "DELETE",
+    }),
+  discourseSourceRuntime: (sourceId: string) =>
+    request<SourceRuntimeState>(`/api/v1/sources/${sourceId}/runtime-state`),
+  agentSessions: () => request<AgentSession[]>("/api/v1/agent-sessions"),
+  approveAgentSession: (
+    sessionId: string,
+    expectedVersion: number,
+    useConfiguredAi: boolean,
+  ) =>
+    request<AgentSession>(`/api/v1/agent-sessions/${sessionId}/approve`, {
+      method: "POST",
+      body: JSON.stringify({
+        expected_version: expectedVersion,
+        use_configured_ai: useConfiguredAi,
+      }),
+    }),
+  revokeAgentSession: (sessionId: string, expectedVersion: number) =>
+    request<AgentSession>(`/api/v1/agent-sessions/${sessionId}/revoke`, {
+      method: "POST",
+      body: JSON.stringify({ expected_version: expectedVersion }),
+    }),
+  agentSessionActions: (sessionId: string, limit = 100, offset = 0) =>
+    request<AgentAction[]>(
+      `/api/v1/agent-sessions/${sessionId}/actions?${new URLSearchParams({
+        limit: String(limit),
+        offset: String(offset),
+      })}`,
+    ),
   downloadPrompt: (id: string) =>
     download(`/api/opportunities/${id}/export.md`, `${id}.md`),
   downloadEvidence: (id: string) =>

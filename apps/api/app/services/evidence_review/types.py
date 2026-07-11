@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
+from uuid import UUID
 
 
 class ReviewState(StrEnum):
@@ -34,3 +35,6 @@ class EvidenceReviewSnapshot:
     review_note: str | None = None
     reviewed_at: datetime | None = None
     history_count: int = 0
+    actor_type: str | None = None
+    agent_session_id: UUID | None = None
+    version: int | None = None

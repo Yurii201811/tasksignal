@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import Counter
 from datetime import UTC, datetime
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 from app.models.all_models import (
@@ -14,28 +14,52 @@ from app.models.all_models import (
     Label,
     NormalizedItem,
     Opportunity,
+    OpportunityDecisionEvent,
+    OpportunityThread,
     RawItem,
+    ResearchProject,
+    ResearchProjectRun,
+    ScanItem,
     ScanJob,
     Source,
 )
 from app.services.ingestion.connectors import FixtureConnector
-from app.workers.scan_pipeline import process_fetched_items, scan_outcome_message
+from app.workers.scan_pipeline import (
+    SCAN_WRITE_LOCK,
+    acquire_database_scan_write_lock_with_retry,
+    process_fetched_items,
+    scan_outcome_message,
+)
 
 
 def reset_demo_data(db: Session) -> None:
-    for model in [
-        Label,
-        Opportunity,
-        ClusterItem,
-        Cluster,
-        ItemEmbedding,
-        ItemSignal,
-        NormalizedItem,
-        RawItem,
-        ScanJob,
-    ]:
-        db.execute(delete(model))
-    db.commit()
+    with SCAN_WRITE_LOCK:
+        acquire_database_scan_write_lock_with_retry(db)
+        db.execute(
+            update(ResearchProject).values(
+                last_scan_id=None,
+                last_run_at=None,
+                run_count=0,
+            )
+        )
+        db.execute(update(OpportunityThread).values(current_snapshot_id=None))
+        for model in [
+            Label,
+            OpportunityDecisionEvent,
+            Opportunity,
+            OpportunityThread,
+            ClusterItem,
+            Cluster,
+            ScanItem,
+            ResearchProjectRun,
+            ItemEmbedding,
+            ItemSignal,
+            NormalizedItem,
+            RawItem,
+            ScanJob,
+        ]:
+            db.execute(delete(model))
+        db.commit()
 
 
 def ensure_sources(db: Session) -> None:
@@ -68,17 +92,19 @@ def process_demo(db: Session, reset: bool = False) -> dict[str, int]:
 
     connector = FixtureConnector()
     fetched = connector.fetch(limit=300)
-    result = process_fetched_items(db, fetched)
+    with SCAN_WRITE_LOCK:
+        acquire_database_scan_write_lock_with_retry(db)
+        result = process_fetched_items(db, fetched, scan_id=job.id)
 
-    job.status = "completed"
-    job.finished_at = datetime.now(UTC)
-    job.items_found = result.raw_items_loaded
-    job.items_saved = result.normalized_items_created
-    job.signals_detected = result.signals_detected
-    job.clusters_created = result.clusters_created
-    job.opportunities_created = result.opportunities_created
-    job.outcome_message = scan_outcome_message(result)
-    db.commit()
+        job.status = "completed"
+        job.finished_at = datetime.now(UTC)
+        job.items_found = result.raw_items_loaded
+        job.items_saved = result.normalized_items_created
+        job.signals_detected = result.signals_detected
+        job.clusters_created = result.clusters_created
+        job.opportunities_created = result.opportunities_created
+        job.outcome_message = scan_outcome_message(result)
+        db.commit()
     return {
         "raw_items_loaded": result.raw_items_loaded,
         "normalized_items_created": result.normalized_items_created,

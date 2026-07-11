@@ -1,0 +1,62 @@
+name: PostgreSQL migration rehearsal
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: postgres-migrations-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_VERSION: "0.9.26"
+
+jobs:
+  postgres-migration-rehearsal:
+    name: PostgreSQL 16 / pgvector migration rehearsal
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: >-
+          pgvector/pgvector:pg16@sha256:1d533553fefe4f12e5d80c7b80622ba0c382abb5758856f52983d8789179f0fb
+        env:
+          POSTGRES_DB: tasksignal_rehearsal
+          POSTGRES_USER: tasksignal_rehearsal
+          POSTGRES_PASSWORD: local-ci-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tasksignal_rehearsal -d tasksignal_rehearsal"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: apps/api/uv.lock
+      - name: Install the locked TaskSignal package
+        run: uv sync --project apps/api --locked --no-dev
+      - name: Check rehearsal safety helpers
+        run: >-
+          uv run --project apps/api --locked --no-dev
+          python -m unittest discover -s scripts/tests
+          -p 'test_postgres_migration_rehearsal.py'
+      - name: Rehearse fresh, v0.2, and fail-closed migrations
+        run: >-
+          uv run --project apps/api --locked --no-dev
+          python scripts/postgres_migration_rehearsal.py
+        env:
+          TASKSIGNAL_POSTGRES_REHEARSAL_URL: >-
+            postgresql+psycopg://tasksignal_rehearsal:local-ci-only@127.0.0.1:5432/tasksignal_rehearsal
