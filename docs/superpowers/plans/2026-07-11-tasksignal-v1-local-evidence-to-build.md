@@ -55,6 +55,7 @@
 - Detection/embedding runs only when missing; clustering receives every observed problem-signal item.
 - Lineage writes complete atomically before a scan becomes completed; failed scans have no complete delta.
 - Existing scans remain untracked. Edited source text remains a new evidence record under the existing text-hash contract.
+- In this task, `RunDeltaOut` exposes exact evidence/signal counts and generated snapshot counts, while `opportunity_changes` is `null` with an explicit `thread_matching_unavailable` warning. Task 3 replaces that warning with `new`, `updated`, `unchanged`, and `not_observed_this_run` thread counts. Never fabricate continuity before thread matching exists.
 
 ### Task 3: Add persistent opportunity threads and automatic matching
 
