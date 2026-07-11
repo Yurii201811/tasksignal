@@ -19,7 +19,7 @@ from app.models.all_models import (
     Source,
 )
 from app.services.ingestion.connectors import FixtureConnector
-from app.workers.scan_pipeline import process_fetched_items, scan_outcome_message
+from app.workers.scan_pipeline import SCAN_WRITE_LOCK, process_fetched_items, scan_outcome_message
 
 
 def reset_demo_data(db: Session) -> None:
@@ -68,17 +68,18 @@ def process_demo(db: Session, reset: bool = False) -> dict[str, int]:
 
     connector = FixtureConnector()
     fetched = connector.fetch(limit=300)
-    result = process_fetched_items(db, fetched)
+    with SCAN_WRITE_LOCK:
+        result = process_fetched_items(db, fetched, scan_id=job.id)
 
-    job.status = "completed"
-    job.finished_at = datetime.now(UTC)
-    job.items_found = result.raw_items_loaded
-    job.items_saved = result.normalized_items_created
-    job.signals_detected = result.signals_detected
-    job.clusters_created = result.clusters_created
-    job.opportunities_created = result.opportunities_created
-    job.outcome_message = scan_outcome_message(result)
-    db.commit()
+        job.status = "completed"
+        job.finished_at = datetime.now(UTC)
+        job.items_found = result.raw_items_loaded
+        job.items_saved = result.normalized_items_created
+        job.signals_detected = result.signals_detected
+        job.clusters_created = result.clusters_created
+        job.opportunities_created = result.opportunities_created
+        job.outcome_message = scan_outcome_message(result)
+        db.commit()
     return {
         "raw_items_loaded": result.raw_items_loaded,
         "normalized_items_created": result.normalized_items_created,

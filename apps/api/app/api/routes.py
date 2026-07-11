@@ -1121,6 +1121,7 @@ def run_due_research_projects(
             source=source_type,
             query=project.query,
             limit=project.limit,
+            research_project=project,
         )
         mark_project_ran(project, scan, datetime.now(UTC))
         scans.append(scan)
@@ -1160,6 +1161,7 @@ def run_research_project(
         source=source_type,
         query=project.query,
         limit=project.limit,
+        research_project=project,
     )
     mark_project_ran(project, scan, datetime.now(UTC))
     db.commit()

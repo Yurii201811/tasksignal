@@ -492,7 +492,7 @@ def test_public_scan_error_is_clear_when_no_public_scan_sources_are_enabled(
     assert "browser-safe source" in detail
 
 
-def test_process_demo_is_idempotent_without_reset(client) -> None:
+def test_process_demo_reuses_evidence_while_creating_a_fresh_scan_snapshot(client) -> None:
     first = client.post("/api/process/demo").json()
     second = client.post("/api/process/demo").json()
 
@@ -500,7 +500,8 @@ def test_process_demo_is_idempotent_without_reset(client) -> None:
     assert first["opportunities_created"] >= 5
     assert second["raw_items_loaded"] >= 17
     assert second["normalized_items_created"] == 0
-    assert second["opportunities_created"] == 0
+    assert second["signals_detected"] == first["signals_detected"]
+    assert second["opportunities_created"] == first["opportunities_created"]
     assert len(client.get("/api/opportunities").json()) >= 5
     assert client.get("/api/stats").json()["problem_signals"] == first["signals_detected"]
 

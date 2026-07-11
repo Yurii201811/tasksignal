@@ -3,9 +3,10 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from threading import RLock
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.all_models import (
@@ -16,6 +17,9 @@ from app.models.all_models import (
     NormalizedItem,
     Opportunity,
     RawItem,
+    ResearchProject,
+    ResearchProjectRun,
+    ScanItem,
     ScanJob,
     Source,
 )
@@ -64,6 +68,12 @@ CONNECTOR_FACTORIES: dict[str, ConnectorFactory] = {
     "stackexchange": StackExchangeConnector,
 }
 
+# TaskSignal v1 is deliberately single-process/local-first. Serializing the short
+# database write phases makes concurrent local scans deterministic on SQLite while
+# leaving connector I/O outside the lock. Database constraints remain the final
+# guard for deployments that run more than one API process.
+SCAN_WRITE_LOCK = RLock()
+
 
 @dataclass(frozen=True)
 class ScanPipelineResult:
@@ -74,6 +84,12 @@ class ScanPipelineResult:
     opportunities_created: int
 
 
+@dataclass(frozen=True)
+class SavedFetchedItems:
+    observed_item_ids: list[UUID]
+    created_item_ids: list[UUID]
+
+
 def scan_outcome_message(result: ScanPipelineResult) -> str:
     if result.raw_items_loaded == 0:
         return (
@@ -81,9 +97,15 @@ def scan_outcome_message(result: ScanPipelineResult) -> str:
             "or a larger limit before judging the source."
         )
     if result.normalized_items_created == 0:
+        if result.opportunities_created:
+            return (
+                "All observed evidence was seen before. The scan created a fresh "
+                f"snapshot with {result.opportunities_created} ranked "
+                f"{'opportunity' if result.opportunities_created == 1 else 'opportunities'}."
+            )
         return (
-            "The scan completed but saved no new records. The returned items were empty, "
-            "duplicate, or already normalized."
+            "The scan completed with no new evidence. Returned records were empty or "
+            "seen before; absence is not treated as deletion or resolution."
         )
     if result.signals_detected == 0:
         return (
@@ -134,7 +156,8 @@ def ensure_source(db: Session, source_type: str) -> Source:
     return source
 
 
-def save_fetched_items(db: Session, fetched: list[RawFetchedItem]) -> list[UUID]:
+def save_fetched_items(db: Session, fetched: list[RawFetchedItem]) -> SavedFetchedItems:
+    observed_item_ids: list[UUID] = []
     created_item_ids: list[UUID] = []
     for raw in fetched:
         raw_exists = db.scalar(
@@ -162,13 +185,36 @@ def save_fetched_items(db: Session, fetched: list[RawFetchedItem]) -> list[UUID]
             )
         )
         if exists is not None:
+            if exists not in observed_item_ids:
+                observed_item_ids.append(exists)
             continue
 
         item = NormalizedItem(**normalized)
         db.add(item)
         db.flush()
+        observed_item_ids.append(item.id)
         created_item_ids.append(item.id)
-    return created_item_ids
+    return SavedFetchedItems(
+        observed_item_ids=observed_item_ids,
+        created_item_ids=created_item_ids,
+    )
+
+
+def record_scan_items(
+    db: Session,
+    scan_id: UUID,
+    saved: SavedFetchedItems,
+) -> None:
+    created_ids = set(saved.created_item_ids)
+    for item_id in saved.observed_item_ids:
+        db.add(
+            ScanItem(
+                scan_id=scan_id,
+                item_id=item_id,
+                created_in_scan=item_id in created_ids,
+            )
+        )
+    db.flush()
 
 
 def detect_signals(db: Session, item_ids: list[UUID]) -> int:
@@ -176,15 +222,12 @@ def detect_signals(db: Session, item_ids: list[UUID]) -> int:
         return 0
 
     items = db.scalars(select(NormalizedItem).where(NormalizedItem.id.in_(item_ids))).all()
-    signals_detected = 0
     for item in items:
         existing = db.scalar(select(ItemSignal.id).where(ItemSignal.item_id == item.id))
         if existing is not None:
             continue
 
         result = detect_problem_signal(item.title, item.body)
-        if result.is_problem_signal:
-            signals_detected += 1
         db.add(
             ItemSignal(
                 item_id=item.id,
@@ -198,21 +241,32 @@ def detect_signals(db: Session, item_ids: list[UUID]) -> int:
             )
         )
     db.flush()
-    return signals_detected
+    return len(
+        db.scalars(
+            select(ItemSignal.id).where(
+                ItemSignal.item_id.in_(item_ids),
+                ItemSignal.is_problem_signal.is_(True),
+            )
+        ).all()
+    )
 
 
 def embed_signals(
     db: Session,
     signal_rows: list[tuple[NormalizedItem, ItemSignal]],
 ) -> dict[UUID, list[float]]:
-    embedder = EmbeddingService()
-    texts = [f"{item.title}. {item.body}" for item, _signal in signal_rows]
-    vectors = embedder.embed_texts(texts)
-    embeddings_by_item: dict[UUID, list[float]] = {}
-    for (item, _signal), vector in zip(signal_rows, vectors, strict=True):
-        embeddings_by_item[item.id] = vector
-        existing = db.scalar(select(ItemEmbedding.id).where(ItemEmbedding.item_id == item.id))
-        if existing is None:
+    item_ids = [item.id for item, _signal in signal_rows]
+    stored = db.scalars(
+        select(ItemEmbedding).where(ItemEmbedding.item_id.in_(item_ids))
+    ).all()
+    embeddings_by_item = {row.item_id: list(row.embedding) for row in stored}
+    missing_rows = [row for row in signal_rows if row[0].id not in embeddings_by_item]
+    if missing_rows:
+        embedder = EmbeddingService()
+        texts = [f"{item.title}. {item.body}" for item, _signal in missing_rows]
+        vectors = embedder.embed_texts(texts)
+        for (item, _signal), vector in zip(missing_rows, vectors, strict=True):
+            embeddings_by_item[item.id] = vector
             db.add(
                 ItemEmbedding(
                     item_id=item.id,
@@ -228,6 +282,7 @@ def generate_clusters_and_opportunities(
     db: Session,
     signal_rows: list[tuple[NormalizedItem, ItemSignal]],
     embeddings_by_item: dict[UUID, list[float]],
+    scan_id: UUID | None = None,
 ) -> tuple[int, int]:
     cluster_inputs = [
         {
@@ -252,6 +307,7 @@ def generate_clusters_and_opportunities(
 
     for candidate in candidates:
         cluster = Cluster(
+            scan_id=scan_id,
             title=candidate.title,
             summary=candidate.summary,
             centroid_embedding=candidate.centroid,
@@ -277,6 +333,7 @@ def generate_clusters_and_opportunities(
         generated = generate_opportunity(candidate.title, candidate.summary, group_items, score)
         db.add(
             Opportunity(
+                scan_id=scan_id,
                 cluster_id=cluster.id,
                 title=generated["title"],
                 problem_statement=generated["problem_statement"],
@@ -300,11 +357,14 @@ def generate_clusters_and_opportunities(
 def process_fetched_items(
     db: Session,
     fetched: list[RawFetchedItem],
+    scan_id: UUID | None = None,
 ) -> ScanPipelineResult:
-    created_item_ids = save_fetched_items(db, fetched)
-    signals_detected = detect_signals(db, created_item_ids)
+    saved = save_fetched_items(db, fetched)
+    if scan_id is not None:
+        record_scan_items(db, scan_id, saved)
+    signals_detected = detect_signals(db, saved.observed_item_ids)
 
-    if not created_item_ids:
+    if not saved.observed_item_ids:
         return ScanPipelineResult(
             raw_items_loaded=len(fetched),
             normalized_items_created=0,
@@ -317,14 +377,14 @@ def process_fetched_items(
         select(NormalizedItem, ItemSignal)
         .join(ItemSignal, ItemSignal.item_id == NormalizedItem.id)
         .where(
-            NormalizedItem.id.in_(created_item_ids),
+            NormalizedItem.id.in_(saved.observed_item_ids),
             ItemSignal.is_problem_signal.is_(True),
         )
     ).all()
     if not signal_rows:
         return ScanPipelineResult(
             raw_items_loaded=len(fetched),
-            normalized_items_created=len(created_item_ids),
+            normalized_items_created=len(saved.created_item_ids),
             signals_detected=signals_detected,
             clusters_created=0,
             opportunities_created=0,
@@ -335,10 +395,11 @@ def process_fetched_items(
         db,
         signal_rows,
         embeddings_by_item,
+        scan_id=scan_id,
     )
     return ScanPipelineResult(
         raw_items_loaded=len(fetched),
-        normalized_items_created=len(created_item_ids),
+        normalized_items_created=len(saved.created_item_ids),
         signals_detected=signals_detected,
         clusters_created=clusters_created,
         opportunities_created=opportunities_created,
@@ -350,9 +411,37 @@ def run_scan_pipeline(
     connector: BaseConnector,
     query: str,
     limit: int,
+    scan_id: UUID | None = None,
 ) -> ScanPipelineResult:
     fetched = connector.fetch(query=query, limit=limit)
-    return process_fetched_items(db, fetched)
+    with SCAN_WRITE_LOCK:
+        return process_fetched_items(db, fetched, scan_id=scan_id)
+
+
+def create_research_project_run(
+    db: Session,
+    project: ResearchProject,
+    scan: ScanJob,
+    source_type: str,
+    query: str,
+    requested_limit: int,
+) -> ResearchProjectRun:
+    last_sequence = db.scalar(
+        select(func.max(ResearchProjectRun.sequence)).where(
+            ResearchProjectRun.project_id == project.id
+        )
+    )
+    run = ResearchProjectRun(
+        project_id=project.id,
+        scan_id=scan.id,
+        sequence=(last_sequence or 0) + 1,
+        source_type=source_type,
+        query=query,
+        requested_limit=requested_limit,
+        lineage_complete=False,
+    )
+    db.add(run)
+    return run
 
 
 def process_scan(
@@ -361,55 +450,76 @@ def process_scan(
     query: str = "",
     limit: int = 30,
     connector: BaseConnector | None = None,
+    research_project: ResearchProject | None = None,
 ) -> ScanJob:
     source_type = canonical_source(source)
     if connector is None:
         connector = connector_for_source(source_type)
 
-    source_record = ensure_source(db, source_type)
-    job = ScanJob(
-        source_id=source_record.id,
-        status="queued",
-        query=query,
-        items_found=0,
-        items_saved=0,
-    )
-    db.add(job)
-    db.commit()
-    db.refresh(job)
-
-    try:
-        job.status = "running"
-        job.started_at = datetime.now(UTC)
-        db.commit()
-
-        result = run_scan_pipeline(
-            db,
-            connector=connector,
+    requested_limit = max(1, min(limit, 100))
+    with SCAN_WRITE_LOCK:
+        source_record = ensure_source(db, source_type)
+        job = ScanJob(
+            source_id=source_record.id,
+            status="queued",
             query=query,
-            limit=max(1, min(limit, 100)),
+            items_found=0,
+            items_saved=0,
         )
-        job.status = "completed"
-        job.finished_at = datetime.now(UTC)
-        job.items_found = result.raw_items_loaded
-        job.items_saved = result.normalized_items_created
-        job.signals_detected = result.signals_detected
-        job.clusters_created = result.clusters_created
-        job.opportunities_created = result.opportunities_created
-        job.outcome_message = scan_outcome_message(result)
-        job.error_message = None
+        db.add(job)
+        db.flush()
+        research_run = None
+        if research_project is not None:
+            research_run = create_research_project_run(
+                db,
+                project=research_project,
+                scan=job,
+                source_type=source_type,
+                query=query,
+                requested_limit=requested_limit,
+            )
         db.commit()
         db.refresh(job)
+
+    try:
+        with SCAN_WRITE_LOCK:
+            job.status = "running"
+            job.started_at = datetime.now(UTC)
+            db.commit()
+
+        fetched = connector.fetch(query=query, limit=requested_limit)
+        with SCAN_WRITE_LOCK:
+            try:
+                result = process_fetched_items(db, fetched, scan_id=job.id)
+                job.status = "completed"
+                job.finished_at = datetime.now(UTC)
+                job.items_found = result.raw_items_loaded
+                job.items_saved = result.normalized_items_created
+                job.signals_detected = result.signals_detected
+                job.clusters_created = result.clusters_created
+                job.opportunities_created = result.opportunities_created
+                job.outcome_message = scan_outcome_message(result)
+                job.error_message = None
+                if research_run is not None:
+                    research_run.lineage_complete = True
+                db.commit()
+                db.refresh(job)
+            except Exception:
+                db.rollback()
+                raise
         return job
     except Exception as exc:
-        db.rollback()
-        failed_job = db.get(ScanJob, job.id)
-        if failed_job is None:
-            raise
-        failed_job.status = "failed"
-        failed_job.finished_at = datetime.now(UTC)
-        failed_job.error_message = connector_failure_message(source_type, exc)
-        failed_job.outcome_message = "The scan failed before a complete outcome could be computed."
-        db.commit()
-        db.refresh(failed_job)
+        with SCAN_WRITE_LOCK:
+            db.rollback()
+            failed_job = db.get(ScanJob, job.id)
+            if failed_job is None:
+                raise
+            failed_job.status = "failed"
+            failed_job.finished_at = datetime.now(UTC)
+            failed_job.error_message = connector_failure_message(source_type, exc)
+            failed_job.outcome_message = (
+                "The scan failed before a complete outcome could be computed."
+            )
+            db.commit()
+            db.refresh(failed_job)
         return failed_job
