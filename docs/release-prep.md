@@ -47,7 +47,11 @@ The ordinary `CI` workflow protects pull requests with:
 - distribution metadata checks;
 - one uploaded wheel/sdist artifact with SHA-256 hashes;
 - isolated base-wheel then MCP-extra smoke tests on Python 3.11-3.14 on Linux;
-- a macOS smoke on the latest supported Python.
+- the same Python 3.11-3.14 wheel matrix on macOS.
+
+These jobs are configured release gates. Do not report cross-platform support as
+live-proven until every required matrix leg completes successfully for the
+candidate SHA.
 
 The heavier `Release readiness` workflow runs on `main`, version tags, and
 manual dispatch. It repeats the release-critical checks at one SHA and uploads
@@ -96,7 +100,7 @@ Full verification:
 npm audit:
 Python dependency audit:
 Linux Python 3.11-3.14 wheel matrix:
-macOS wheel smoke:
+macOS Python 3.11-3.14 wheel matrix:
 Smoke proof and manifest:
 Migration rehearsal:
 Browser/accessibility report:

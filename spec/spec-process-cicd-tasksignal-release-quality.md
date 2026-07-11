@@ -18,7 +18,11 @@ Release readiness runs for the default branch, version tags, and manual
 dispatch.
 
 **Target Environments**: Linux for core validation and Python 3.11-3.14 wheel
-compatibility; macOS for packaged-path and permission smoke validation.
+compatibility; macOS for the same Python 3.11-3.14 packaged-path, permission,
+migration, CLI, and base/MCP boundary matrix.
+
+This specification describes configured jobs. Cross-platform evidence is not
+complete until every required matrix leg passes for the candidate revision.
 
 ## Execution Flow Diagram
 
@@ -28,8 +32,8 @@ graph TD
     A --> C["Frontend validation"]
     A --> D["Dependency audit"]
     A --> E["Build distributions"]
-    E --> F["Linux wheel matrix"]
-    E --> G["macOS wheel smoke"]
+    E --> F["Linux Python 3.11-3.14 wheel matrix"]
+    E --> G["macOS Python 3.11-3.14 wheel matrix"]
     H["Main, tag, or manual release event"] --> I["Clean release gate"]
     I --> J["Full verification and audits"]
     J --> K["Proof bundle and package smoke"]
@@ -46,7 +50,7 @@ graph TD
 | Python dependency audit | Reject known vulnerabilities in base and MCP dependency closure | API lockfile | Linux |
 | Package build | Build and validate wheel and source distribution | Package metadata and packaged resources | Linux, representative Python |
 | Linux package smoke | Install and exercise the built wheel across supported Python versions | Package build artifact | Linux, Python 3.11-3.14 |
-| macOS package smoke | Validate macOS paths, permissions, base/MCP boundary, and packaged resources | Package build artifact | macOS, latest supported Python |
+| macOS package smoke | Validate macOS paths, permissions, base/MCP boundary, and packaged resources | Package build artifact | macOS, Python 3.11-3.14 |
 | Release evidence | Produce verified, immutable release-review evidence at one revision | All repository release inputs | Linux, main/tag/manual only |
 
 ## Requirements Matrix
@@ -57,8 +61,8 @@ graph TD
 |---|---|---|---|
 | REQ-001 | Validate API and web behavior | High | All lint, test, build, and release-content checks pass |
 | REQ-002 | Test the built wheel rather than the checkout | High | Smoke runs from a temporary directory and imports only the isolated install |
-| REQ-003 | Support Python 3.11-3.14 | High | One Linux matrix leg passes for every supported minor version |
-| REQ-004 | Validate macOS packaged mode | High | Latest supported Python passes path, permission, migration, and CLI smoke |
+| REQ-003 | Support Python 3.11-3.14 | High | One Linux and one macOS matrix leg pass for every supported minor version |
+| REQ-004 | Validate macOS packaged mode | High | Python 3.11-3.14 each pass path, permission, migration, CLI, and base/MCP smoke |
 | REQ-005 | Preserve the MCP optional boundary | High | Base install has no MCP; extra install imports MCP and the TaskSignal server |
 | REQ-006 | Verify packaged runtime resources | High | Fixtures and Alembic revisions are readable from the wheel |
 | REQ-007 | Produce release evidence | High | Proof manifest, audits, distributions, SBOM, and verified hashes are uploaded |
@@ -141,7 +145,7 @@ configuration. Publishing credentials are prohibited from these workflows.
 | Repository quality | API/web verification and release metadata pass | None for release candidates |
 | Dependency safety | npm and Python audits pass | None without a documented, separately reviewed policy change |
 | Distribution quality | Build, metadata check, isolated install, and resource checks pass | None for package releases |
-| Compatibility | Linux 3.11-3.14 and macOS smoke pass | None for v1 package releases |
+| Compatibility | Linux and macOS Python 3.11-3.14 matrices pass | None for v1 package releases |
 | Evidence integrity | Proof manifest and release checksum manifest verify | None |
 | GA readiness | Three independent builder flows are recorded | No automated bypass |
 

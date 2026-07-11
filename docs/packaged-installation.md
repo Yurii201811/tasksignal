@@ -12,25 +12,32 @@ extra only when a local agent will use `tasksignal mcp`.
   distribution such as Ubuntu. Native PowerShell, Command Prompt, and Windows
   filesystem semantics are not release targets and are not covered by CI.
 
-CI installs the built wheel on Python 3.11, 3.12, 3.13, and 3.14 on Linux and
-also exercises the latest supported Python on macOS. The smoke starts outside
-the checkout, proves the base wheel does not contain MCP, installs the `mcp`
-extra separately, checks packaged migrations and fixtures, and verifies that
-generated configuration is permission `0600` without printing secrets.
+CI is configured to install the built wheel on Python 3.11, 3.12, 3.13, and
+3.14 on both Linux and macOS. The smoke is designed to start outside the
+checkout, prove the base wheel does not contain MCP, install the `mcp` extra
+separately, check packaged migrations and fixtures, and verify that generated
+configuration is permission `0600` without printing secrets. Live
+cross-platform evidence remains pending until those Actions jobs complete
+successfully; workflow configuration alone is not passing evidence.
 
 ## Install
 
-With uv, install the complete local-agent surface:
+This documentation does not claim that TaskSignal is already published to PyPI.
+From a source checkout, install the complete local-agent surface with:
 
 ```bash
-uv tool install "tasksignal[mcp]"
+uv tool install './apps/api[mcp]'
 ```
 
 For the API and CLI without MCP:
 
 ```bash
-uv tool install tasksignal
+uv tool install './apps/api'
 ```
+
+After a registry release exists, the equivalent package requirements are
+`tasksignal[mcp]` and `tasksignal`. Verify the published version and provenance
+before using those names in an installation command.
 
 Before a package is published, maintainers can test the exact local wheel with:
 
@@ -73,3 +80,8 @@ tasksignal mcp
 MCP writes remain process-bound and require explicit local approval. The Python
 wheel does not include the Next.js interface; use a source checkout or a
 versioned container image for the full workbench UI.
+
+The base and `mcp` dependency surfaces are the release-audited package scope.
+The optional `ml` extra adds a materially wider transitive dependency set and
+must be assessed separately. This is an audit boundary, not evidence of a known
+vulnerability.
