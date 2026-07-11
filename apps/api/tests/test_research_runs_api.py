@@ -105,6 +105,18 @@ def test_v1_is_canonical_and_v1x_compatibility_alias_is_hidden_from_openapi(
     assert "/api/research-projects" not in paths
 
 
+def test_process_stage_advertises_canonical_demo_endpoint_and_keeps_alias(client) -> None:
+    canonical = client.post("/api/v1/process/detect")
+    compatibility = client.post("/api/process/detect")
+
+    expected = {
+        "status": "available in the combined demo pipeline",
+        "endpoint": "/api/v1/process/demo",
+    }
+    assert canonical.status_code == compatibility.status_code == 200
+    assert canonical.json() == compatibility.json() == expected
+
+
 def test_patch_updates_only_supplied_fields_and_preserves_run_snapshots(
     client,
     monkeypatch,

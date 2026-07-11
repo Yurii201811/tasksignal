@@ -1909,7 +1909,10 @@ def run_demo(
 @router.post("/process/cluster")
 @router.post("/process/generate-opportunities")
 def process_stage() -> dict:
-    return {"status": "available in the combined demo pipeline", "endpoint": "/api/process/demo"}
+    return {
+        "status": "available in the combined demo pipeline",
+        "endpoint": "/api/v1/process/demo",
+    }
 
 
 @router.get(
