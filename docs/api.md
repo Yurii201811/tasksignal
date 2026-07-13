@@ -203,7 +203,7 @@ The older snapshot/export routes remain available during v1.x:
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `GET` | `/api/v1/opportunities` | List ranked snapshots with deterministic score/newest/ID ordering; supports the legacy `review_state` filter. Pass `current_only=true` for one current snapshot per thread, as used by the dashboard. |
+| `GET` | `/api/v1/opportunities` | List ranked snapshots with deterministic score/newest/ID ordering. Optional queue filters are described below. |
 | `GET` | `/api/v1/opportunities/{opportunity_id}` | Read one snapshot, score breakdown, readiness, and evidence. |
 | `PATCH` | `/api/v1/opportunities/{opportunity_id}/review` | Legacy decision update; current thread state remains authoritative. |
 | `POST` | `/api/v1/opportunities/{opportunity_id}/regenerate` | Regenerate the deterministic legacy prompt. |
@@ -216,6 +216,16 @@ The older snapshot/export routes remain available during v1.x:
 
 New decision and build workflows should use opportunity threads and immutable
 build packets.
+
+The opportunity queue keeps historical snapshots as its compatibility default.
+Pass `current_only=true` for one current snapshot per thread, as the dashboard
+does. The filters `review_state`, `project_id`, `evidence_source`, `readiness`,
+and `max_age_days` compose server-side. `evidence_source` matches any linked
+evidence source type, not a configured host or only the displayed top source;
+`readiness` is derived from current human review state; and `max_age_days` must
+be between 1 and 3650 and applies to snapshot creation time. The dashboard's
+Review next action opens the first deterministic result whose thread remains in
+the `new` decision state within the active project/source/readiness/age scope.
 
 ## Semantic Search
 

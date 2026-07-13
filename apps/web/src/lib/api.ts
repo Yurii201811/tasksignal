@@ -10,6 +10,7 @@ import type {
   Evaluation,
   EvidenceReviewCreate,
   Opportunity,
+  OpportunityFilters,
   OpportunityThread,
   OpportunityThreadSummary,
   OpportunityReviewUpdate,
@@ -87,10 +88,18 @@ async function download(path: string, filename: string): Promise<void> {
 export const api = {
   stats: () => request<Stats>("/api/stats"),
   readiness: () => request<Readiness>("/api/readiness"),
-  opportunities: (reviewState?: ReviewState, currentOnly = false) => {
+  opportunities: (filters?: OpportunityFilters) => {
     const params = new URLSearchParams();
-    if (reviewState) params.set("review_state", reviewState);
-    if (currentOnly) params.set("current_only", "true");
+    if (filters?.reviewState) params.set("review_state", filters.reviewState);
+    if (filters?.currentOnly) params.set("current_only", "true");
+    if (filters?.projectId) params.set("project_id", filters.projectId);
+    if (filters?.evidenceSource) {
+      params.set("evidence_source", filters.evidenceSource);
+    }
+    if (filters?.readiness) params.set("readiness", filters.readiness);
+    if (filters?.maxAgeDays !== undefined) {
+      params.set("max_age_days", String(filters.maxAgeDays));
+    }
     const query = params.size > 0 ? `?${params}` : "";
     return request<Opportunity[]>(`/api/opportunities${query}`);
   },
