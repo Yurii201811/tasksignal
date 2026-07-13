@@ -88,8 +88,13 @@ def check_required_paths() -> list[Check]:
 def check_env_file() -> Check:
     env_path = ROOT / ".env"
     if env_path.exists():
-        return Check(".env", "ok", "present; values were not inspected")
-    return Check(".env", "warn", "missing; run cp .env.example .env for local development")
+        return Check(
+            ".env",
+            "warn",
+            "present but not loaded by native services; use apps/api/.env and "
+            "apps/web/.env.local",
+        )
+    return Check(".env", "ok", "not required for the native fixture workflow")
 
 
 def check_runtime_commands() -> list[Check]:

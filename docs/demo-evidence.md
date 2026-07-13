@@ -80,7 +80,7 @@ apps/api/.venv/bin/python -u scripts/first_run_smoke.py --with-web-server
 Manual browser path:
 
 ```bash
-cp .env.example .env
+make migrate
 make up
 ```
 

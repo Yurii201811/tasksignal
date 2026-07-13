@@ -94,15 +94,15 @@ hash is stored.
 
 ```bash
 make setup
-cp .env.example .env
 make doctor
 make dev
 ```
 
 `make dev` prints the API and web commands; run them in separate terminals. The
 native API loads `apps/api/.env`, while the web app uses
-`apps/web/.env.local`. The root `.env` is repository-tooling input and is not
-implicitly loaded by either process.
+`apps/web/.env.local`. No environment file is required for the fixture-backed
+SQLite path. The root `.env.example` is a reference inventory; neither native
+process loads a root `.env`.
 
 Use `make setup-ml` only when the optional local semantic-model stack is wanted.
 The `ml` extra is outside the base+MCP audited dependency surface and must be
@@ -114,7 +114,6 @@ finding is resolved or explicitly accepted.
 ## Local Docker Compose
 
 ```bash
-cp .env.example .env
 make migrate
 make up
 ```

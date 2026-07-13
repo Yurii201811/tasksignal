@@ -10,19 +10,13 @@ TaskSignal is a local-first MVP for discovering evidence-backed software opportu
    make setup
    ```
 
-2. Copy the example environment file:
-
-   ```bash
-   cp .env.example .env
-   ```
-
-3. Run the local setup diagnostic:
+2. Run the local setup diagnostic:
 
    ```bash
    make doctor
    ```
 
-4. Start the API and web app in separate terminals:
+3. Start the API and web app in separate terminals:
 
    ```bash
    cd apps/api
@@ -33,6 +27,9 @@ TaskSignal is a local-first MVP for discovering evidence-backed software opportu
    cd apps/web
    npm run dev
    ```
+
+No environment file is required for fixture-backed development. Put optional
+API overrides in `apps/api/.env` and web overrides in `apps/web/.env.local`.
 
 Use `make up` instead when you want the full Docker Compose stack.
 
