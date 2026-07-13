@@ -2682,6 +2682,7 @@ def download_build_packet(packet_id: UUID, db: Session = Depends(get_db)) -> Res
 @router.get("/opportunities", response_model=list[OpportunityOut])
 def list_opportunities(
     review_state: ReviewState | None = None,
+    current_only: bool = False,
     db: Session = Depends(get_db),
 ) -> list[OpportunityOut]:
     query = (
@@ -2690,8 +2691,14 @@ def list_opportunities(
             OpportunityThread,
             OpportunityThread.id == Opportunity.thread_id,
         )
-        .order_by(Opportunity.opportunity_score.desc())
+        .order_by(
+            Opportunity.opportunity_score.desc(),
+            Opportunity.created_at.desc(),
+            Opportunity.id.desc(),
+        )
     )
+    if current_only:
+        query = query.where(OpportunityThread.current_snapshot_id == Opportunity.id)
     if review_state is not None:
         query = query.where(OpportunityThread.review_state == review_state.value)
     return [opportunity_to_out(db, item) for item in db.scalars(query).all()]

@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy.orm import Session
 
 from app.api import routes
 from app.db.session import engine
-from app.models.all_models import ResearchProject
+from app.models.all_models import Opportunity, ResearchProject
 from app.services.ingestion.connectors import BaseConnector
 from app.services.ingestion.types import RawFetchedItem, utc_now
 from app.workers import scan_pipeline
@@ -221,6 +222,76 @@ def test_run_delta_reports_first_and_identical_runs_precisely(client, monkeypatc
     assert payload["warnings"] == []
     assert "deleted" not in identical_delta.text
     assert "resolved" not in identical_delta.text
+
+
+def test_opportunity_feed_returns_only_the_current_snapshot_after_rerun(
+    client,
+    monkeypatch,
+) -> None:
+    batch = [evidence("current-only-a"), evidence("current-only-b")]
+    install_scan_batches(monkeypatch, [batch, batch])
+    project = create_project(client)
+    run_project(client, project["id"])
+    run_project(client, project["id"])
+
+    threads = client.get(
+        f"/api/v1/opportunity-threads?project_id={project['id']}"
+    ).json()
+    historical_snapshots = client.get("/api/v1/opportunities").json()
+    opportunities = client.get(
+        "/api/v1/opportunities?current_only=true"
+    ).json()
+
+    assert len(threads) == 1
+    assert len(historical_snapshots) == 2
+    assert [item["id"] for item in opportunities] == [
+        threads[0]["current_snapshot"]["id"]
+    ]
+
+
+def test_opportunity_feed_breaks_score_ties_with_newest_snapshot_first(
+    client,
+    monkeypatch,
+) -> None:
+    install_scan_batches(
+        monkeypatch,
+        [
+            [evidence("older-a"), evidence("older-b")],
+            [evidence("newer-a"), evidence("newer-b")],
+        ],
+    )
+    older_project = create_project(client, name="Older project")
+    run_project(client, older_project["id"])
+    older_id = client.get(
+        "/api/v1/opportunities?current_only=true"
+    ).json()[0]["id"]
+    newer_project = create_project(client, name="Newer project")
+    run_project(client, newer_project["id"])
+    current_ids = {
+        item["id"]
+        for item in client.get(
+            "/api/v1/opportunities?current_only=true"
+        ).json()
+    }
+    newer_id = (current_ids - {older_id}).pop()
+    with Session(engine) as session:
+        older = session.get(Opportunity, UUID(older_id))
+        newer = session.get(Opportunity, UUID(newer_id))
+        assert older is not None
+        assert newer is not None
+        older.created_at = datetime(2026, 7, 13, 10, 0, tzinfo=UTC)
+        newer.created_at = datetime(2026, 7, 13, 9, 0, tzinfo=UTC)
+        session.commit()
+
+    opportunities = client.get(
+        "/api/v1/opportunities?current_only=true"
+    ).json()
+
+    assert len(opportunities) == 2
+    assert opportunities[0]["opportunity_score"] == opportunities[1][
+        "opportunity_score"
+    ]
+    assert opportunities[0]["created_at"] > opportunities[1]["created_at"]
 
 
 def test_first_project_run_reports_evidence_seen_by_an_earlier_manual_scan(

@@ -137,6 +137,7 @@ describe("Dashboard", () => {
     expect(screen.getByText("Live source")).toBeInTheDocument();
     expect(screen.getByText("Run scan")).toBeInTheDocument();
     expect(screen.getByText(/Examples: ask, show, job/)).toBeInTheDocument();
+    expect(screen.getByText("Opportunity snapshots")).toBeInTheDocument();
     expect(
       screen.getByText("Raw public-source items available locally").tagName,
     ).toBe("DD");
@@ -186,24 +187,33 @@ describe("Dashboard", () => {
     ).toBeInTheDocument();
   });
 
-  it("filters the decision queue locally without another API call", async () => {
-    vi.mocked(api.opportunities).mockResolvedValue([
+  it("filters the decision queue through the API", async () => {
+    const rows = [
       opportunity("1", "New idea", "new"),
       opportunity("2", "Promising idea", "promising"),
       opportunity("3", "Rejected idea", "rejected"),
-    ]);
+    ];
+    vi.mocked(api.opportunities).mockImplementation(async (reviewState) =>
+      reviewState
+        ? rows.filter((item) => item.review_state === reviewState)
+        : rows,
+    );
     renderWithClient(<Dashboard />);
 
     expect(await screen.findByText("Promising idea")).toBeInTheDocument();
+    expect(api.opportunities).toHaveBeenCalledWith(undefined, true);
     expect(
       screen.getByRole("group", { name: "Decision state filter" }),
     ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Promising 1" }));
 
-    expect(screen.getByText("Promising idea")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(api.opportunities).toHaveBeenLastCalledWith("promising", true),
+    );
+    expect(await screen.findByText("Promising idea")).toBeInTheDocument();
     expect(screen.queryByText("New idea")).not.toBeInTheDocument();
     expect(screen.queryByText("Rejected idea")).not.toBeInTheDocument();
-    expect(api.opportunities).toHaveBeenCalledTimes(1);
+    expect(api.opportunities).toHaveBeenCalledTimes(2);
     expect(screen.getByText("Promising")).toBeInTheDocument();
     expect(screen.getByText("medium")).toBeInTheDocument();
     expect(
@@ -216,11 +226,43 @@ describe("Dashboard", () => {
     ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Build candidate 0" }));
+    await waitFor(() =>
+      expect(api.opportunities).toHaveBeenLastCalledWith(
+        "build_candidate",
+        true,
+      ),
+    );
     expect(
-      screen.getByText("No opportunities match this decision state"),
+      await screen.findByText("No opportunities match this decision state"),
     ).toBeInTheDocument();
     expect(
       screen.queryByText("No ranked opportunities yet"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("does not report an empty queue when the server filter fails", async () => {
+    const rows = [opportunity("1", "Promising idea", "promising")];
+    vi.mocked(api.opportunities).mockImplementation(async (reviewState) => {
+      if (reviewState) throw new Error("Filtered queue unavailable");
+      return rows;
+    });
+    renderWithClient(<Dashboard />);
+
+    expect(await screen.findByText("Promising idea")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Promising 1" }));
+
+    expect(
+      await screen.findByText("Could not load dashboard data"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Filtered queue unavailable")).toBeInTheDocument();
+    expect(
+      screen.queryByText("No opportunities match this decision state"),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "All 1" }));
+    expect(await screen.findByText("Promising idea")).toBeInTheDocument();
+    expect(
+      screen.queryByText("Could not load dashboard data"),
     ).not.toBeInTheDocument();
   });
 });

@@ -70,8 +70,17 @@ export function Dashboard() {
   >("all");
   const stats = useQuery({ queryKey: ["stats"], queryFn: api.stats });
   const opportunities = useQuery({
-    queryKey: ["opportunities"],
-    queryFn: () => api.opportunities(),
+    queryKey: ["opportunities", "all"],
+    queryFn: () => api.opportunities(undefined, true),
+  });
+  const filteredOpportunities = useQuery({
+    queryKey: ["opportunities", "review-state", reviewStateFilter],
+    queryFn: () =>
+      api.opportunities(
+        reviewStateFilter === "all" ? undefined : reviewStateFilter,
+        true,
+      ),
+    enabled: reviewStateFilter !== "all",
   });
   const sources = useQuery({ queryKey: ["sources"], queryFn: api.sources });
   const scans = useQuery({ queryKey: ["scans"], queryFn: api.scans });
@@ -115,9 +124,9 @@ export function Dashboard() {
       hint: "Grouped signals that may describe the same problem",
     },
     {
-      label: "Opportunities",
+      label: "Opportunity snapshots",
       value: stats.data?.opportunities ?? 0,
-      hint: "Ranked ideas generated from evidence",
+      hint: "Immutable ranked snapshots generated across runs",
     },
   ];
   const allOpportunities = opportunities.data ?? [];
@@ -128,18 +137,24 @@ export function Dashboard() {
         .length,
     ]),
   ) as Record<ReviewState, number>;
-  const filteredOpportunities =
+  const visibleOpportunities =
     reviewStateFilter === "all"
       ? allOpportunities
-      : allOpportunities.filter(
-          (item) => item.review_state === reviewStateFilter,
-        );
+      : (filteredOpportunities.data ?? []);
   const topOpportunity = allOpportunities[0];
   const hasOpportunities = allOpportunities.length > 0;
-  const hasFilteredOpportunities = filteredOpportunities.length > 0;
-  const isLoadingWorkflow = stats.isLoading || opportunities.isLoading;
+  const hasFilteredOpportunities = visibleOpportunities.length > 0;
+  const isLoadingWorkflow =
+    stats.isLoading ||
+    opportunities.isLoading ||
+    (reviewStateFilter !== "all" && filteredOpportunities.isLoading);
   const dataError =
-    stats.error ?? opportunities.error ?? sources.error ?? scans.error ?? null;
+    stats.error ??
+    opportunities.error ??
+    filteredOpportunities.error ??
+    sources.error ??
+    scans.error ??
+    null;
   const processError = process.error ?? null;
   const scanError = runScan.error ?? null;
   const sourceBreakdown = stats.data?.source_breakdown ?? [];
@@ -679,7 +694,8 @@ export function Dashboard() {
               )}
               {!isLoadingWorkflow &&
                 hasOpportunities &&
-                !hasFilteredOpportunities && (
+                !hasFilteredOpportunities &&
+                !filteredOpportunities.isError && (
                   <tr>
                     <td colSpan={9} className="py-8 text-center">
                       No opportunities match this decision state
@@ -687,7 +703,7 @@ export function Dashboard() {
                   </tr>
                 )}
               {!isLoadingWorkflow &&
-                filteredOpportunities.map((opportunity) => (
+                visibleOpportunities.map((opportunity) => (
                   <tr
                     key={opportunity.id}
                     className="border-b border-border last:border-b-0"

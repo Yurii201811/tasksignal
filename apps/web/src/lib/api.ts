@@ -87,10 +87,11 @@ async function download(path: string, filename: string): Promise<void> {
 export const api = {
   stats: () => request<Stats>("/api/stats"),
   readiness: () => request<Readiness>("/api/readiness"),
-  opportunities: (reviewState?: ReviewState) => {
-    const query = reviewState
-      ? `?${new URLSearchParams({ review_state: reviewState })}`
-      : "";
+  opportunities: (reviewState?: ReviewState, currentOnly = false) => {
+    const params = new URLSearchParams();
+    if (reviewState) params.set("review_state", reviewState);
+    if (currentOnly) params.set("current_only", "true");
+    const query = params.size > 0 ? `?${params}` : "";
     return request<Opportunity[]>(`/api/opportunities${query}`);
   },
   opportunity: (id: string) => request<Opportunity>(`/api/opportunities/${id}`),

@@ -26,14 +26,14 @@ describe("decision workbench API", () => {
     installLocalStorageMock();
   });
 
-  it("encodes an optional opportunity state filter", async () => {
+  it("encodes opportunity state and current-snapshot filters", async () => {
     const fetchMock = vi.fn<typeof fetch>(async () => Response.json([]));
     vi.stubGlobal("fetch", fetchMock);
 
-    await api.opportunities("needs_more_evidence");
+    await api.opportunities("needs_more_evidence", true);
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "http://localhost:8000/api/opportunities?review_state=needs_more_evidence",
+      "http://localhost:8000/api/opportunities?review_state=needs_more_evidence&current_only=true",
       expect.any(Object),
     );
   });
