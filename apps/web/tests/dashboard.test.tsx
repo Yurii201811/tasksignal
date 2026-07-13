@@ -116,11 +116,12 @@ describe("Dashboard", () => {
       blockers: [],
       warnings: [
         "Create at least one saved research project.",
-        "Run a project or process fixtures before exporting task packs.",
+        "Run a project or process fixtures before creating a build packet.",
       ],
       checks: {
         projects: 0,
         opportunities: 0,
+        build_packets: 0,
         due_projects: 0,
         local_workspace_configured: false,
         ready_sources: ["hackernews"],
@@ -206,9 +207,82 @@ describe("Dashboard", () => {
     expect(
       screen.getByText("Generate ranked opportunities"),
     ).toBeInTheDocument();
-    expect(screen.getByText("Export a task pack")).toBeInTheDocument();
+    expect(
+      screen.getByText("Create an immutable build packet"),
+    ).toBeInTheDocument();
     expect(
       await screen.findByText("Create at least one saved research project."),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps the build-packet step incomplete until a packet exists", async () => {
+    vi.mocked(api.opportunities).mockResolvedValue([
+      {
+        ...opportunity("1", "Packet-ready idea", "build_candidate"),
+        thread_id: "thread-1",
+      },
+    ]);
+    vi.mocked(api.readiness).mockResolvedValue({
+      status: "ready",
+      blockers: [],
+      warnings: ["Review a thread and create an immutable build packet."],
+      checks: {
+        projects: 1,
+        opportunities: 1,
+        build_packets: 0,
+        local_workspace_configured: true,
+        ready_sources: ["hackernews"],
+        codex_task_packs: true,
+      },
+    });
+
+    renderWithClient(<Dashboard />);
+
+    expect(await screen.findByText("Packet-ready idea")).toBeInTheDocument();
+    const packetStep = (
+      await screen.findByText("Create an immutable build packet")
+    ).closest("li");
+    expect(packetStep).not.toBeNull();
+    expect(
+      within(packetStep as HTMLElement).getByText("Next"),
+    ).toBeInTheDocument();
+    expect(
+      within(packetStep as HTMLElement).getByRole("link", {
+        name: "Open Build Studio",
+      }),
+    ).toHaveAttribute("href", "/threads/thread-1");
+  });
+
+  it("marks the build-packet step complete after a packet exists", async () => {
+    vi.mocked(api.opportunities).mockResolvedValue([
+      {
+        ...opportunity("1", "Packaged idea", "build_candidate"),
+        thread_id: "thread-1",
+      },
+    ]);
+    vi.mocked(api.readiness).mockResolvedValue({
+      status: "ready",
+      blockers: [],
+      warnings: [],
+      checks: {
+        projects: 1,
+        opportunities: 1,
+        build_packets: 1,
+        local_workspace_configured: true,
+        ready_sources: ["hackernews"],
+        codex_task_packs: true,
+      },
+    });
+
+    renderWithClient(<Dashboard />);
+
+    expect(await screen.findByText("Packaged idea")).toBeInTheDocument();
+    const packetStep = (
+      await screen.findByText("Create an immutable build packet")
+    ).closest("li");
+    expect(packetStep).not.toBeNull();
+    expect(
+      within(packetStep as HTMLElement).getByText("Done"),
     ).toBeInTheDocument();
   });
 
@@ -308,7 +382,9 @@ describe("Dashboard", () => {
     expect(
       await screen.findByText("Current opportunity results unavailable"),
     ).toBeInTheDocument();
-    expect(screen.getByText("Opportunity queue unavailable")).toBeInTheDocument();
+    expect(
+      screen.getByText("Opportunity queue unavailable"),
+    ).toBeInTheDocument();
     expect(
       screen.queryByText("No ranked opportunities yet"),
     ).not.toBeInTheDocument();
@@ -409,6 +485,8 @@ describe("Dashboard", () => {
     expect(screen.getByRole("combobox", { name: "Snapshot age" })).toHaveValue(
       "all",
     );
-    expect(screen.getByRole("button", { name: "Clear filters" })).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Clear filters" }),
+    ).toBeDisabled();
   });
 });

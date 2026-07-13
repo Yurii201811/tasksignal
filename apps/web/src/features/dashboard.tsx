@@ -83,8 +83,7 @@ export function Dashboard() {
     evidenceSourceFilter !== "all" ||
     readinessFilter !== "all" ||
     ageFilter !== "all";
-  const hasAnyQueueFilter =
-    hasScopeFilters || reviewStateFilter !== "all";
+  const hasAnyQueueFilter = hasScopeFilters || reviewStateFilter !== "all";
   const scopeFilters = {
     currentOnly: true,
     ...(projectFilter !== "all" ? { projectId: projectFilter } : {}),
@@ -187,8 +186,7 @@ export function Dashboard() {
   const decisionCounts = Object.fromEntries(
     REVIEW_STATE_OPTIONS.map((option) => [
       option.value,
-      queueScope.filter((item) => item.review_state === option.value)
-        .length,
+      queueScope.filter((item) => item.review_state === option.value).length,
     ]),
   ) as Record<ReviewState, number>;
   const visibleOpportunities =
@@ -203,8 +201,7 @@ export function Dashboard() {
     opportunities.isLoading ||
     (hasScopeFilters && scopedOpportunities.isLoading);
   const queueScopeError =
-    opportunities.error ??
-    (hasScopeFilters ? scopedOpportunities.error : null);
+    opportunities.error ?? (hasScopeFilters ? scopedOpportunities.error : null);
   const isLoadingWorkflow =
     stats.isLoading ||
     queueScopeLoading ||
@@ -295,14 +292,16 @@ export function Dashboard() {
       action: "Review results",
     },
     {
-      label: "Export a task pack",
+      label: "Create an immutable build packet",
       description:
-        "Open an opportunity and export evidence, acceptance criteria, and privacy constraints for Codex.",
-      href: topOpportunity
-        ? `/opportunities/${topOpportunity.id}`
-        : "/dashboard",
-      done: Boolean(readinessChecks?.codex_task_packs && topOpportunity),
-      action: topOpportunity ? "Open top opportunity" : "Run first",
+        "Review a thread, mark it as a build candidate, then generate and verify its deterministic ten-file packet.",
+      href: topOpportunity?.thread_id
+        ? `/threads/${topOpportunity.thread_id}`
+        : "/threads",
+      done: Number(readinessChecks?.build_packets ?? 0) > 0,
+      action: topOpportunity?.thread_id
+        ? "Open Build Studio"
+        : "Review threads",
     },
   ];
 
@@ -365,7 +364,8 @@ export function Dashboard() {
             </h2>
             <p className="mt-1 max-w-3xl text-sm leading-6 text-muted">
               Build one complete evidence trail: configure the workspace, save a
-              project, generate opportunities, then export a task pack.
+              project, generate opportunities, then create a verified build
+              packet.
             </p>
           </div>
           <Button
@@ -724,7 +724,9 @@ export function Dashboard() {
             </p>
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[repeat(4,minmax(0,1fr))_auto] xl:items-end">
               <label>
-                <span className="text-sm font-semibold text-muted">Project</span>
+                <span className="text-sm font-semibold text-muted">
+                  Project
+                </span>
                 <Select
                   className="mt-2"
                   aria-label="Project"

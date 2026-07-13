@@ -4,6 +4,21 @@ All notable public-facing changes to TaskSignal are recorded here.
 
 ## Unreleased
 
+### Fixed
+
+- Dashboard onboarding now reports the immutable build-packet handoff complete
+  only after a packet exists and opens the current thread's Build Studio instead
+  of the legacy task-pack exporter.
+- Repository test commands allocate an isolated temporary SQLite database per
+  run, preventing overlapping local verification processes from dropping one
+  another's test tables.
+
+### Security
+
+- Directly guarded API routes now reject malformed non-ASCII operator and demo
+  reset tokens with a constant-time byte comparison and a stable `403` response
+  instead of raising an internal error.
+
 ## 1.0.0a1 - 2026-07-11
 
 ### Added

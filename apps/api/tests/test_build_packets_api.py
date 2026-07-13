@@ -102,6 +102,9 @@ def test_build_packet_requires_ready_build_candidate_and_is_immutable_downloadab
     )
     assert created.status_code == 201, created.text
     packet = created.json()
+    readiness = client.get("/api/v1/readiness")
+    assert readiness.status_code == 200
+    assert readiness.json()["checks"]["build_packets"] == 1
     assert packet["generation_mode"] == "deterministic"
     assert packet["thread_id"] == thread["id"]
     assert packet["snapshot_id"] == thread["current_snapshot"]["id"]

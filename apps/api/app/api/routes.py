@@ -4,7 +4,6 @@ import hashlib
 import json
 import re
 from datetime import UTC, datetime, timedelta
-from secrets import compare_digest
 from uuid import UUID, uuid4
 
 import httpx
@@ -14,6 +13,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.security import secret_text_matches
 from app.core.version import TASKSIGNAL_VERSION
 from app.db.session import get_db
 from app.models.all_models import (
@@ -323,11 +323,7 @@ def author_hash_salt_uses_default() -> bool:
 
 
 def operator_scan_authorized(token: str | None) -> bool:
-    return bool(
-        settings.operator_scan_token
-        and token
-        and compare_digest(token, settings.operator_scan_token)
-    )
+    return secret_text_matches(token, settings.operator_scan_token)
 
 
 def require_operator_token(token: str | None, action: str) -> None:
@@ -339,7 +335,7 @@ def require_operator_token(token: str | None, action: str) -> None:
                 "and sent as X-Operator-Scan-Token."
             ),
         )
-    if not token or not compare_digest(token, settings.operator_scan_token):
+    if not secret_text_matches(token, settings.operator_scan_token):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"{action} requires a valid X-Operator-Scan-Token.",
@@ -706,6 +702,7 @@ def readiness_payload(db: Session) -> ReadinessOut:
     local_workspace = get_or_create_local_workspace(db)
     project_count = len(db.scalars(select(ResearchProject.id)).all())
     opportunity_count = len(db.scalars(select(Opportunity.id)).all())
+    build_packet_count = len(db.scalars(select(BuildPacket.id)).all())
     due_count = len(db.scalars(due_project_query(datetime.now(UTC))).all())
     blockers: list[str] = []
     warnings: list[str] = []
@@ -713,7 +710,9 @@ def readiness_payload(db: Session) -> ReadinessOut:
     if project_count == 0:
         warnings.append("Create at least one saved research project.")
     if opportunity_count == 0:
-        warnings.append("Run a project or process fixtures before exporting task packs.")
+        warnings.append("Run a project or process fixtures before creating a build packet.")
+    elif build_packet_count == 0:
+        warnings.append("Review a thread and create an immutable build packet.")
     if not local_workspace.configured:
         warnings.append("Set the local workspace owner or goal for this machine.")
     if warning := public_scan_config_warning():
@@ -734,6 +733,7 @@ def readiness_payload(db: Session) -> ReadinessOut:
     checks = {
         "projects": project_count,
         "opportunities": opportunity_count,
+        "build_packets": build_packet_count,
         "due_projects": due_count,
         "local_workspace_configured": local_workspace.configured,
         "ready_sources": ready_sources,
@@ -2049,7 +2049,7 @@ def run_demo(
     if reset and (
         not settings.demo_reset_token
         or x_demo_reset_token is None
-        or not compare_digest(x_demo_reset_token, settings.demo_reset_token)
+        or not secret_text_matches(x_demo_reset_token, settings.demo_reset_token)
     ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

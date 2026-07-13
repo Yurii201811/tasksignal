@@ -157,6 +157,7 @@ def test_readiness_reports_workspace_state_without_secret_values(client, monkeyp
     assert payload["status"] == "ready"
     assert payload["checks"]["ready_sources"]
     assert payload["checks"]["codex_task_packs"] is True
+    assert payload["checks"]["build_packets"] == 0
     assert payload["checks"]["operator_scan_token_configured"] is True
     assert "do-not-leak" not in json.dumps(payload)
 
@@ -247,6 +248,11 @@ def test_source_registry_mutations_require_operator_token(client, monkeypatch) -
         headers={"X-Operator-Scan-Token": "wrong"},
         json=payload,
     )
+    malformed_token = client.post(
+        "/api/sources",
+        headers=[(b"x-operator-scan-token", b"\xff")],
+        json=payload,
+    )
     created = client.post(
         "/api/sources",
         headers={"X-Operator-Scan-Token": "test-operator-token"},
@@ -255,6 +261,7 @@ def test_source_registry_mutations_require_operator_token(client, monkeypatch) -
 
     assert missing_token.status_code == 403
     assert bad_token.status_code == 403
+    assert malformed_token.status_code == 403
     assert created.status_code == 200
     assert created.json()["name"] == "Custom HN"
     assert created.json()["config_json"] == {}
@@ -532,6 +539,20 @@ def test_process_demo_reset_accepts_configured_token(client, monkeypatch) -> Non
 
     assert response.status_code == 200
     assert response.json()["opportunities_created"] >= 5
+
+
+def test_process_demo_reset_rejects_non_ascii_token(client, monkeypatch) -> None:
+    monkeypatch.setattr(routes.settings, "demo_reset_token", "test-reset-token")
+
+    response = client.post(
+        "/api/process/demo?reset=true",
+        headers=[(b"x-demo-reset-token", b"\xff")],
+    )
+
+    assert response.status_code == 403
+    assert response.json() == {
+        "detail": "Demo reset requires a valid X-Demo-Reset-Token header"
+    }
 
 
 def test_regenerate_opportunity_rebuilds_prompt_from_evidence(client) -> None:

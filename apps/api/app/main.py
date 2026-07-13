@@ -1,7 +1,6 @@
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from secrets import compare_digest
 
 os.environ.setdefault("DISABLE_SQLALCHEMY_CEXT_RUNTIME", "1")
 
@@ -11,6 +10,7 @@ from fastapi.responses import JSONResponse
 
 from app.api.routes import router
 from app.core.config import settings
+from app.core.security import secret_text_matches
 from app.core.version import TASKSIGNAL_VERSION
 from app.db.base import Base
 from app.db.session import engine, ensure_sqlite_schema_compatibility
@@ -26,9 +26,7 @@ def cors_allowed_origins() -> list[str]:
 
 def operator_token_matches(supplied_token: str | None, configured_token: str) -> bool:
     """Compare tokens without failing on malformed or non-ASCII header values."""
-    if not supplied_token or not configured_token:
-        return False
-    return compare_digest(supplied_token.encode(), configured_token.encode())
+    return secret_text_matches(supplied_token, configured_token)
 
 
 @asynccontextmanager
