@@ -1,20 +1,27 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
+from sqlalchemy import event
 from sqlalchemy.orm import Session
 
 from app.api import routes
 from app.db.session import engine
-from app.models.all_models import ResearchProject
+from app.models.all_models import Opportunity, ResearchProject
 from app.services.ingestion.connectors import BaseConnector
 from app.services.ingestion.types import RawFetchedItem, utc_now
 from app.workers import scan_pipeline
 
 
-def evidence(external_id: str, version: str = "v1") -> RawFetchedItem:
+def evidence(
+    external_id: str,
+    version: str = "v1",
+    *,
+    source: str = "mockapi",
+) -> RawFetchedItem:
     return RawFetchedItem(
-        source="mockapi",
+        source=source,
         external_id=external_id,
         raw_json={
             "title": f"Painful CI evidence {external_id} {version}",
@@ -221,6 +228,230 @@ def test_run_delta_reports_first_and_identical_runs_precisely(client, monkeypatc
     assert payload["warnings"] == []
     assert "deleted" not in identical_delta.text
     assert "resolved" not in identical_delta.text
+
+
+def test_opportunity_feed_returns_only_the_current_snapshot_after_rerun(
+    client,
+    monkeypatch,
+) -> None:
+    batch = [evidence("current-only-a"), evidence("current-only-b")]
+    install_scan_batches(monkeypatch, [batch, batch])
+    project = create_project(client)
+    run_project(client, project["id"])
+    run_project(client, project["id"])
+
+    threads = client.get(
+        f"/api/v1/opportunity-threads?project_id={project['id']}"
+    ).json()
+    historical_snapshots = client.get("/api/v1/opportunities").json()
+    opportunities = client.get(
+        "/api/v1/opportunities?current_only=true"
+    ).json()
+
+    assert len(threads) == 1
+    assert len(historical_snapshots) == 2
+    assert [item["id"] for item in opportunities] == [
+        threads[0]["current_snapshot"]["id"]
+    ]
+
+
+def test_opportunity_feed_breaks_score_ties_with_newest_snapshot_first(
+    client,
+    monkeypatch,
+) -> None:
+    install_scan_batches(
+        monkeypatch,
+        [
+            [evidence("older-a"), evidence("older-b")],
+            [evidence("newer-a"), evidence("newer-b")],
+        ],
+    )
+    older_project = create_project(client, name="Older project")
+    run_project(client, older_project["id"])
+    older_id = client.get(
+        "/api/v1/opportunities?current_only=true"
+    ).json()[0]["id"]
+    newer_project = create_project(client, name="Newer project")
+    run_project(client, newer_project["id"])
+    current_ids = {
+        item["id"]
+        for item in client.get(
+            "/api/v1/opportunities?current_only=true"
+        ).json()
+    }
+    newer_id = (current_ids - {older_id}).pop()
+    with Session(engine) as session:
+        older = session.get(Opportunity, UUID(older_id))
+        newer = session.get(Opportunity, UUID(newer_id))
+        assert older is not None
+        assert newer is not None
+        older.created_at = datetime(2026, 7, 13, 10, 0, tzinfo=UTC)
+        newer.created_at = datetime(2026, 7, 13, 9, 0, tzinfo=UTC)
+        session.commit()
+
+    opportunities = client.get(
+        "/api/v1/opportunities?current_only=true"
+    ).json()
+
+    assert len(opportunities) == 2
+    assert opportunities[0]["opportunity_score"] == opportunities[1][
+        "opportunity_score"
+    ]
+    assert opportunities[0]["created_at"] > opportunities[1]["created_at"]
+
+
+def test_opportunity_feed_combines_project_source_readiness_and_age_filters(
+    client,
+    monkeypatch,
+) -> None:
+    install_scan_batches(
+        monkeypatch,
+        [
+            [
+                evidence("weak-a", source="github"),
+                evidence("weak-b", source="github"),
+            ],
+            [evidence(f"medium-reddit-{index}", source="reddit") for index in range(3)]
+            + [
+                evidence(f"medium-stack-{index}", source="stackexchange")
+                for index in range(2)
+            ],
+        ],
+    )
+    weak_project = create_project(client, name="Weak project")
+    run_project(client, weak_project["id"])
+    medium_project = create_project(client, name="Medium project")
+    run_project(client, medium_project["id"])
+    weak_thread = client.get(
+        f"/api/v1/opportunity-threads?project_id={weak_project['id']}"
+    ).json()[0]
+    medium_thread = client.get(
+        f"/api/v1/opportunity-threads?project_id={medium_project['id']}"
+    ).json()[0]
+    weak_id = weak_thread["current_snapshot"]["id"]
+    medium_id = medium_thread["current_snapshot"]["id"]
+    now = datetime.now(UTC)
+    with Session(engine) as session:
+        weak = session.get(Opportunity, UUID(weak_id))
+        medium = session.get(Opportunity, UUID(medium_id))
+        assert weak is not None
+        assert medium is not None
+        weak.created_at = now - timedelta(days=45)
+        medium.created_at = now
+        session.commit()
+
+    def filtered_ids(query: str) -> list[str]:
+        response = client.get(f"/api/v1/opportunities?current_only=true&{query}")
+        assert response.status_code == 200
+        return [item["id"] for item in response.json()]
+
+    assert filtered_ids(f"project_id={weak_project['id']}") == [weak_id]
+    assert filtered_ids("evidence_source=github") == [weak_id]
+    assert filtered_ids("evidence_source=reddit") == [medium_id]
+    assert filtered_ids("evidence_source=stackexchange") == [medium_id]
+    assert filtered_ids("readiness=weak") == [weak_id]
+    assert filtered_ids("readiness=medium") == [medium_id]
+    assert filtered_ids("max_age_days=30") == [medium_id]
+    assert filtered_ids(
+        f"project_id={medium_project['id']}"
+        "&evidence_source=reddit&readiness=medium&max_age_days=30"
+    ) == [medium_id]
+
+
+def test_opportunity_feed_rejects_invalid_advanced_filters(client) -> None:
+    for query in (
+        "evidence_source=%20",
+        "evidence_source=github%2Frepos",
+        "readiness=unknown",
+        "max_age_days=0",
+        "max_age_days=3651",
+    ):
+        response = client.get(f"/api/v1/opportunities?{query}")
+        assert response.status_code == 422
+
+
+def test_filtered_opportunity_feed_uses_a_bounded_number_of_queries(
+    client,
+    monkeypatch,
+) -> None:
+    install_scan_batches(
+        monkeypatch,
+        [
+            [
+                evidence(f"bounded-{project_index}-{item_index}", source="github")
+                for item_index in range(2)
+            ]
+            for project_index in range(3)
+        ],
+    )
+    for project_index in range(3):
+        project = create_project(client, name=f"Bounded project {project_index}")
+        run_project(client, project["id"])
+
+    statements: list[str] = []
+
+    def record_statement(
+        _connection,
+        _cursor,
+        statement: str,
+        _parameters,
+        _context,
+        _executemany,
+    ) -> None:
+        statements.append(statement)
+
+    event.listen(engine, "before_cursor_execute", record_statement)
+    try:
+        response = client.get(
+            "/api/v1/opportunities?current_only=true"
+            "&evidence_source=github&readiness=weak"
+        )
+    finally:
+        event.remove(engine, "before_cursor_execute", record_statement)
+
+    assert response.status_code == 200
+    assert len(response.json()) == 3
+    assert len(statements) <= 10
+
+
+def test_opportunity_source_filter_uses_the_snapshot_scan_observation(
+    client,
+    monkeypatch,
+) -> None:
+    install_scan_batches(
+        monkeypatch,
+        [
+            [
+                evidence("shared-a", source="github"),
+                evidence("shared-b", source="github"),
+            ],
+            [
+                evidence("shared-a", source="reddit"),
+                evidence("shared-b", source="reddit"),
+            ],
+        ],
+    )
+    first_project = create_project(client, name="First source")
+    run_project(client, first_project["id"])
+    second_project = create_project(client, name="Observed source")
+    run_project(client, second_project["id"])
+    current = client.get(
+        f"/api/v1/opportunities?current_only=true&project_id={second_project['id']}"
+    ).json()
+    assert len(current) == 1
+    assert {item["source"] for item in current[0]["evidence_items"]} == {"reddit"}
+
+    observed = client.get(
+        "/api/v1/opportunities?current_only=true"
+        f"&project_id={second_project['id']}&evidence_source=reddit"
+    )
+    original = client.get(
+        "/api/v1/opportunities?current_only=true"
+        f"&project_id={second_project['id']}&evidence_source=github"
+    )
+
+    assert [item["id"] for item in observed.json()] == [current[0]["id"]]
+    assert original.json() == []
 
 
 def test_first_project_run_reports_evidence_seen_by_an_earlier_manual_scan(

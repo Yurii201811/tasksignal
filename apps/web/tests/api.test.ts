@@ -26,14 +26,21 @@ describe("decision workbench API", () => {
     installLocalStorageMock();
   });
 
-  it("encodes an optional opportunity state filter", async () => {
+  it("encodes the complete opportunity queue filter set", async () => {
     const fetchMock = vi.fn<typeof fetch>(async () => Response.json([]));
     vi.stubGlobal("fetch", fetchMock);
 
-    await api.opportunities("needs_more_evidence");
+    await api.opportunities({
+      reviewState: "needs_more_evidence",
+      currentOnly: true,
+      projectId: "project-1",
+      evidenceSource: "stackexchange",
+      readiness: "medium",
+      maxAgeDays: 30,
+    });
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "http://localhost:8000/api/opportunities?review_state=needs_more_evidence",
+      "http://localhost:8000/api/opportunities?review_state=needs_more_evidence&current_only=true&project_id=project-1&evidence_source=stackexchange&readiness=medium&max_age_days=30",
       expect.any(Object),
     );
   });

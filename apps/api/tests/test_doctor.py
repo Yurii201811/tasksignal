@@ -31,3 +31,22 @@ def test_missing_frontend_dependencies_point_to_setup(monkeypatch) -> None:
 
     assert check.status == "fail"
     assert "make setup" in check.detail
+
+
+def test_missing_root_env_is_ready_for_fixture_workflow(monkeypatch) -> None:
+    monkeypatch.setattr(Path, "exists", lambda _path: False)
+
+    check = doctor.check_env_file()
+
+    assert check.status == "ok"
+    assert "not required" in check.detail
+
+
+def test_present_root_env_points_to_process_specific_files(monkeypatch) -> None:
+    monkeypatch.setattr(Path, "exists", lambda _path: True)
+
+    check = doctor.check_env_file()
+
+    assert check.status == "warn"
+    assert "apps/api/.env" in check.detail
+    assert "apps/web/.env.local" in check.detail

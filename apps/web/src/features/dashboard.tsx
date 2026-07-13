@@ -27,6 +27,7 @@ import { api } from "@/lib/api";
 import {
   Badge,
   Button,
+  ButtonLink,
   Card,
   Input,
   PageHeader,
@@ -45,7 +46,7 @@ import {
   REVIEW_STATE_OPTIONS,
   reviewStateOption,
 } from "@/lib/review";
-import type { ReviewState } from "@/lib/types";
+import type { EvidenceReadinessLevel, ReviewState } from "@/lib/types";
 
 const chartColors = [
   "var(--ts-chart-1)",
@@ -54,6 +55,9 @@ const chartColors = [
   "var(--ts-chart-4)",
   "var(--ts-chart-5)",
 ];
+
+type QueueAgeFilter = "all" | "7" | "30" | "90";
+
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "The request failed.";
 }
@@ -68,10 +72,66 @@ export function Dashboard() {
   const [reviewStateFilter, setReviewStateFilter] = useState<
     ReviewState | "all"
   >("all");
+  const [projectFilter, setProjectFilter] = useState("all");
+  const [evidenceSourceFilter, setEvidenceSourceFilter] = useState("all");
+  const [readinessFilter, setReadinessFilter] = useState<
+    EvidenceReadinessLevel | "all"
+  >("all");
+  const [ageFilter, setAgeFilter] = useState<QueueAgeFilter>("all");
+  const hasScopeFilters =
+    projectFilter !== "all" ||
+    evidenceSourceFilter !== "all" ||
+    readinessFilter !== "all" ||
+    ageFilter !== "all";
+  const hasAnyQueueFilter =
+    hasScopeFilters || reviewStateFilter !== "all";
+  const scopeFilters = {
+    currentOnly: true,
+    ...(projectFilter !== "all" ? { projectId: projectFilter } : {}),
+    ...(evidenceSourceFilter !== "all"
+      ? { evidenceSource: evidenceSourceFilter }
+      : {}),
+    ...(readinessFilter !== "all" ? { readiness: readinessFilter } : {}),
+    ...(ageFilter !== "all" ? { maxAgeDays: Number(ageFilter) } : {}),
+  };
   const stats = useQuery({ queryKey: ["stats"], queryFn: api.stats });
   const opportunities = useQuery({
-    queryKey: ["opportunities"],
-    queryFn: () => api.opportunities(),
+    queryKey: ["opportunities", "all"],
+    queryFn: () => api.opportunities({ currentOnly: true }),
+  });
+  const scopedOpportunities = useQuery({
+    queryKey: [
+      "opportunities",
+      "scope",
+      projectFilter,
+      evidenceSourceFilter,
+      readinessFilter,
+      ageFilter,
+    ],
+    queryFn: () => api.opportunities(scopeFilters),
+    enabled: hasScopeFilters,
+  });
+  const filteredOpportunities = useQuery({
+    queryKey: [
+      "opportunities",
+      "review-state",
+      reviewStateFilter,
+      projectFilter,
+      evidenceSourceFilter,
+      readinessFilter,
+      ageFilter,
+    ],
+    queryFn: () =>
+      api.opportunities({
+        ...scopeFilters,
+        reviewState:
+          reviewStateFilter === "all" ? undefined : reviewStateFilter,
+      }),
+    enabled: reviewStateFilter !== "all",
+  });
+  const projects = useQuery({
+    queryKey: ["research-projects"],
+    queryFn: api.researchProjects,
   });
   const sources = useQuery({ queryKey: ["sources"], queryFn: api.sources });
   const scans = useQuery({ queryKey: ["scans"], queryFn: api.scans });
@@ -115,35 +175,65 @@ export function Dashboard() {
       hint: "Grouped signals that may describe the same problem",
     },
     {
-      label: "Opportunities",
+      label: "Opportunity snapshots",
       value: stats.data?.opportunities ?? 0,
-      hint: "Ranked ideas generated from evidence",
+      hint: "Immutable ranked snapshots generated across runs",
     },
   ];
   const allOpportunities = opportunities.data ?? [];
+  const queueScope = hasScopeFilters
+    ? (scopedOpportunities.data ?? [])
+    : allOpportunities;
   const decisionCounts = Object.fromEntries(
     REVIEW_STATE_OPTIONS.map((option) => [
       option.value,
-      allOpportunities.filter((item) => item.review_state === option.value)
+      queueScope.filter((item) => item.review_state === option.value)
         .length,
     ]),
   ) as Record<ReviewState, number>;
-  const filteredOpportunities =
+  const visibleOpportunities =
     reviewStateFilter === "all"
-      ? allOpportunities
-      : allOpportunities.filter(
-          (item) => item.review_state === reviewStateFilter,
-        );
+      ? queueScope
+      : (filteredOpportunities.data ?? []);
   const topOpportunity = allOpportunities[0];
+  const nextUnreviewed = queueScope.find((item) => item.review_state === "new");
   const hasOpportunities = allOpportunities.length > 0;
-  const hasFilteredOpportunities = filteredOpportunities.length > 0;
-  const isLoadingWorkflow = stats.isLoading || opportunities.isLoading;
+  const hasFilteredOpportunities = visibleOpportunities.length > 0;
+  const queueScopeLoading =
+    opportunities.isLoading ||
+    (hasScopeFilters && scopedOpportunities.isLoading);
+  const queueScopeError =
+    opportunities.error ??
+    (hasScopeFilters ? scopedOpportunities.error : null);
+  const isLoadingWorkflow =
+    stats.isLoading ||
+    queueScopeLoading ||
+    (reviewStateFilter !== "all" && filteredOpportunities.isLoading);
+  const queueFilterError =
+    queueScopeError ??
+    (reviewStateFilter !== "all" ? filteredOpportunities.error : null);
   const dataError =
-    stats.error ?? opportunities.error ?? sources.error ?? scans.error ?? null;
+    stats.error ??
+    opportunities.error ??
+    queueFilterError ??
+    projects.error ??
+    sources.error ??
+    scans.error ??
+    null;
   const processError = process.error ?? null;
   const scanError = runScan.error ?? null;
   const sourceBreakdown = stats.data?.source_breakdown ?? [];
   const painDistribution = stats.data?.pain_distribution ?? [];
+  const queueEvidenceSources = Array.from(
+    new Set(
+      allOpportunities.flatMap((opportunity) => [
+        opportunity.top_source,
+        ...opportunity.evidence_items.map((item) => item.source),
+      ]),
+    ),
+  )
+    .filter(Boolean)
+    .sort((left, right) => left.localeCompare(right));
   const liveSources = browserSafeScanSourceOrder.flatMap((type) => {
     const source = (sources.data ?? []).find(
       (candidate) => candidate.type === type,
@@ -219,6 +309,14 @@ export function Dashboard() {
   function updateScanSource(source: string) {
     setScanSource(source);
     setScanQuery(sourceQueryPresetByType[source]?.defaultQuery ?? "");
+  }
+
+  function clearQueueFilters() {
+    setProjectFilter("all");
+    setEvidenceSourceFilter("all");
+    setReadinessFilter("all");
+    setAgeFilter("all");
+    setReviewStateFilter("all");
   }
 
   function submitScan(event: FormEvent<HTMLFormElement>) {
@@ -578,9 +676,9 @@ export function Dashboard() {
               <dd className="mt-2 text-2xl font-bold tabular-nums text-ink">
                 {stage.value}
               </dd>
-              <p className="mt-1 max-w-xs text-xs leading-5 text-muted">
+              <dd className="mt-1 max-w-xs text-xs leading-5 text-muted">
                 {stage.hint}
-              </p>
+              </dd>
             </div>
           ))}
         </dl>
@@ -588,7 +686,7 @@ export function Dashboard() {
 
       <div className="space-y-4">
         <Card className="min-w-0" id="top-opportunities">
-          <div className="mb-4 flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
+          <div className="mb-4 flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
             <div>
               <h2 className="text-lg font-semibold text-ink">
                 Top opportunities
@@ -598,8 +696,117 @@ export function Dashboard() {
                 kept visible.
               </p>
             </div>
-            <Badge tone="blue">Ranked by computed score</Badge>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge tone="blue">Ranked by computed score</Badge>
+              {nextUnreviewed && !queueScopeLoading && !queueScopeError ? (
+                <ButtonLink href={`/opportunities/${nextUnreviewed.id}`}>
+                  Review next <ArrowRight size={16} />
+                </ButtonLink>
+              ) : (
+                <Button disabled>
+                  {queueScopeLoading
+                    ? "Finding next item"
+                    : queueScopeError
+                      ? "Review unavailable"
+                      : "No new items"}
+                </Button>
+              )}
+            </div>
           </div>
+
+          <fieldset className="mb-4 rounded-product border border-border bg-surface-muted p-4">
+            <legend className="px-1 text-sm font-semibold text-ink">
+              Queue filters
+            </legend>
+            <p className="mb-3 text-xs leading-5 text-muted">
+              Review next opens the highest-ranked new item in the project,
+              evidence-source, readiness, and age scope below.
+            </p>
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[repeat(4,minmax(0,1fr))_auto] xl:items-end">
+              <label>
+                <span className="text-sm font-semibold text-muted">Project</span>
+                <Select
+                  className="mt-2"
+                  aria-label="Project"
+                  value={projectFilter}
+                  disabled={projects.isLoading}
+                  onChange={(event) => setProjectFilter(event.target.value)}
+                >
+                  <option value="all">All projects</option>
+                  {(projects.data ?? []).map((project) => (
+                    <option key={project.id} value={project.id}>
+                      {project.name}
+                    </option>
+                  ))}
+                </Select>
+              </label>
+              <label>
+                <span className="text-sm font-semibold text-muted">
+                  Evidence source
+                </span>
+                <Select
+                  className="mt-2"
+                  aria-label="Evidence source"
+                  value={evidenceSourceFilter}
+                  onChange={(event) =>
+                    setEvidenceSourceFilter(event.target.value)
+                  }
+                >
+                  <option value="all">All evidence sources</option>
+                  {queueEvidenceSources.map((source) => (
+                    <option key={source} value={source}>
+                      {source}
+                    </option>
+                  ))}
+                </Select>
+              </label>
+              <label>
+                <span className="text-sm font-semibold text-muted">
+                  Readiness
+                </span>
+                <Select
+                  className="mt-2"
+                  aria-label="Readiness"
+                  value={readinessFilter}
+                  onChange={(event) =>
+                    setReadinessFilter(
+                      event.target.value as EvidenceReadinessLevel | "all",
+                    )
+                  }
+                >
+                  <option value="all">Any readiness</option>
+                  <option value="weak">Weak</option>
+                  <option value="medium">Medium</option>
+                  <option value="strong">Strong</option>
+                </Select>
+              </label>
+              <label>
+                <span className="text-sm font-semibold text-muted">
+                  Snapshot age
+                </span>
+                <Select
+                  className="mt-2"
+                  aria-label="Snapshot age"
+                  value={ageFilter}
+                  onChange={(event) =>
+                    setAgeFilter(event.target.value as QueueAgeFilter)
+                  }
+                >
+                  <option value="all">Any time</option>
+                  <option value="7">Last 7 days</option>
+                  <option value="30">Last 30 days</option>
+                  <option value="90">Last 90 days</option>
+                </Select>
+              </label>
+              <Button
+                variant="secondary"
+                disabled={!hasAnyQueueFilter}
+                onClick={clearQueueFilters}
+              >
+                Clear filters
+              </Button>
+            </div>
+          </fieldset>
 
           <div
             className="mb-4 flex flex-wrap gap-2"
@@ -612,7 +819,7 @@ export function Dashboard() {
               aria-pressed={reviewStateFilter === "all"}
               onClick={() => setReviewStateFilter("all")}
             >
-              All {allOpportunities.length}
+              All {queueScope.length}
             </Button>
             {REVIEW_STATE_OPTIONS.map((option) => (
               <Button
@@ -628,6 +835,18 @@ export function Dashboard() {
               </Button>
             ))}
           </div>
+
+          <p
+            className="mb-3 text-sm text-muted"
+            aria-live="polite"
+            aria-atomic="true"
+          >
+            {queueFilterError
+              ? "Current opportunity results unavailable"
+              : isLoadingWorkflow
+                ? "Updating current opportunity results"
+                : `Showing ${visibleOpportunities.length} of ${queueScope.length} current opportunities`}
+          </p>
 
           <TableShell
             label="Top opportunities"
@@ -662,7 +881,7 @@ export function Dashboard() {
                   </tr>
                 </>
               )}
-              {!isLoadingWorkflow && !hasOpportunities && (
+              {!isLoadingWorkflow && !hasOpportunities && !queueFilterError && (
                 <tr>
                   <td colSpan={9} className="py-8 text-center">
                     <div className="mx-auto max-w-md px-4 py-6">
@@ -679,15 +898,18 @@ export function Dashboard() {
               )}
               {!isLoadingWorkflow &&
                 hasOpportunities &&
-                !hasFilteredOpportunities && (
+                !hasFilteredOpportunities &&
+                !queueFilterError && (
                   <tr>
                     <td colSpan={9} className="py-8 text-center">
-                      No opportunities match this decision state
+                      {hasScopeFilters
+                        ? "No current opportunities match these filters"
+                        : "No opportunities match this decision state"}
                     </td>
                   </tr>
                 )}
               {!isLoadingWorkflow &&
-                filteredOpportunities.map((opportunity) => (
+                visibleOpportunities.map((opportunity) => (
                   <tr
                     key={opportunity.id}
                     className="border-b border-border last:border-b-0"
@@ -768,6 +990,7 @@ export function Dashboard() {
                       dataKey="count"
                       nameKey="source"
                       outerRadius={82}
+                      rootTabIndex={-1}
                       label
                     >
                       {sourceBreakdown.map((entry, index) => (

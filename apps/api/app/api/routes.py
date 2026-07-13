@@ -3,12 +3,12 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from secrets import compare_digest
 from uuid import UUID, uuid4
 
 import httpx
-from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -823,6 +823,55 @@ def items_to_out(
     ]
 
 
+def build_opportunity_out(
+    opportunity: Opportunity,
+    rows: list[tuple[NormalizedItem, ItemSignal]],
+    snapshots: dict[UUID, EvidenceReviewSnapshot],
+    agent_snapshots: dict[UUID, EvidenceReviewSnapshot],
+    observations: dict[UUID, ScanItem],
+    thread: OpportunityThread | None,
+    detach_event: OpportunityDecisionEvent | None,
+) -> OpportunityOut:
+    items = [item for item, _signal in rows]
+    evidence = [
+        item_to_out(
+            item,
+            signal,
+            snapshots.get(item.id),
+            observations.get(item.id),
+            agent_snapshots.get(item.id),
+        )
+        for item, signal in rows
+    ]
+    source_counts = {
+        source: sum(item.source == source for item in evidence)
+        for source in {item.source for item in evidence}
+    }
+    top_source = min(
+        source_counts,
+        key=lambda source: (-source_counts[source], source),
+        default="fixture",
+    )
+    values = {
+        column.name: getattr(opportunity, column.name) for column in Opportunity.__table__.columns
+    }
+    if thread is not None:
+        values.update(
+            review_state=thread.review_state,
+            review_note=thread.review_note,
+            decision_updated_at=as_utc(thread.decision_updated_at),
+        )
+    return OpportunityOut(
+        **values,
+        detached=detach_event is not None,
+        detached_from_thread_id=(detach_event.thread_id if detach_event is not None else None),
+        evidence_items=evidence,
+        signal_count=len(evidence),
+        top_source=top_source,
+        evidence_readiness=calculate_evidence_readiness(items, snapshots),
+    )
+
+
 def opportunity_to_out(db: Session, opportunity: Opportunity) -> OpportunityOut:
     rows = cluster_signal_rows(db, opportunity.cluster_id)
     items = [item for item, _signal in rows]
@@ -852,31 +901,7 @@ def opportunity_to_out(db: Session, opportunity: Opportunity) -> OpportunityOut:
         if evidence_scan_id is not None and items
         else {}
     )
-    evidence = [
-        item_to_out(
-            item,
-            signal,
-            snapshots.get(item.id),
-            observations.get(item.id),
-            agent_snapshots.get(item.id),
-        )
-        for item, signal in rows
-    ]
-    top_source = max(
-        {item.source for item in evidence},
-        key=lambda source: sum(item.source == source for item in evidence),
-        default="fixture",
-    )
-    values = {
-        column.name: getattr(opportunity, column.name) for column in Opportunity.__table__.columns
-    }
     thread = db.get(OpportunityThread, opportunity.thread_id)
-    if thread is not None:
-        values.update(
-            review_state=thread.review_state,
-            review_note=thread.review_note,
-            decision_updated_at=as_utc(thread.decision_updated_at),
-        )
     detach_event = db.scalar(
         select(OpportunityDecisionEvent)
         .where(
@@ -889,15 +914,144 @@ def opportunity_to_out(db: Session, opportunity: Opportunity) -> OpportunityOut:
         )
         .limit(1)
     )
-    return OpportunityOut(
-        **values,
-        detached=detach_event is not None,
-        detached_from_thread_id=(detach_event.thread_id if detach_event is not None else None),
-        evidence_items=evidence,
-        signal_count=len(evidence),
-        top_source=top_source,
-        evidence_readiness=calculate_evidence_readiness(items, snapshots),
+    return build_opportunity_out(
+        opportunity,
+        rows,
+        snapshots,
+        agent_snapshots,
+        observations,
+        thread,
+        detach_event,
     )
+
+
+def opportunities_to_out(
+    db: Session,
+    opportunities: list[Opportunity],
+) -> list[OpportunityOut]:
+    if not opportunities:
+        return []
+
+    cluster_ids = {opportunity.cluster_id for opportunity in opportunities}
+    rows_by_cluster: dict[UUID, list[tuple[NormalizedItem, ItemSignal]]] = {
+        cluster_id: [] for cluster_id in cluster_ids
+    }
+    for cluster_id, item, signal in db.execute(
+        select(ClusterItem.cluster_id, NormalizedItem, ItemSignal)
+        .join(NormalizedItem, NormalizedItem.id == ClusterItem.item_id)
+        .join(ItemSignal, ItemSignal.item_id == NormalizedItem.id)
+        .where(ClusterItem.cluster_id.in_(cluster_ids))
+        .order_by(
+            ClusterItem.cluster_id.asc(),
+            ItemSignal.pain_score.desc(),
+            ItemSignal.task_concreteness_score.desc(),
+            NormalizedItem.created_at.desc(),
+        )
+    ).all():
+        rows_by_cluster[cluster_id].append((item, signal))
+
+    item_ids = {
+        item.id
+        for rows in rows_by_cluster.values()
+        for item, _signal in rows
+    }
+    snapshots = get_review_snapshots(db, item_ids)
+    agent_snapshots = get_agent_review_snapshots(db, item_ids)
+
+    evidence_scan_ids = {
+        opportunity.id: opportunity.scan_id for opportunity in opportunities
+    }
+    missing_scan_thread_ids = {
+        opportunity.thread_id
+        for opportunity in opportunities
+        if opportunity.scan_id is None
+    }
+    if missing_scan_thread_ids:
+        fallback_scan_ids: dict[UUID, UUID] = {}
+        for thread_id, scan_id in db.execute(
+            select(Opportunity.thread_id, Opportunity.scan_id)
+            .where(
+                Opportunity.thread_id.in_(missing_scan_thread_ids),
+                Opportunity.scan_id.is_not(None),
+            )
+            .order_by(
+                Opportunity.thread_id.asc(),
+                Opportunity.created_at.desc(),
+                Opportunity.id.desc(),
+            )
+        ).all():
+            fallback_scan_ids.setdefault(thread_id, scan_id)
+        for opportunity in opportunities:
+            if opportunity.scan_id is None:
+                evidence_scan_ids[opportunity.id] = fallback_scan_ids.get(
+                    opportunity.thread_id
+                )
+
+    scan_ids = {
+        scan_id for scan_id in evidence_scan_ids.values() if scan_id is not None
+    }
+    observations = (
+        {
+            (observation.scan_id, observation.item_id): observation
+            for observation in db.scalars(
+                select(ScanItem).where(
+                    ScanItem.scan_id.in_(scan_ids),
+                    ScanItem.item_id.in_(item_ids),
+                )
+            ).all()
+        }
+        if scan_ids and item_ids
+        else {}
+    )
+
+    thread_ids = {opportunity.thread_id for opportunity in opportunities}
+    threads = {
+        thread.id: thread
+        for thread in db.scalars(
+            select(OpportunityThread).where(OpportunityThread.id.in_(thread_ids))
+        ).all()
+    }
+    snapshot_ids = {opportunity.id for opportunity in opportunities}
+    detach_events: dict[UUID, OpportunityDecisionEvent] = {}
+    for event in db.scalars(
+        select(OpportunityDecisionEvent)
+        .where(
+            OpportunityDecisionEvent.event_type == "snapshot_detached",
+            OpportunityDecisionEvent.snapshot_id.in_(snapshot_ids),
+        )
+        .order_by(
+            OpportunityDecisionEvent.created_at.desc(),
+            OpportunityDecisionEvent.id.desc(),
+        )
+    ).all():
+        if event.snapshot_id is not None:
+            detach_events.setdefault(event.snapshot_id, event)
+
+    output: list[OpportunityOut] = []
+    for opportunity in opportunities:
+        rows = rows_by_cluster[opportunity.cluster_id]
+        evidence_scan_id = evidence_scan_ids[opportunity.id]
+        opportunity_observations = (
+            {
+                item.id: observations[(evidence_scan_id, item.id)]
+                for item, _signal in rows
+                if (evidence_scan_id, item.id) in observations
+            }
+            if evidence_scan_id is not None
+            else {}
+        )
+        output.append(
+            build_opportunity_out(
+                opportunity,
+                rows,
+                snapshots,
+                agent_snapshots,
+                opportunity_observations,
+                threads.get(opportunity.thread_id),
+                detach_events.get(opportunity.id),
+            )
+        )
+    return output
 
 
 def opportunity_snapshot_to_out(
@@ -2682,6 +2836,16 @@ def download_build_packet(packet_id: UUID, db: Session = Depends(get_db)) -> Res
 @router.get("/opportunities", response_model=list[OpportunityOut])
 def list_opportunities(
     review_state: ReviewState | None = None,
+    current_only: bool = False,
+    project_id: UUID | None = None,
+    evidence_source: str | None = Query(
+        default=None,
+        min_length=1,
+        max_length=60,
+        pattern=r"^[A-Za-z0-9_-]+$",
+    ),
+    readiness: EvidenceReadinessLevel | None = None,
+    max_age_days: int | None = Query(default=None, ge=1, le=3650),
     db: Session = Depends(get_db),
 ) -> list[OpportunityOut]:
     query = (
@@ -2690,11 +2854,41 @@ def list_opportunities(
             OpportunityThread,
             OpportunityThread.id == Opportunity.thread_id,
         )
-        .order_by(Opportunity.opportunity_score.desc())
+        .order_by(
+            Opportunity.opportunity_score.desc(),
+            Opportunity.created_at.desc(),
+            Opportunity.id.desc(),
+        )
     )
+    if current_only:
+        query = query.where(OpportunityThread.current_snapshot_id == Opportunity.id)
+    if project_id is not None:
+        query = query.where(OpportunityThread.project_id == project_id)
     if review_state is not None:
         query = query.where(OpportunityThread.review_state == review_state.value)
-    return [opportunity_to_out(db, item) for item in db.scalars(query).all()]
+    if max_age_days is not None:
+        query = query.where(
+            Opportunity.created_at
+            >= datetime.now(UTC) - timedelta(days=max_age_days)
+        )
+    opportunities = opportunities_to_out(db, list(db.scalars(query).all()))
+    if evidence_source is not None:
+        normalized_source = evidence_source.casefold()
+        opportunities = [
+            item
+            for item in opportunities
+            if any(
+                evidence.source.casefold() == normalized_source
+                for evidence in item.evidence_items
+            )
+        ]
+    if readiness is not None:
+        opportunities = [
+            item
+            for item in opportunities
+            if item.evidence_readiness.level == readiness
+        ]
+    return opportunities
 
 
 def commit_review_write(db: Session, failure_detail: str) -> None:

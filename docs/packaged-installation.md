@@ -12,13 +12,12 @@ extra only when a local agent will use `tasksignal mcp`.
   distribution such as Ubuntu. Native PowerShell, Command Prompt, and Windows
   filesystem semantics are not release targets and are not covered by CI.
 
-CI is configured to install the built wheel on Python 3.11, 3.12, 3.13, and
-3.14 on both Linux and macOS. The smoke is designed to start outside the
-checkout, prove the base wheel does not contain MCP, install the `mcp` extra
-separately, check packaged migrations and fixtures, and verify that generated
-configuration is permission `0600` without printing secrets. Live
-cross-platform evidence remains pending until those Actions jobs complete
-successfully; workflow configuration alone is not passing evidence.
+CI installs the built wheel on Python 3.11, 3.12, 3.13, and 3.14 on both Linux
+and macOS. The packaging smoke starts outside the checkout, proves the base
+wheel does not contain MCP, installs the `mcp` extra separately, checks packaged
+migrations and fixtures, and verifies that generated configuration is
+permission `0600` without printing secrets. A live matrix completed successfully
+in [`main` run 29171023301](https://github.com/Yurii201811/tasksignal/actions/runs/29171023301).
 
 ## Install
 

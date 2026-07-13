@@ -32,6 +32,16 @@ export type EvidenceReviewLabel =
   | "sensitive_risk";
 
 export type EvidenceReadinessLevel = "weak" | "medium" | "strong";
+
+export type OpportunityFilters = {
+  reviewState?: ReviewState;
+  currentOnly?: boolean;
+  projectId?: string;
+  evidenceSource?: string;
+  readiness?: EvidenceReadinessLevel;
+  maxAgeDays?: number;
+};
+
 export type EvidenceReadinessCheck =
   | "enough_evidence"
   | "source_diversity"
