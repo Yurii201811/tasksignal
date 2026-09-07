@@ -7,14 +7,29 @@ It remembers what each run observed, explains what changed, keeps related
 opportunities in persistent threads, and generates deterministic build documents
 whose provenance can be verified before implementation starts.
 
-![TaskSignal current opportunity queue after processing demo data](docs/images/dashboard-browser-verified.jpg)
+![TaskSignal alpha 1 opportunity queue after processing demo data](docs/images/dashboard-browser-verified.jpg)
+
+## Next version: 1.0.0 alpha 2
+
+The workspace home now shows live research totals, the next opportunity to
+review, and recent projects. Use **Try demo data** for a credential-free first
+run, then **Open decision queue** to review current snapshots. The queue supports
+text search and score, evidence-readiness, and recency sorting; **Refine scope**
+opens project, source, age, and readiness filters.
+
+Press **Cmd+K** on macOS or **Ctrl+K** elsewhere to jump between views or search
+for evidence. Submitted evidence searches have a reusable `?q=` address, with
+browser back/forward support and a copy-link action.
+
+This is a local alpha update; see the changelog for its verification and release
+boundaries.
 
 ## Project Status
 
 TaskSignal is an early-stage, local-first application for one operator. The
 latest public release is the [`v0.2.0` rollback baseline](https://github.com/Yurii201811/tasksignal/releases/tag/v0.2.0).
-The current source tree is the pre-GA v1 alpha (`1.0.0a1` for Python and
-`1.0.0-alpha.1` for the web app).
+The current source tree is the pre-GA v1 alpha (`1.0.0a2` for Python and
+`1.0.0-alpha.2` for the web app).
 
 The repository has a passing Linux/macOS Python 3.11–3.14 wheel matrix in this
 [`main` CI run](https://github.com/Yurii201811/tasksignal/actions/runs/29171023301).

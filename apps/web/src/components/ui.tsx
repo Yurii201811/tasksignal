@@ -24,7 +24,7 @@ type CardVariant =
   | "compact";
 
 const cardVariants: Record<CardVariant, string> = {
-  default: "border-border bg-surface shadow-none",
+  default: "border-border bg-surface shadow-soft",
   muted: "border-border bg-surface-muted shadow-none",
   success: "border-success-border bg-surface-success shadow-none",
   warning: "border-warning-border bg-surface-warning shadow-none",
@@ -277,11 +277,11 @@ export function PageHeader({
       )}
     >
       <div className="min-w-0">
-        <h1 className="min-w-0 break-words text-2xl font-bold tracking-[-0.025em] text-ink [overflow-wrap:anywhere] sm:text-3xl">
+        <h1 className="min-w-0 break-words text-2xl font-semibold tracking-[-0.035em] text-ink [overflow-wrap:anywhere] sm:text-[2rem]">
           {title}
         </h1>
         {description ? (
-          <p className="mt-2 max-w-3xl break-words text-base leading-7 text-muted">
+          <p className="mt-2 max-w-2xl break-words text-sm leading-6 text-muted">
             {description}
           </p>
         ) : null}

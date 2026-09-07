@@ -22,6 +22,7 @@ import {
   ChevronDown,
   Play,
   RefreshCw,
+  Search,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import {
@@ -57,6 +58,13 @@ const chartColors = [
 ];
 
 type QueueAgeFilter = "all" | "7" | "30" | "90";
+type QueueSort = "score" | "newest" | "readiness";
+
+const readinessRank: Record<EvidenceReadinessLevel, number> = {
+  weak: 0,
+  medium: 1,
+  strong: 2,
+};
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "The request failed.";
@@ -78,6 +86,8 @@ export function Dashboard() {
     EvidenceReadinessLevel | "all"
   >("all");
   const [ageFilter, setAgeFilter] = useState<QueueAgeFilter>("all");
+  const [queueSearch, setQueueSearch] = useState("");
+  const [queueSort, setQueueSort] = useState<QueueSort>("score");
   const hasScopeFilters =
     projectFilter !== "all" ||
     evidenceSourceFilter !== "all" ||
@@ -189,10 +199,39 @@ export function Dashboard() {
       queueScope.filter((item) => item.review_state === option.value).length,
     ]),
   ) as Record<ReviewState, number>;
-  const visibleOpportunities =
+  const filteredByServer =
     reviewStateFilter === "all"
       ? queueScope
       : (filteredOpportunities.data ?? []);
+  const normalizedQueueSearch = queueSearch.trim().toLocaleLowerCase();
+  const visibleOpportunities = filteredByServer.filter((opportunity) => {
+    if (!normalizedQueueSearch) return true;
+    return [
+      opportunity.title,
+      opportunity.problem_statement,
+      opportunity.target_user,
+      opportunity.top_source,
+      ...opportunity.evidence_items.map((item) => item.source),
+    ].some((value) =>
+      value.toLocaleLowerCase().includes(normalizedQueueSearch),
+    );
+  });
+  visibleOpportunities.sort((left, right) => {
+    if (queueSort === "newest") {
+      return (
+        new Date(right.created_at).getTime() -
+        new Date(left.created_at).getTime()
+      );
+    }
+    if (queueSort === "readiness") {
+      return (
+        readinessRank[right.evidence_readiness.level] -
+          readinessRank[left.evidence_readiness.level] ||
+        right.opportunity_score - left.opportunity_score
+      );
+    }
+    return right.opportunity_score - left.opportunity_score;
+  });
   const topOpportunity = allOpportunities[0];
   const nextUnreviewed = queueScope.find((item) => item.review_state === "new");
   const hasOpportunities = allOpportunities.length > 0;
@@ -348,373 +387,127 @@ export function Dashboard() {
         }
       />
 
-      <Card variant="muted" className="overflow-hidden p-0">
-        <div className="flex flex-col justify-between gap-4 p-5 lg:flex-row lg:items-start">
+      <Card className="min-w-0" id="top-opportunities">
+        <div className="mb-5 flex flex-col justify-between gap-4 border-b border-border pb-5 lg:flex-row lg:items-start">
           <div>
-            <div className="flex flex-wrap gap-2">
-              <Badge
-                tone={readiness.data?.status === "ready" ? "green" : "amber"}
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <Badge tone="blue">Current snapshots only</Badge>
+              <span className="text-xs font-semibold uppercase tracking-[0.14em] text-muted">
+                Decision workspace
+              </span>
+            </div>
+            <h2 className="text-xl font-bold text-ink">
+              Opportunity decision queue
+            </h2>
+            <p className="mt-1 max-w-2xl text-sm leading-6 text-muted">
+              Triage ranked opportunities while their evidence readiness,
+              source, and computed score stay in view.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            {nextUnreviewed && !queueScopeLoading && !queueScopeError ? (
+              <ButtonLink
+                href={`/opportunities/${nextUnreviewed.id}`}
+                className="shadow-sm"
               >
-                {readiness.data?.status ?? "checking"}
-              </Badge>
-              <Badge>Public sources: {publicScanSourcesLabel}</Badge>
-            </div>
-            <h2 className="mt-3 text-lg font-bold text-ink">
-              First useful run
-            </h2>
-            <p className="mt-1 max-w-3xl text-sm leading-6 text-muted">
-              Build one complete evidence trail: configure the workspace, save a
-              project, generate opportunities, then create a verified build
-              packet.
-            </p>
-          </div>
-          <Button
-            variant="secondary"
-            onClick={() => readiness.refetch()}
-            loading={readiness.isFetching}
-            disabled={readiness.isFetching}
-          >
-            <RefreshCw
-              size={16}
-              className={readiness.isFetching ? "motion-safe:animate-spin" : ""}
-            />
-            Refresh readiness
-          </Button>
-        </div>
-
-        {readiness.error ? (
-          <div className="px-5 pb-5">
-            <StateMessage tone="danger" title="Readiness check failed">
-              {errorMessage(readiness.error)}
-            </StateMessage>
-          </div>
-        ) : null}
-
-        <ol className="grid border-y border-border bg-surface md:grid-cols-2">
-          {workflowSteps.map((step, index) => (
-            <li
-              key={step.label}
-              className={clsx(
-                index < workflowSteps.length - 1 && "border-b border-border",
-                index < 2 ? "md:border-b" : "md:border-b-0",
-                index % 2 === 0 && "md:border-r md:border-border",
-              )}
-            >
-              <div className="flex min-w-0 items-start gap-3 px-4 py-4 sm:gap-4 sm:px-5">
-                <span
-                  className={clsx(
-                    "mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-xs font-bold tabular-nums sm:h-8 sm:w-8",
-                    step.done
-                      ? "border-success-border bg-surface-success text-success"
-                      : "border-border-strong bg-surface text-muted",
-                  )}
-                  aria-hidden
-                >
-                  {step.done ? <CheckCircle2 size={16} /> : index + 1}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="flex flex-wrap items-center gap-2">
-                    <span className="font-semibold text-ink">{step.label}</span>
-                    <Badge tone={step.done ? "green" : "amber"}>
-                      {step.done ? "Done" : "Next"}
-                    </Badge>
-                  </span>
-                  <span className="mt-1 block max-w-3xl text-sm leading-6 text-muted">
-                    {step.description}
-                  </span>
-                  <Link
-                    href={step.href}
-                    className="mt-1 inline-flex min-h-11 items-center gap-1 whitespace-nowrap rounded-product text-sm font-semibold text-signal hover:text-[var(--ts-accent-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]"
-                  >
-                    {step.action} <ArrowRight size={14} aria-hidden />
-                  </Link>
-                </span>
-              </div>
-            </li>
-          ))}
-        </ol>
-
-        {readiness.data?.warnings.length ? (
-          <div className="px-5 py-4">
-            <p className="text-sm font-semibold text-ink">Current warnings</p>
-            <ul className="mt-2 grid gap-1 text-sm leading-6 text-muted">
-              {readiness.data.warnings.map((warning) => (
-                <li key={warning}>{warning}</li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-      </Card>
-
-      <Card>
-        <div className="mb-4 flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
-          <div>
-            <div className="flex flex-wrap gap-2">
-              <Badge tone="green">Fixture mode works without credentials</Badge>
-              <Badge tone="blue">Live scan is optional</Badge>
-            </div>
-            <h2 className="mt-3 text-lg font-semibold text-ink">
-              Run the discovery loop
-            </h2>
-            <p className="mt-1 max-w-3xl text-sm leading-6 text-muted">
-              Start with demo data for a reliable review path, or run a public
-              Hacker News scan. Credentialed sources are reserved for trusted
-              internal jobs so public callers cannot spend server-side tokens.
-              The ranking pass remains local-first and does not require a paid
-              LLM.
-            </p>
-          </div>
-          {latestScan ? (
-            <Badge
-              tone={
-                latestScan.status === "completed"
-                  ? "green"
-                  : latestScan.status === "failed"
-                    ? "red"
-                    : "blue"
-              }
-            >
-              Latest scan: {latestScan.status}
-            </Badge>
-          ) : null}
-        </div>
-        <form
-          className="grid gap-4 lg:grid-cols-[minmax(180px,0.8fr)_minmax(260px,1.5fr)_120px_auto] lg:items-end"
-          onSubmit={submitScan}
-        >
-          <label className="block">
-            <span className="text-sm font-semibold text-muted">
-              Live source
-            </span>
-            <Select
-              value={scanSource}
-              onChange={(event) => updateScanSource(event.target.value)}
-              className="mt-2"
-            >
-              {sourceOptions.map((source) => (
-                <option key={source.type} value={source.type}>
-                  {source.name}
-                </option>
-              ))}
-            </Select>
-          </label>
-          <label className="block">
-            <span className="text-sm font-semibold text-muted">Query</span>
-            <Input
-              value={scanQuery}
-              onChange={(event) => setScanQuery(event.target.value)}
-              className="mt-2"
-              placeholder="Search phrase or issue query"
-            />
-            <span className="mt-1 block min-h-[1lh] text-xs leading-5 text-muted">
-              {selectedExamples ? `Examples: ${selectedExamples}` : null}
-            </span>
-          </label>
-          <label className="block">
-            <span className="text-sm font-semibold text-muted">Limit</span>
-            <Input
-              min={1}
-              max={100}
-              type="number"
-              value={scanLimit}
-              onChange={(event) =>
-                setScanLimit(
-                  Math.max(1, Math.min(100, Number(event.target.value) || 1)),
-                )
-              }
-              className="mt-2"
-            />
-          </label>
-          <Button
-            type="submit"
-            variant="secondary"
-            loading={runScan.isPending}
-            disabled={runScan.isPending}
-          >
-            {runScan.isPending ? (
-              <RefreshCw className="motion-safe:animate-spin" size={16} />
+                Review next <ArrowRight size={16} />
+              </ButtonLink>
             ) : (
-              <Play size={16} />
+              <Button disabled>
+                {queueScopeLoading
+                  ? "Finding next item"
+                  : queueScopeError
+                    ? "Review unavailable"
+                    : "No new items"}
+              </Button>
             )}
-            {runScan.isPending ? "Running scan" : "Run scan"}
-          </Button>
-        </form>
-
-        <div className="mt-3 text-xs leading-5 text-muted">
-          Default queries are intentionally modest so reviewers can see the
-          workflow before widening a live scan through trusted internal jobs.
+          </div>
         </div>
 
-        {selectedScanGuidance ? (
-          <details className="group mt-4 border-t border-border pt-4">
-            <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 whitespace-nowrap rounded-product px-2 text-sm font-semibold text-ink hover:bg-surface-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)] motion-safe:active:translate-y-px">
-              <span>Connector guidance</span>
-              <ChevronDown
-                className="h-4 w-4 shrink-0 motion-safe:transition-transform motion-safe:duration-200 motion-safe:ease-product motion-safe:group-open:rotate-180"
+        <dl className="mb-5 grid overflow-hidden rounded-product border border-border bg-surface-muted sm:grid-cols-3">
+          <div className="border-b border-border px-4 py-3 sm:border-b-0 sm:border-r">
+            <dt className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">
+              Needs a first look
+            </dt>
+            <dd className="mt-1 text-2xl font-bold tabular-nums text-ink">
+              {decisionCounts.new}
+            </dd>
+          </div>
+          <div className="border-b border-border px-4 py-3 sm:border-b-0 sm:border-r">
+            <dt className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">
+              Build candidates
+            </dt>
+            <dd className="mt-1 text-2xl font-bold tabular-nums text-ink">
+              {decisionCounts.build_candidate}
+            </dd>
+          </div>
+          <div className="px-4 py-3">
+            <dt className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">
+              Strong evidence
+            </dt>
+            <dd className="mt-1 text-2xl font-bold tabular-nums text-ink">
+              {
+                queueScope.filter(
+                  (item) => item.evidence_readiness.level === "strong",
+                ).length
+              }
+            </dd>
+          </div>
+        </dl>
+
+        <div className="mb-4 grid gap-3 lg:grid-cols-[minmax(260px,1fr)_220px]">
+          <label>
+            <span className="text-sm font-semibold text-muted">
+              Search queue
+            </span>
+            <span className="relative mt-2 block">
+              <Search
+                size={16}
+                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted"
                 aria-hidden
               />
-            </summary>
-            <dl className="mt-3 grid gap-4 px-2 pb-2 text-sm leading-6 sm:grid-cols-3">
-              <div>
-                <dt className="font-semibold text-muted">Credential</dt>
-                <dd className="mt-1 break-words text-ink">
-                  {selectedScanGuidance.credential}
-                </dd>
-              </div>
-              <div>
-                <dt className="font-semibold text-muted">Query</dt>
-                <dd className="mt-1 break-words text-ink">
-                  {selectedScanGuidance.guidance}
-                </dd>
-              </div>
-              <div>
-                <dt className="font-semibold text-muted">Privacy</dt>
-                <dd className="mt-1 break-words text-ink">
-                  {selectedScanGuidance.privacy}
-                </dd>
-              </div>
-            </dl>
-          </details>
-        ) : null}
-
-        {scanError ? (
-          <StateMessage
-            tone="danger"
-            title="Live scan did not complete"
-            className="mt-4"
-          >
-            {errorMessage(scanError)}
-          </StateMessage>
-        ) : null}
-        {runScan.data ? (
-          <StateMessage
-            tone="success"
-            title="Live scan response received"
-            className="mt-4"
-          >
-            {runScan.data.items_saved} saved from {runScan.data.items_found}{" "}
-            found. Signals: {runScan.data.signals_detected}. Opportunities:{" "}
-            {runScan.data.opportunities_created}. Status: {runScan.data.status}.
-            {runScan.data.outcome_message
-              ? ` ${runScan.data.outcome_message}`
-              : ""}
-          </StateMessage>
-        ) : null}
-      </Card>
-
-      {dataError && (
-        <StateMessage tone="danger" title="Could not load dashboard data">
-          {errorMessage(dataError)}
-        </StateMessage>
-      )}
-      {processError && (
-        <StateMessage tone="danger" title="Demo processing did not complete">
-          {errorMessage(processError)}
-        </StateMessage>
-      )}
-      {process.data && (
-        <StateMessage
-          tone="success"
-          title={`Demo processed: ${process.data.raw_items_loaded} raw items, ${process.data.signals_detected} signals, ${process.data.clusters_created} clusters, ${process.data.opportunities_created} opportunities.`}
-          action={
-            topOpportunity ? (
-              <Link
-                href={`/opportunities/${topOpportunity.id}`}
-                className="inline-flex min-h-11 items-center gap-1 whitespace-nowrap rounded-product px-2 text-sm font-semibold text-success hover:bg-surface-success focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-success motion-safe:active:translate-y-px"
-              >
-                Open top opportunity <ArrowRight size={15} />
-              </Link>
-            ) : null
-          }
-        />
-      )}
-      {latestScan && (
-        <StateMessage
-          tone={latestScanTone}
-          title={`Recent scan: ${latestScan.source_name ?? latestScan.source_type ?? "Selected source"} (${latestScan.status})`}
-        >
-          <span className="break-words">
-            {latestScan.items_saved} saved from {latestScan.items_found} found.
-            {` Signals: ${latestScan.signals_detected}. Opportunities: ${latestScan.opportunities_created}.`}
-            {latestScan.query ? ` Query: ${latestScan.query}.` : ""}
-            {latestScan.outcome_message
-              ? ` Outcome: ${latestScan.outcome_message}`
-              : ""}
-            {latestScan.status === "failed" && latestScan.error_message
-              ? ` Error: ${latestScan.error_message}`
-              : ""}
-          </span>
-        </StateMessage>
-      )}
-
-      <section
-        aria-labelledby="pipeline-heading"
-        className="overflow-hidden rounded-product border border-border bg-surface"
-      >
-        <div className="border-b border-border px-5 py-4">
-          <h2 id="pipeline-heading" className="text-lg font-bold text-ink">
-            Research pipeline
-          </h2>
-          <p className="mt-1 text-sm text-muted">
-            Current local totals from collection through ranked output.
-          </p>
-        </div>
-        <dl className="grid sm:grid-cols-2 xl:grid-cols-4">
-          {pipelineStages.map((stage, index) => (
-            <div
-              key={stage.label}
-              className={clsx(
-                "p-5",
-                index < pipelineStages.length - 1 && "border-b border-border",
-                index < 2 ? "sm:border-b" : "sm:border-b-0",
-                index % 2 === 0 && "sm:border-r sm:border-border",
-                "xl:border-b-0 xl:border-r xl:border-border",
-                index === pipelineStages.length - 1 && "xl:border-r-0",
-              )}
+              <Input
+                type="search"
+                aria-label="Search queue"
+                value={queueSearch}
+                onChange={(event) => setQueueSearch(event.target.value)}
+                placeholder="Title, problem, user, or source"
+                className="pl-10"
+              />
+            </span>
+          </label>
+          <label>
+            <span className="text-sm font-semibold text-muted">Sort by</span>
+            <Select
+              className="mt-2"
+              aria-label="Sort opportunities"
+              value={queueSort}
+              onChange={(event) =>
+                setQueueSort(event.target.value as QueueSort)
+              }
             >
-              <dt className="text-sm font-medium text-muted">{stage.label}</dt>
-              <dd className="mt-2 text-2xl font-bold tabular-nums text-ink">
-                {stage.value}
-              </dd>
-              <dd className="mt-1 max-w-xs text-xs leading-5 text-muted">
-                {stage.hint}
-              </dd>
-            </div>
-          ))}
-        </dl>
-      </section>
+              <option value="score">Highest score</option>
+              <option value="readiness">Strongest evidence</option>
+              <option value="newest">Newest snapshot</option>
+            </Select>
+          </label>
+        </div>
 
-      <div className="space-y-4">
-        <Card className="min-w-0" id="top-opportunities">
-          <div className="mb-4 flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
-            <div>
-              <h2 className="text-lg font-semibold text-ink">
-                Top opportunities
-              </h2>
-              <p className="mt-1 text-sm text-muted">
-                Ranked from real evidence fields, with score and source context
-                kept visible.
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge tone="blue">Ranked by computed score</Badge>
-              {nextUnreviewed && !queueScopeLoading && !queueScopeError ? (
-                <ButtonLink href={`/opportunities/${nextUnreviewed.id}`}>
-                  Review next <ArrowRight size={16} />
-                </ButtonLink>
-              ) : (
-                <Button disabled>
-                  {queueScopeLoading
-                    ? "Finding next item"
-                    : queueScopeError
-                      ? "Review unavailable"
-                      : "No new items"}
-                </Button>
-              )}
-            </div>
-          </div>
-
-          <fieldset className="mb-4 rounded-product border border-border bg-surface-muted p-4">
+        <details className="group mb-4 rounded-product border border-border bg-surface-muted">
+          <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 rounded-product px-4 py-2 text-sm font-semibold text-ink hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]">
+            <span className="flex flex-wrap items-center gap-2">
+              Refine scope
+              {hasScopeFilters ? (
+                <Badge tone="blue">Filters active</Badge>
+              ) : null}
+            </span>
+            <ChevronDown
+              size={16}
+              className="shrink-0 motion-safe:transition-transform motion-safe:group-open:rotate-180"
+              aria-hidden
+            />
+          </summary>
+          <fieldset className="border-t border-border p-4">
             <legend className="px-1 text-sm font-semibold text-ink">
               Queue filters
             </legend>
@@ -809,299 +602,690 @@ export function Dashboard() {
               </Button>
             </div>
           </fieldset>
+        </details>
 
-          <div
-            className="mb-4 flex flex-wrap gap-2"
-            role="group"
-            aria-label="Decision state filter"
+        <div
+          className="mb-4 flex flex-wrap gap-2"
+          role="group"
+          aria-label="Decision state filter"
+        >
+          <Button
+            size="sm"
+            variant={reviewStateFilter === "all" ? "primary" : "secondary"}
+            aria-pressed={reviewStateFilter === "all"}
+            onClick={() => setReviewStateFilter("all")}
           >
+            All {queueScope.length}
+          </Button>
+          {REVIEW_STATE_OPTIONS.map((option) => (
             <Button
+              key={option.value}
               size="sm"
-              variant={reviewStateFilter === "all" ? "primary" : "secondary"}
-              aria-pressed={reviewStateFilter === "all"}
-              onClick={() => setReviewStateFilter("all")}
+              variant={
+                reviewStateFilter === option.value ? "primary" : "secondary"
+              }
+              aria-pressed={reviewStateFilter === option.value}
+              onClick={() => setReviewStateFilter(option.value)}
             >
-              All {queueScope.length}
+              {option.label} {decisionCounts[option.value]}
             </Button>
-            {REVIEW_STATE_OPTIONS.map((option) => (
-              <Button
-                key={option.value}
-                size="sm"
-                variant={
-                  reviewStateFilter === option.value ? "primary" : "secondary"
-                }
-                aria-pressed={reviewStateFilter === option.value}
-                onClick={() => setReviewStateFilter(option.value)}
-              >
-                {option.label} {decisionCounts[option.value]}
-              </Button>
-            ))}
-          </div>
+          ))}
+        </div>
 
-          <p
-            className="mb-3 text-sm text-muted"
-            aria-live="polite"
-            aria-atomic="true"
-          >
-            {queueFilterError
-              ? "Current opportunity results unavailable"
-              : isLoadingWorkflow
-                ? "Updating current opportunity results"
+        <p
+          className="mb-3 text-sm text-muted"
+          aria-live="polite"
+          aria-atomic="true"
+        >
+          {queueFilterError
+            ? "Current opportunity results unavailable"
+            : isLoadingWorkflow
+              ? "Updating current opportunity results"
+              : normalizedQueueSearch
+                ? `Showing ${visibleOpportunities.length} matching ${queueSearch.trim()} from ${queueScope.length} current opportunities`
                 : `Showing ${visibleOpportunities.length} of ${queueScope.length} current opportunities`}
-          </p>
+        </p>
 
-          <TableShell
-            label="Top opportunities"
-            caption="Ranked opportunities with decision, evidence readiness, source, score, and feasibility"
-            tableClassName="min-w-[980px]"
-          >
-            <thead className="border-b border-border text-xs font-semibold text-muted">
+        <TableShell
+          label="Top opportunities"
+          caption="Ranked opportunities with decision, evidence readiness, source, score, and feasibility"
+          tableClassName="min-w-[980px]"
+        >
+          <thead className="border-b border-border text-xs font-semibold text-muted">
+            <tr>
+              <th className="py-3 pr-4">Title</th>
+              <th className="py-3 pr-4">Decision</th>
+              <th className="py-3 pr-4">Readiness</th>
+              <th className="py-3 pr-4">Score</th>
+              <th className="py-3 pr-4">Signals</th>
+              <th className="py-3 pr-4">Top source</th>
+              <th className="py-3 pr-4">Feasibility</th>
+              <th className="py-3 pr-4">Created</th>
+              <th className="py-3">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {isLoadingWorkflow && (
+              <>
+                <tr>
+                  <td colSpan={9} className="py-4">
+                    <div className="h-3 w-3/4 motion-safe:animate-pulse rounded-full bg-surface-muted" />
+                  </td>
+                </tr>
+                <tr>
+                  <td colSpan={9} className="py-4">
+                    <div className="h-3 w-1/2 motion-safe:animate-pulse rounded-full bg-surface-muted" />
+                  </td>
+                </tr>
+              </>
+            )}
+            {!isLoadingWorkflow && !hasOpportunities && !queueFilterError && (
               <tr>
-                <th className="py-3 pr-4">Title</th>
-                <th className="py-3 pr-4">Decision</th>
-                <th className="py-3 pr-4">Readiness</th>
-                <th className="py-3 pr-4">Score</th>
-                <th className="py-3 pr-4">Signals</th>
-                <th className="py-3 pr-4">Top source</th>
-                <th className="py-3 pr-4">Feasibility</th>
-                <th className="py-3 pr-4">Created</th>
-                <th className="py-3">Action</th>
+                <td colSpan={9} className="py-8 text-center">
+                  <div className="mx-auto max-w-md px-4 py-6">
+                    <p className="text-sm font-semibold text-ink">
+                      No ranked opportunities yet
+                    </p>
+                    <p className="mt-2 text-sm leading-6 text-muted">
+                      Process demo data to generate evidence-backed cards from
+                      fixtures, then open the top result for its source trail.
+                    </p>
+                  </div>
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {isLoadingWorkflow && (
-                <>
-                  <tr>
-                    <td colSpan={9} className="py-4">
-                      <div className="h-3 w-3/4 motion-safe:animate-pulse rounded-full bg-surface-muted" />
-                    </td>
-                  </tr>
-                  <tr>
-                    <td colSpan={9} className="py-4">
-                      <div className="h-3 w-1/2 motion-safe:animate-pulse rounded-full bg-surface-muted" />
-                    </td>
-                  </tr>
-                </>
-              )}
-              {!isLoadingWorkflow && !hasOpportunities && !queueFilterError && (
+            )}
+            {!isLoadingWorkflow &&
+              hasOpportunities &&
+              !hasFilteredOpportunities &&
+              !queueFilterError && (
                 <tr>
                   <td colSpan={9} className="py-8 text-center">
-                    <div className="mx-auto max-w-md px-4 py-6">
-                      <p className="text-sm font-semibold text-ink">
-                        No ranked opportunities yet
-                      </p>
-                      <p className="mt-2 text-sm leading-6 text-muted">
-                        Process demo data to generate evidence-backed cards from
-                        fixtures, then open the top result for its source trail.
-                      </p>
-                    </div>
+                    {normalizedQueueSearch
+                      ? "No current opportunities match your search"
+                      : hasScopeFilters
+                        ? "No current opportunities match these filters"
+                        : "No opportunities match this decision state"}
                   </td>
                 </tr>
               )}
-              {!isLoadingWorkflow &&
-                hasOpportunities &&
-                !hasFilteredOpportunities &&
-                !queueFilterError && (
-                  <tr>
-                    <td colSpan={9} className="py-8 text-center">
-                      {hasScopeFilters
-                        ? "No current opportunities match these filters"
-                        : "No opportunities match this decision state"}
-                    </td>
-                  </tr>
-                )}
-              {!isLoadingWorkflow &&
-                visibleOpportunities.map((opportunity) => (
-                  <tr
-                    key={opportunity.id}
-                    className="border-b border-border last:border-b-0"
-                  >
-                    <td className="max-w-md py-3 pr-4">
-                      <Link
-                        href={`/opportunities/${opportunity.id}`}
-                        className="font-semibold text-ink hover:text-signal"
-                      >
-                        {opportunity.title}
-                      </Link>
-                    </td>
-                    <td className="py-3 pr-4">
-                      <Badge
-                        tone={reviewStateOption(opportunity.review_state).tone}
-                      >
-                        {reviewStateOption(opportunity.review_state).label}
-                      </Badge>
-                    </td>
-                    <td className="py-3 pr-4">
-                      <Badge
-                        tone={
-                          READINESS_TONES[opportunity.evidence_readiness.level]
-                        }
-                      >
-                        {opportunity.evidence_readiness.level}
-                      </Badge>
-                    </td>
-                    <td className="py-3 pr-4">
-                      <span className="font-semibold tabular-nums text-ink">
-                        {Math.round(opportunity.opportunity_score * 100)}
-                      </span>
-                    </td>
-                    <td className="py-3 pr-4 tabular-nums">
-                      {opportunity.signal_count}
-                    </td>
-                    <td className="py-3 pr-4">
-                      <Badge>{opportunity.top_source}</Badge>
-                    </td>
-                    <td className="py-3 pr-4">
-                      <div className="w-28">
-                        <ScoreBar
-                          value={opportunity.feasibility_score}
-                          label={`${opportunity.title} feasibility score`}
-                        />
-                      </div>
-                    </td>
-                    <td className="py-3 pr-4 text-muted">
-                      {new Date(opportunity.created_at).toLocaleDateString()}
-                    </td>
-                    <td className="py-3">
-                      <Link
-                        className="inline-flex min-h-11 items-center gap-1 whitespace-nowrap rounded-product font-semibold text-signal hover:text-[var(--ts-accent-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)] motion-safe:active:translate-y-px"
-                        href={`/opportunities/${opportunity.id}`}
-                      >
-                        Open <ArrowRight size={14} />
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
-            </tbody>
-          </TableShell>
-        </Card>
-        <div className="grid min-w-0 gap-4 md:grid-cols-2">
-          <Card>
-            <h2 className="mb-4 text-lg font-semibold text-ink">
-              Source breakdown
-            </h2>
-            <div
-              className="h-56"
-              aria-hidden={sourceBreakdown.length > 0 ? true : undefined}
-            >
-              {sourceBreakdown.length > 0 ? (
-                <ResponsiveContainer>
-                  <PieChart>
-                    <Pie
-                      data={sourceBreakdown}
-                      dataKey="count"
-                      nameKey="source"
-                      outerRadius={82}
-                      rootTabIndex={-1}
-                      label
+            {!isLoadingWorkflow &&
+              visibleOpportunities.map((opportunity) => (
+                <tr
+                  key={opportunity.id}
+                  className={clsx(
+                    "border-b border-border last:border-b-0 hover:bg-surface-muted",
+                    opportunity.id === nextUnreviewed?.id &&
+                      "bg-[var(--color-info-surface)]/40",
+                  )}
+                >
+                  <td className="max-w-md py-3 pr-4">
+                    <Link
+                      href={`/opportunities/${opportunity.id}`}
+                      className="font-semibold text-ink hover:text-signal"
                     >
-                      {sourceBreakdown.map((entry, index) => (
-                        <Cell
-                          key={entry.source}
-                          fill={chartColors[index % chartColors.length]}
-                        />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      contentStyle={{
-                        borderColor: "var(--ts-border)",
-                        borderRadius: "var(--radius-card)",
-                        backgroundColor: "var(--ts-surface)",
-                        color: "var(--ts-text)",
-                      }}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="flex h-full items-center justify-center rounded-product bg-surface-muted px-4 text-center text-sm text-muted">
-                  Source mix appears after fixture data is processed.
-                </div>
-              )}
+                      {opportunity.title}
+                    </Link>
+                    <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted">
+                      {opportunity.problem_statement}
+                    </p>
+                  </td>
+                  <td className="py-3 pr-4">
+                    <Badge
+                      tone={reviewStateOption(opportunity.review_state).tone}
+                    >
+                      {reviewStateOption(opportunity.review_state).label}
+                    </Badge>
+                  </td>
+                  <td className="py-3 pr-4">
+                    <Badge
+                      tone={
+                        READINESS_TONES[opportunity.evidence_readiness.level]
+                      }
+                    >
+                      {opportunity.evidence_readiness.level}
+                    </Badge>
+                  </td>
+                  <td className="py-3 pr-4">
+                    <span className="font-semibold tabular-nums text-ink">
+                      {Math.round(opportunity.opportunity_score * 100)}
+                    </span>
+                  </td>
+                  <td className="py-3 pr-4 tabular-nums">
+                    {opportunity.signal_count}
+                  </td>
+                  <td className="py-3 pr-4">
+                    <Badge>{opportunity.top_source}</Badge>
+                  </td>
+                  <td className="py-3 pr-4">
+                    <div className="w-28">
+                      <ScoreBar
+                        value={opportunity.feasibility_score}
+                        label={`${opportunity.title} feasibility score`}
+                      />
+                    </div>
+                  </td>
+                  <td className="py-3 pr-4 text-muted">
+                    {new Date(opportunity.created_at).toLocaleDateString()}
+                  </td>
+                  <td className="py-3">
+                    <Link
+                      className="inline-flex min-h-11 items-center gap-1 whitespace-nowrap rounded-product font-semibold text-signal hover:text-[var(--ts-accent-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)] motion-safe:active:translate-y-px"
+                      href={`/opportunities/${opportunity.id}`}
+                    >
+                      Open <ArrowRight size={14} />
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+          </tbody>
+        </TableShell>
+      </Card>
+
+      {dataError && (
+        <div>
+          <StateMessage tone="danger" title="Could not load dashboard data">
+            {errorMessage(dataError)}
+          </StateMessage>
+        </div>
+      )}
+      {processError && (
+        <div>
+          <StateMessage tone="danger" title="Demo processing did not complete">
+            {errorMessage(processError)}
+          </StateMessage>
+        </div>
+      )}
+      {process.data && (
+        <div>
+          <StateMessage
+            tone="success"
+            title={`Demo processed: ${process.data.raw_items_loaded} raw items, ${process.data.signals_detected} signals, ${process.data.clusters_created} clusters, ${process.data.opportunities_created} opportunities.`}
+            action={
+              topOpportunity ? (
+                <Link
+                  href={`/opportunities/${topOpportunity.id}`}
+                  className="inline-flex min-h-11 items-center gap-1 whitespace-nowrap rounded-product px-2 text-sm font-semibold text-success hover:bg-surface-success focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-success motion-safe:active:translate-y-px"
+                >
+                  Open top opportunity <ArrowRight size={15} />
+                </Link>
+              ) : null
+            }
+          />
+        </div>
+      )}
+      {latestScan && (
+        <div>
+          <StateMessage
+            tone={latestScanTone}
+            title={`Recent scan: ${latestScan.source_name ?? latestScan.source_type ?? "Selected source"} (${latestScan.status})`}
+          >
+            <span className="break-words">
+              {latestScan.items_saved} saved from {latestScan.items_found}{" "}
+              found.
+              {` Signals: ${latestScan.signals_detected}. Opportunities: ${latestScan.opportunities_created}.`}
+              {latestScan.query ? ` Query: ${latestScan.query}.` : ""}
+              {latestScan.outcome_message
+                ? ` Outcome: ${latestScan.outcome_message}`
+                : ""}
+              {latestScan.status === "failed" && latestScan.error_message
+                ? ` Error: ${latestScan.error_message}`
+                : ""}
+            </span>
+          </StateMessage>
+        </div>
+      )}
+
+      <Card variant="muted" className="overflow-hidden p-0">
+        <div className="flex flex-col justify-between gap-4 p-5 lg:flex-row lg:items-start">
+          <div>
+            <div className="flex flex-wrap gap-2">
+              <Badge
+                tone={readiness.data?.status === "ready" ? "green" : "amber"}
+              >
+                {readiness.data?.status ?? "checking"}
+              </Badge>
+              <Badge>Public sources: {publicScanSourcesLabel}</Badge>
             </div>
-            {sourceBreakdown.length > 0 ? (
-              <dl className="mt-3 grid gap-2 sm:grid-cols-2">
-                {sourceBreakdown.map((entry) => (
-                  <div
-                    key={entry.source}
-                    className="flex items-center justify-between gap-3 border-t border-border pt-2 text-xs"
-                  >
-                    <dt className="min-w-0 truncate text-muted">
-                      {entry.source}
-                    </dt>
-                    <dd className="shrink-0 font-semibold tabular-nums text-ink">
-                      {entry.count}
-                    </dd>
-                  </div>
-                ))}
-              </dl>
-            ) : null}
-          </Card>
-          <Card>
-            <h2 className="mb-4 text-lg font-semibold text-ink">
-              Pain score distribution
+            <h2 className="mt-3 text-lg font-bold text-ink">
+              First useful run
             </h2>
-            <div
-              className="h-56"
-              aria-hidden={
-                painDistribution.some((bucket) => bucket.count > 0)
-                  ? true
-                  : undefined
+            <p className="mt-1 max-w-3xl text-sm leading-6 text-muted">
+              Build one complete evidence trail: configure the workspace, save a
+              project, generate opportunities, then create a verified build
+              packet.
+            </p>
+          </div>
+          <Button
+            variant="secondary"
+            onClick={() => readiness.refetch()}
+            loading={readiness.isFetching}
+            disabled={readiness.isFetching}
+          >
+            <RefreshCw
+              size={16}
+              className={readiness.isFetching ? "motion-safe:animate-spin" : ""}
+            />
+            Refresh readiness
+          </Button>
+        </div>
+
+        {readiness.error ? (
+          <div className="px-5 pb-5">
+            <StateMessage tone="danger" title="Readiness check failed">
+              {errorMessage(readiness.error)}
+            </StateMessage>
+          </div>
+        ) : null}
+
+        <details className="group border-t border-border bg-surface">
+          <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 px-5 py-3 text-sm font-semibold text-ink hover:bg-surface-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--ts-focus-ring)]">
+            <span>
+              View setup path
+              <span className="ml-2 font-normal text-muted">
+                {workflowSteps.filter((step) => step.done).length} of{" "}
+                {workflowSteps.length} complete
+              </span>
+            </span>
+            <ChevronDown
+              size={16}
+              className="shrink-0 motion-safe:transition-transform motion-safe:group-open:rotate-180"
+              aria-hidden
+            />
+          </summary>
+          <ol className="grid border-t border-border bg-surface md:grid-cols-2">
+            {workflowSteps.map((step, index) => (
+              <li
+                key={step.label}
+                className={clsx(
+                  index < workflowSteps.length - 1 && "border-b border-border",
+                  index < 2 ? "md:border-b" : "md:border-b-0",
+                  index % 2 === 0 && "md:border-r md:border-border",
+                )}
+              >
+                <div className="flex min-w-0 items-start gap-3 px-4 py-4 sm:gap-4 sm:px-5">
+                  <span
+                    className={clsx(
+                      "mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-xs font-bold tabular-nums sm:h-8 sm:w-8",
+                      step.done
+                        ? "border-success-border bg-surface-success text-success"
+                        : "border-border-strong bg-surface text-muted",
+                    )}
+                    aria-hidden
+                  >
+                    {step.done ? <CheckCircle2 size={16} /> : index + 1}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="flex flex-wrap items-center gap-2">
+                      <span className="font-semibold text-ink">
+                        {step.label}
+                      </span>
+                      <Badge tone={step.done ? "green" : "amber"}>
+                        {step.done ? "Done" : "Next"}
+                      </Badge>
+                    </span>
+                    <span className="mt-1 block max-w-3xl text-sm leading-6 text-muted">
+                      {step.description}
+                    </span>
+                    <Link
+                      href={step.href}
+                      className="mt-1 inline-flex min-h-11 items-center gap-1 whitespace-nowrap rounded-product text-sm font-semibold text-signal hover:text-[var(--ts-accent-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]"
+                    >
+                      {step.action} <ArrowRight size={14} aria-hidden />
+                    </Link>
+                  </span>
+                </div>
+              </li>
+            ))}
+          </ol>
+
+          {readiness.data?.warnings.length ? (
+            <div className="px-5 py-4">
+              <p className="text-sm font-semibold text-ink">Current warnings</p>
+              <ul className="mt-2 grid gap-1 text-sm leading-6 text-muted">
+                {readiness.data.warnings.map((warning) => (
+                  <li key={warning}>{warning}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </details>
+      </Card>
+
+      <Card>
+        <div className="mb-4 flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
+          <div>
+            <div className="flex flex-wrap gap-2">
+              <Badge tone="green">Fixture mode works without credentials</Badge>
+              <Badge tone="blue">Live scan is optional</Badge>
+            </div>
+            <h2 className="mt-3 text-lg font-semibold text-ink">
+              Run the discovery loop
+            </h2>
+            <p className="mt-1 max-w-3xl text-sm leading-6 text-muted">
+              Start with demo data for a reliable review path, or run a public
+              Hacker News scan. Live scans use only the public sources enabled
+              for this workspace. The ranking pass remains local-first and does
+              not require a paid model.
+            </p>
+          </div>
+          {latestScan ? (
+            <Badge
+              tone={
+                latestScan.status === "completed"
+                  ? "green"
+                  : latestScan.status === "failed"
+                    ? "red"
+                    : "blue"
               }
             >
-              {painDistribution.some((bucket) => bucket.count > 0) ? (
-                <ResponsiveContainer>
-                  <BarChart data={painDistribution}>
-                    <CartesianGrid
-                      stroke="var(--ts-border)"
-                      strokeDasharray="3 3"
-                      vertical={false}
-                    />
-                    <XAxis
-                      dataKey="bucket"
-                      tick={{ fill: "var(--ts-text-muted)", fontSize: 11 }}
-                    />
-                    <YAxis
-                      allowDecimals={false}
-                      tick={{ fill: "var(--ts-text-muted)", fontSize: 11 }}
-                    />
-                    <Tooltip
-                      contentStyle={{
-                        borderColor: "var(--ts-border)",
-                        borderRadius: "var(--radius-card)",
-                        backgroundColor: "var(--ts-surface)",
-                        color: "var(--ts-text)",
-                      }}
-                    />
-                    <Bar
-                      dataKey="count"
-                      fill="var(--ts-chart-1)"
-                      radius={[4, 4, 0, 0]}
-                    />
-                  </BarChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="flex h-full items-center justify-center rounded-product bg-surface-muted px-4 text-center text-sm text-muted">
-                  Pain distribution appears after signals are detected.
-                </div>
-              )}
+              Latest scan: {latestScan.status}
+            </Badge>
+          ) : null}
+        </div>
+        <details className="group border-t border-border pt-2">
+          <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 rounded-product px-2 text-sm font-semibold text-ink hover:bg-surface-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]">
+            <span>Open live scan controls</span>
+            <ChevronDown
+              size={16}
+              className="shrink-0 motion-safe:transition-transform motion-safe:group-open:rotate-180"
+              aria-hidden
+            />
+          </summary>
+          <div className="pt-4">
+            <form
+              className="grid gap-4 lg:grid-cols-[minmax(180px,0.8fr)_minmax(260px,1.5fr)_120px_auto] lg:items-end"
+              onSubmit={submitScan}
+            >
+              <label className="block">
+                <span className="text-sm font-semibold text-muted">
+                  Live source
+                </span>
+                <Select
+                  value={scanSource}
+                  onChange={(event) => updateScanSource(event.target.value)}
+                  className="mt-2"
+                >
+                  {sourceOptions.map((source) => (
+                    <option key={source.type} value={source.type}>
+                      {source.name}
+                    </option>
+                  ))}
+                </Select>
+              </label>
+              <label className="block">
+                <span className="text-sm font-semibold text-muted">Query</span>
+                <Input
+                  value={scanQuery}
+                  onChange={(event) => setScanQuery(event.target.value)}
+                  className="mt-2"
+                  placeholder="Search phrase or issue query"
+                />
+                <span className="mt-1 block min-h-[1lh] text-xs leading-5 text-muted">
+                  {selectedExamples ? `Examples: ${selectedExamples}` : null}
+                </span>
+              </label>
+              <label className="block">
+                <span className="text-sm font-semibold text-muted">Limit</span>
+                <Input
+                  min={1}
+                  max={100}
+                  type="number"
+                  value={scanLimit}
+                  onChange={(event) =>
+                    setScanLimit(
+                      Math.max(
+                        1,
+                        Math.min(100, Number(event.target.value) || 1),
+                      ),
+                    )
+                  }
+                  className="mt-2"
+                />
+              </label>
+              <Button
+                type="submit"
+                variant="secondary"
+                loading={runScan.isPending}
+                disabled={runScan.isPending}
+              >
+                {runScan.isPending ? (
+                  <RefreshCw className="motion-safe:animate-spin" size={16} />
+                ) : (
+                  <Play size={16} />
+                )}
+                {runScan.isPending ? "Running scan" : "Run scan"}
+              </Button>
+            </form>
+
+            <div className="mt-3 text-xs leading-5 text-muted">
+              Default queries are intentionally modest so reviewers can see the
+              workflow before widening a live scan through trusted internal
+              jobs.
             </div>
-            {painDistribution.some((bucket) => bucket.count > 0) ? (
-              <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3">
-                {painDistribution.map((bucket) => (
-                  <div
-                    key={bucket.bucket}
-                    className="flex items-center justify-between gap-3 border-t border-border pt-2 text-xs"
-                  >
-                    <dt className="text-muted">{bucket.bucket}</dt>
-                    <dd className="font-semibold tabular-nums text-ink">
-                      {bucket.count}
+
+            {selectedScanGuidance ? (
+              <details className="group mt-4 border-t border-border pt-4">
+                <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 whitespace-nowrap rounded-product px-2 text-sm font-semibold text-ink hover:bg-surface-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)] motion-safe:active:translate-y-px">
+                  <span>Connector guidance</span>
+                  <ChevronDown
+                    className="h-4 w-4 shrink-0 motion-safe:transition-transform motion-safe:duration-200 motion-safe:ease-product motion-safe:group-open:rotate-180"
+                    aria-hidden
+                  />
+                </summary>
+                <dl className="mt-3 grid gap-4 px-2 pb-2 text-sm leading-6 sm:grid-cols-3">
+                  <div>
+                    <dt className="font-semibold text-muted">Credential</dt>
+                    <dd className="mt-1 break-words text-ink">
+                      {selectedScanGuidance.credential}
                     </dd>
                   </div>
-                ))}
-              </dl>
+                  <div>
+                    <dt className="font-semibold text-muted">Query</dt>
+                    <dd className="mt-1 break-words text-ink">
+                      {selectedScanGuidance.guidance}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="font-semibold text-muted">Privacy</dt>
+                    <dd className="mt-1 break-words text-ink">
+                      {selectedScanGuidance.privacy}
+                    </dd>
+                  </div>
+                </dl>
+              </details>
             ) : null}
-          </Card>
+
+            {scanError ? (
+              <StateMessage
+                tone="danger"
+                title="Live scan did not complete"
+                className="mt-4"
+              >
+                {errorMessage(scanError)}
+              </StateMessage>
+            ) : null}
+            {runScan.data ? (
+              <StateMessage
+                tone="success"
+                title="Live scan response received"
+                className="mt-4"
+              >
+                {runScan.data.items_saved} saved from {runScan.data.items_found}{" "}
+                found. Signals: {runScan.data.signals_detected}. Opportunities:{" "}
+                {runScan.data.opportunities_created}. Status:{" "}
+                {runScan.data.status}.
+                {runScan.data.outcome_message
+                  ? ` ${runScan.data.outcome_message}`
+                  : ""}
+              </StateMessage>
+            ) : null}
+          </div>
+        </details>
+      </Card>
+
+      <section
+        aria-labelledby="pipeline-heading"
+        className="overflow-hidden rounded-product border border-border bg-surface"
+      >
+        <div className="border-b border-border px-5 py-4">
+          <h2 id="pipeline-heading" className="text-lg font-bold text-ink">
+            Research pipeline
+          </h2>
+          <p className="mt-1 text-sm text-muted">
+            Current local totals from collection through ranked output.
+          </p>
         </div>
+        <dl className="grid sm:grid-cols-2 xl:grid-cols-4">
+          {pipelineStages.map((stage, index) => (
+            <div
+              key={stage.label}
+              className={clsx(
+                "p-5",
+                index < pipelineStages.length - 1 && "border-b border-border",
+                index < 2 ? "sm:border-b" : "sm:border-b-0",
+                index % 2 === 0 && "sm:border-r sm:border-border",
+                "xl:border-b-0 xl:border-r xl:border-border",
+                index === pipelineStages.length - 1 && "xl:border-r-0",
+              )}
+            >
+              <dt className="text-sm font-medium text-muted">{stage.label}</dt>
+              <dd className="mt-2 text-2xl font-bold tabular-nums text-ink">
+                {stage.value}
+              </dd>
+              <dd className="mt-1 max-w-xs text-xs leading-5 text-muted">
+                {stage.hint}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      </section>
+
+      <div className="grid min-w-0 gap-4 md:grid-cols-2">
+        <Card>
+          <h2 className="mb-4 text-lg font-semibold text-ink">
+            Source breakdown
+          </h2>
+          <div
+            className="h-56"
+            aria-hidden={sourceBreakdown.length > 0 ? true : undefined}
+          >
+            {sourceBreakdown.length > 0 ? (
+              <ResponsiveContainer>
+                <PieChart>
+                  <Pie
+                    data={sourceBreakdown}
+                    dataKey="count"
+                    nameKey="source"
+                    outerRadius={82}
+                    rootTabIndex={-1}
+                    label
+                  >
+                    {sourceBreakdown.map((entry, index) => (
+                      <Cell
+                        key={entry.source}
+                        fill={chartColors[index % chartColors.length]}
+                      />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    contentStyle={{
+                      borderColor: "var(--ts-border)",
+                      borderRadius: "var(--radius-card)",
+                      backgroundColor: "var(--ts-surface)",
+                      color: "var(--ts-text)",
+                    }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex h-full items-center justify-center rounded-product bg-surface-muted px-4 text-center text-sm text-muted">
+                Source mix appears after fixture data is processed.
+              </div>
+            )}
+          </div>
+          {sourceBreakdown.length > 0 ? (
+            <dl className="mt-3 grid gap-2 sm:grid-cols-2">
+              {sourceBreakdown.map((entry) => (
+                <div
+                  key={entry.source}
+                  className="flex items-center justify-between gap-3 border-t border-border pt-2 text-xs"
+                >
+                  <dt className="min-w-0 truncate text-muted">
+                    {entry.source}
+                  </dt>
+                  <dd className="shrink-0 font-semibold tabular-nums text-ink">
+                    {entry.count}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          ) : null}
+        </Card>
+        <Card>
+          <h2 className="mb-4 text-lg font-semibold text-ink">
+            Pain score distribution
+          </h2>
+          <div
+            className="h-56"
+            aria-hidden={
+              painDistribution.some((bucket) => bucket.count > 0)
+                ? true
+                : undefined
+            }
+          >
+            {painDistribution.some((bucket) => bucket.count > 0) ? (
+              <ResponsiveContainer>
+                <BarChart data={painDistribution}>
+                  <CartesianGrid
+                    stroke="var(--ts-border)"
+                    strokeDasharray="3 3"
+                    vertical={false}
+                  />
+                  <XAxis
+                    dataKey="bucket"
+                    tick={{ fill: "var(--ts-text-muted)", fontSize: 11 }}
+                  />
+                  <YAxis
+                    allowDecimals={false}
+                    tick={{ fill: "var(--ts-text-muted)", fontSize: 11 }}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      borderColor: "var(--ts-border)",
+                      borderRadius: "var(--radius-card)",
+                      backgroundColor: "var(--ts-surface)",
+                      color: "var(--ts-text)",
+                    }}
+                  />
+                  <Bar
+                    dataKey="count"
+                    fill="var(--ts-chart-1)"
+                    radius={[4, 4, 0, 0]}
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex h-full items-center justify-center rounded-product bg-surface-muted px-4 text-center text-sm text-muted">
+                Pain distribution appears after signals are detected.
+              </div>
+            )}
+          </div>
+          {painDistribution.some((bucket) => bucket.count > 0) ? (
+            <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3">
+              {painDistribution.map((bucket) => (
+                <div
+                  key={bucket.bucket}
+                  className="flex items-center justify-between gap-3 border-t border-border pt-2 text-xs"
+                >
+                  <dt className="text-muted">{bucket.bucket}</dt>
+                  <dd className="font-semibold tabular-nums text-ink">
+                    {bucket.count}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          ) : null}
+        </Card>
       </div>
     </div>
   );

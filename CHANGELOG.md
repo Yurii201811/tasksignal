@@ -4,8 +4,40 @@ All notable public-facing changes to TaskSignal are recorded here.
 
 ## Unreleased
 
+## 1.0.0a2 - 2026-09-08
+
+### Added
+
+- A live workspace home with real research totals, the next unreviewed
+  opportunity, recent projects, and a direct credential-free demo action.
+- Keyboard-accessible quick navigation with Cmd/Ctrl+K, page filtering, and
+  direct evidence-search handoff.
+- Queue text search and score, readiness, and recency sorting, alongside the
+  existing server-side research and decision filters.
+- Shareable evidence-search URLs with browser history, stale-response protection,
+  preserved results during refresh, and copy-link support.
+- Branded missing-page and recoverable page-error views.
+
+### Changed
+
+- Refreshed navigation, contextual page headers, visual hierarchy, loading
+  feedback, focus treatment, and the home layout for desktop and mobile.
+- Opportunity review takes priority over setup and scan controls; advanced
+  settings remain available through progressive disclosure.
+
+### Development status
+
+- Prepared as a local alpha update. No public release, deployment, or GA claim
+  is implied by this version entry.
+
 ### Fixed
 
+- Fixed/manual scheduling clears stale custom intervals across the API and
+  agent tools, so changing cadence no longer preserves an unintended schedule.
+- Generation requested through a historical opportunity now uses the thread's
+  current snapshot.
+- Detaching a snapshot referenced by an immutable build packet returns a clear
+  conflict response while preserving the packet's evidence.
 - Dashboard onboarding now reports the immutable build-packet handoff complete
   only after a packet exists and opens the current thread's Build Studio instead
   of the legacy task-pack exporter.
@@ -15,6 +47,10 @@ All notable public-facing changes to TaskSignal are recorded here.
 
 ### Security
 
+- Updated compatible web dependencies, including Next.js 15.5.25 and PostCSS
+  8.5.28, and refreshed the lockfile to clear the web dependency audit.
+- Updated the transitive Python cryptography dependency to 50.0.1; the hashed
+  production and MCP dependency audit reports no known vulnerabilities.
 - Directly guarded API routes now reject malformed non-ASCII operator and demo
   reset tokens with a constant-time byte comparison and a stable `403` response
   instead of raising an internal error.

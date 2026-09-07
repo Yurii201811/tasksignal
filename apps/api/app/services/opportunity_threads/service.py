@@ -13,6 +13,7 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.models.all_models import (
+    BuildPacket,
     Cluster,
     ClusterItem,
     NormalizedItem,
@@ -549,6 +550,10 @@ def detach_snapshot(
     )
     if snapshot.match_method not in {"exact_evidence", "weighted_similarity"}:
         raise DetachNotAllowed("Only automatically matched snapshots can be detached.")
+    if db.scalar(select(BuildPacket.id).where(BuildPacket.snapshot_id == snapshot.id).limit(1)):
+        raise DetachNotAllowed(
+            "Snapshot has an immutable build packet and cannot be detached."
+        )
     existing_snapshots = list(
         db.scalars(
             select(Opportunity)

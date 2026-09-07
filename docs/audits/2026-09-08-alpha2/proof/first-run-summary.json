@@ -1,0 +1,165 @@
+{
+  "checks": {
+    "actor_aware_evidence_review": {
+      "evidence": {
+        "agent_label_visible": true,
+        "agent_labels": 1,
+        "agent_self_grading_excluded": true,
+        "agent_session_provenance": true,
+        "human_label_visible": true,
+        "human_labels": 2,
+        "human_precision_after_agent_label": 1.0,
+        "human_precision_before_agent_label": 1.0,
+        "readiness_after_agent_label": "medium",
+        "readiness_before_agent_label": "medium"
+      },
+      "result": "passed"
+    },
+    "api_health": {
+      "evidence": {
+        "status": "ok"
+      },
+      "result": "passed"
+    },
+    "build_packet_privacy": {
+      "evidence": {
+        "author_hashes_exported": false,
+        "local_notes_exported": false,
+        "marker_counts": {
+          "author_hashes": 4,
+          "local_notes": 3,
+          "raw_identities": 4,
+          "secret_values": 3
+        },
+        "private_markers_checked": 14,
+        "raw_identities_exported": false,
+        "secret_values_exported": false
+      },
+      "result": "passed"
+    },
+    "dashboard_route_source": {
+      "evidence": "route imports the dashboard feature",
+      "result": "passed"
+    },
+    "decision_review_workflow": {
+      "evidence": {
+        "evidence_reviews": 2,
+        "local_notes_exported": false,
+        "review_coverage": 0.11764705882352941,
+        "review_coverage_before": 0.0,
+        "review_state": "promising",
+        "reviewed_items": 2,
+        "reviewed_items_before": 0,
+        "task_pack_readiness": "medium"
+      },
+      "result": "passed"
+    },
+    "fixture_demo_processing": {
+      "evidence": {
+        "clusters_created": 5,
+        "normalized_items_created": 18,
+        "opportunities_created": 5,
+        "raw_items_loaded": 18,
+        "signals_detected": 17
+      },
+      "result": "passed"
+    },
+    "immutable_build_packet": {
+      "evidence": {
+        "archive_bytes": 10525,
+        "archive_sha256": "37b5b2a0f1bbab84946ca45da82fc4f47cd2eeb5f9222092206f8683f12c09e3",
+        "artifact_count": 10,
+        "generation_mode": "deterministic",
+        "immutable_fetch_identical": true,
+        "manifested_original_count": 9,
+        "repeat_download_identical": true,
+        "review_state": "build_candidate",
+        "server_verified": true
+      },
+      "result": "passed"
+    },
+    "live_dashboard_request": {
+      "evidence": "not requested",
+      "result": "skipped"
+    },
+    "longitudinal_research_memory": {
+      "evidence": {
+        "automatically_matched_threads": 5,
+        "false_new_threads": 0,
+        "match_confidence": 1.0,
+        "match_method": "exact_evidence",
+        "new_evidence_on_identical_run": 0,
+        "observed_items": 18,
+        "project_runs": 2,
+        "threads_after_first_run": 5,
+        "threads_after_second_run": 5,
+        "unchanged_evidence_on_identical_run": 18
+      },
+      "result": "passed"
+    },
+    "readiness_endpoint": {
+      "evidence": {
+        "status": "ready"
+      },
+      "result": "passed"
+    },
+    "stats_endpoint": {
+      "evidence": {
+        "opportunities": 10,
+        "total_items": 18
+      },
+      "result": "passed"
+    },
+    "task_pack_export": {
+      "evidence": {
+        "evidence_urls": 4,
+        "top_opportunity": "Operators need spreadsheet-to-client-report automation",
+        "top_opportunity_id": "24e5dc16-0248-4632-b0c1-80c596fce4ba"
+      },
+      "result": "passed"
+    },
+    "task_pack_structure": {
+      "evidence": {
+        "required_sections": 8,
+        "validator": "skills/tasksignal-opportunity-builder/scripts/check_task_pack.py"
+      },
+      "result": "passed"
+    }
+  },
+  "generated_at": "2026-09-07T22:41:18+00:00",
+  "repository_revision": "codex/tasksignal-next-version @ eb11c5821754 (local changes present)",
+  "runtime_boundaries": {
+    "database": "temporary SQLite file created for this smoke run",
+    "llm_provider": "none",
+    "omitted": [
+      "secret values",
+      "raw connector payloads",
+      "local database paths",
+      "private scan data"
+    ],
+    "public_scan_sources": "fixture,hackernews"
+  },
+  "scope": "credential-free fixture smoke run against a temporary SQLite database",
+  "source_breakdown": [
+    {
+      "count": 4,
+      "source": "github"
+    },
+    {
+      "count": 4,
+      "source": "hackernews"
+    },
+    {
+      "count": 5,
+      "source": "reddit"
+    },
+    {
+      "count": 5,
+      "source": "stackexchange"
+    }
+  ],
+  "top_opportunity": {
+    "id": "24e5dc16-0248-4632-b0c1-80c596fce4ba",
+    "title": "Operators need spreadsheet-to-client-report automation"
+  }
+}

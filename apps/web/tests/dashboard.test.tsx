@@ -192,6 +192,9 @@ describe("Dashboard", () => {
     const { client } = renderWithClient(<Dashboard />);
     await waitFor(() => expect(client.isFetching()).toBe(0));
 
+    fireEvent.click(
+      screen.getByText("Open live scan controls").closest("summary")!,
+    );
     const liveSource = screen.getByRole("combobox", { name: "Live source" });
     expect(
       within(liveSource).getAllByRole("option", { name: "Hacker News" }),
@@ -404,6 +407,7 @@ describe("Dashboard", () => {
     renderWithClient(<Dashboard />);
 
     expect(await screen.findByText("New idea")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Refine scope").closest("summary")!);
     fireEvent.change(
       screen.getByRole("combobox", { name: "Evidence source" }),
       { target: { value: "github" } },
@@ -434,6 +438,7 @@ describe("Dashboard", () => {
     );
     renderWithClient(<Dashboard />);
 
+    fireEvent.click(screen.getByText("Refine scope").closest("summary")!);
     expect(
       await screen.findByRole("group", { name: "Queue filters" }),
     ).toBeInTheDocument();
@@ -488,5 +493,58 @@ describe("Dashboard", () => {
     expect(
       screen.getByRole("button", { name: "Clear filters" }),
     ).toBeDisabled();
+  });
+
+  it("searches and sorts the visible decision queue without changing API scope", async () => {
+    const rows = [
+      {
+        ...opportunity("1", "Fast CI repair", "new"),
+        opportunity_score: 0.62,
+        created_at: "2026-07-10T10:00:00Z",
+        problem_statement: "Slow pipelines block maintainers.",
+      },
+      {
+        ...opportunity("2", "Evidence notebook", "promising"),
+        opportunity_score: 0.91,
+        created_at: "2026-07-08T10:00:00Z",
+        problem_statement: "Researchers lose source context.",
+      },
+    ];
+    vi.mocked(api.opportunities).mockResolvedValue(rows);
+    renderWithClient(<Dashboard />);
+
+    const queue = await screen.findByRole("region", {
+      name: "Top opportunities",
+    });
+    await screen.findByText("Evidence notebook");
+    expect(
+      within(queue)
+        .getAllByRole("link")
+        .map((link) => link.textContent),
+    ).toEqual(["Evidence notebook", "Open ", "Fast CI repair", "Open "]);
+
+    fireEvent.change(
+      screen.getByRole("combobox", { name: "Sort opportunities" }),
+      {
+        target: { value: "newest" },
+      },
+    );
+    expect(
+      within(queue)
+        .getAllByRole("link")
+        .map((link) => link.textContent),
+    ).toEqual(["Fast CI repair", "Open ", "Evidence notebook", "Open "]);
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search queue" }), {
+      target: { value: "researchers" },
+    });
+    expect(screen.getByText("Evidence notebook")).toBeInTheDocument();
+    expect(screen.queryByText("Fast CI repair")).not.toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Showing 1 matching researchers from 2 current opportunities",
+      ),
+    ).toBeInTheDocument();
+    expect(api.opportunities).toHaveBeenCalledTimes(1);
   });
 });

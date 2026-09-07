@@ -355,6 +355,36 @@ def test_regenerated_snapshot_keeps_packet_run_lineage(client, monkeypatch) -> N
     assert all(row["scan_ids"] for row in evidence_rows)
 
 
+def test_snapshot_with_immutable_packet_cannot_be_detached(client, monkeypatch) -> None:
+    thread, evidence = create_packet_candidate(client, monkeypatch)
+    assert client.post(
+        "/api/v1/labels",
+        json={"item_id": evidence[0]["id"], "label": "true_signal"},
+    ).status_code == 200
+    assert client.post(
+        f"/api/v1/research-projects/{thread['project_id']}/run"
+    ).status_code == 200
+    current = client.get(f"/api/v1/opportunity-threads/{thread['id']}").json()
+    snapshot_id = current["current_snapshot"]["id"]
+    assert current["current_snapshot"]["match_method"] == "exact_evidence"
+
+    packet = client.post(
+        f"/api/v1/opportunity-threads/{thread['id']}/build-packets",
+        json={"expected_version": current["version"]},
+    )
+    assert packet.status_code == 201, packet.text
+
+    detached = client.post(
+        f"/api/v1/opportunity-threads/{thread['id']}/snapshots/{snapshot_id}/detach",
+        json={"expected_version": current["version"]},
+    )
+    assert detached.status_code == 409
+    assert "immutable build packet" in detached.json()["detail"]
+    unchanged = client.get(f"/api/v1/opportunity-threads/{thread['id']}").json()
+    assert unchanged["current_snapshot"]["id"] == snapshot_id
+    assert unchanged["snapshot_count"] == 2
+
+
 def test_packet_uses_state_decision_not_latest_detach_event(client, monkeypatch) -> None:
     thread, evidence = create_packet_candidate(client, monkeypatch)
     assert client.post(

@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { api } from "../lib/api";
 import { Button, Input } from "./ui";
+import { CommandMenu } from "./command-menu";
 
 const NAV_ICON_CLASS = "h-[18px] w-[18px] shrink-0";
 
@@ -97,7 +98,7 @@ function ShellNavLink({
           navLinkBase,
           "flex min-h-11 items-center gap-3 px-3 py-2 text-sm",
           active
-            ? "bg-[var(--ts-accent-subtle)] font-semibold text-signal"
+            ? "bg-[var(--ts-accent-subtle)] font-semibold text-signal shadow-[inset_3px_0_0_var(--ts-accent)]"
             : "font-medium text-muted hover:bg-surface-muted hover:text-ink",
         )}
       >
@@ -144,7 +145,7 @@ function BrandMark({ compact = false }: { compact?: boolean }) {
         </span>
         {!compact ? (
           <span className="block truncate text-xs text-muted">
-            Problem discovery engine
+            Research workbench
           </span>
         ) : null}
       </span>
@@ -227,7 +228,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="min-h-screen bg-[var(--color-paper)]">
+    <div className="min-h-dvh bg-[var(--color-paper)]">
       <a
         href="#main-content"
         className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[var(--z-tooltip)] focus:inline-flex focus:min-h-11 focus:items-center focus:rounded-product focus:border focus:border-border focus:bg-surface focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-ink focus:shadow-soft focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]"
@@ -269,12 +270,12 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
       </header>
 
-      <aside className="fixed inset-y-0 left-0 z-[var(--z-sticky)] hidden w-60 flex-col overflow-y-auto border-r border-border bg-surface px-3 py-4 lg:flex">
+      <aside className="fixed inset-y-0 left-0 z-[var(--z-sticky)] hidden w-56 flex-col overflow-y-auto border-r border-border bg-[var(--color-sidebar)] px-3 py-5 lg:flex">
         <BrandMark />
-        <nav className="mt-7 space-y-5" aria-label="Primary">
+        <nav className="mt-8 space-y-6" aria-label="Primary">
           {navGroups.map((group) => (
             <div key={group.label}>
-              <p className="mb-1 px-3 text-xs font-medium text-muted">
+              <p className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
                 {group.label}
               </p>
               <div className="space-y-1">
@@ -293,10 +294,12 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="mt-auto border-t border-border px-3 pt-5">
           <div className="flex items-center gap-2 text-sm font-semibold text-ink">
             <HardDrive className="h-4 w-4 text-signal" aria-hidden />
-            Local-first workspace
+            {hostedApi ? "Protected workspace" : "Local-first workspace"}
           </div>
           <p className="mt-1 text-xs leading-5 text-muted">
-            Review evidence and exports on this machine.
+            {hostedApi
+              ? "Operator access protects research and exports."
+              : "Your research. Your decisions."}
           </p>
         </div>
       </aside>
@@ -304,8 +307,29 @@ export function AppShell({ children }: { children: ReactNode }) {
       <main
         id="main-content"
         tabIndex={-1}
-        className="min-w-0 focus:outline-none lg:pl-60"
+        className="min-w-0 focus:outline-none lg:pl-56"
       >
+        <div className="flex min-h-16 items-center justify-between gap-3 border-b border-border bg-surface px-4 sm:px-6 lg:px-8">
+          <div className="flex min-w-0 items-center gap-2 text-sm">
+            <span className="hidden text-muted sm:inline">Workspace</span>
+            <span className="hidden text-muted sm:inline" aria-hidden>
+              /
+            </span>
+            <span className="truncate font-medium">
+              {nav.find((item) => isNavActive(pathname, item.href))?.label ??
+                "Research"}
+            </span>
+            {pathname.split("/").filter(Boolean).length > 1 ? (
+              <>
+                <span className="text-muted" aria-hidden>
+                  /
+                </span>
+                <span className="truncate text-muted">Detail</span>
+              </>
+            ) : null}
+          </div>
+          <CommandMenu destinations={nav} />
+        </div>
         <div className="mx-auto w-full max-w-[90rem] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
           {hostedApi && accessState === "loading" ? (
             <section

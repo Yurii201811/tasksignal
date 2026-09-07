@@ -30,7 +30,7 @@ function renderShell() {
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <AppShell>Workspace</AppShell>
+      <AppShell>Protected research content</AppShell>
     </QueryClientProvider>,
   );
 }
@@ -60,7 +60,9 @@ describe("AppShell hosted API access", () => {
     );
     renderShell();
 
-    expect(screen.queryByText("Workspace")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Protected research content"),
+    ).not.toBeInTheDocument();
     fireEvent.change(await screen.findByLabelText("Hosted operator token"), {
       target: { value: "  operator-secret  " },
     });
@@ -72,7 +74,9 @@ describe("AppShell hosted API access", () => {
         "operator-secret",
       );
       expect(screen.getByText("Protected API unlocked")).toBeInTheDocument();
-      expect(screen.getByText("Workspace")).toBeInTheDocument();
+      expect(
+        screen.getByText("Protected research content"),
+      ).toBeInTheDocument();
     });
   });
 
@@ -95,7 +99,9 @@ describe("AppShell hosted API access", () => {
       await screen.findByText("The operator token was not accepted."),
     ).toBeInTheDocument();
     expect(window.localStorage.setItem).not.toHaveBeenCalled();
-    expect(screen.queryByText("Workspace")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Protected research content"),
+    ).not.toBeInTheDocument();
   });
 
   it("shows and clears an existing hosted token", async () => {
@@ -110,7 +116,7 @@ describe("AppShell hosted API access", () => {
     expect(
       await screen.findByText("Protected API unlocked"),
     ).toBeInTheDocument();
-    expect(screen.getByText("Workspace")).toBeInTheDocument();
+    expect(screen.getByText("Protected research content")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Lock preview" }));
 
     await waitFor(() => {
@@ -120,7 +126,9 @@ describe("AppShell hosted API access", () => {
       expect(
         screen.getByRole("heading", { name: "Unlock protected preview" }),
       ).toBeInTheDocument();
-      expect(screen.queryByText("Workspace")).not.toBeInTheDocument();
+      expect(
+        screen.queryByText("Protected research content"),
+      ).not.toBeInTheDocument();
     });
   });
 });

@@ -162,7 +162,10 @@ from app.services.research_memory.service import (
     get_project_run,
     list_project_runs,
 )
-from app.services.research_projects.service import next_run_at_from
+from app.services.research_projects.service import (
+    next_run_at_from,
+    schedule_interval_for_project,
+)
 from app.services.scoring.service import score_opportunity
 from app.services.search.service import semantic_search as search_semantically
 from app.workers.demo_pipeline import ensure_sources, process_demo, stats
@@ -1708,6 +1711,11 @@ def create_research_project(
     )
 
     labels = [label.strip() for label in payload.labels if label.strip()]
+    cadence = payload.cadence.strip() or "manual"
+    schedule_interval_hours = schedule_interval_for_project(
+        cadence,
+        payload.schedule_interval_hours,
+    )
     project = ResearchProject(
         name=payload.name.strip(),
         description=payload.description.strip() if payload.description else None,
@@ -1715,12 +1723,12 @@ def create_research_project(
         source_id=payload.source_id,
         query=payload.query.strip(),
         limit=payload.limit,
-        cadence=payload.cadence.strip() or "manual",
-        schedule_interval_hours=payload.schedule_interval_hours,
+        cadence=cadence,
+        schedule_interval_hours=schedule_interval_hours,
         next_run_at=next_run_at_from(
             datetime.now(UTC),
-            payload.cadence.strip() or "manual",
-            payload.schedule_interval_hours,
+            cadence,
+            schedule_interval_hours,
         ),
         labels_json=labels[:12],
         enabled=payload.enabled,
@@ -1831,6 +1839,11 @@ def update_research_project(
         project.cadence = cadence
     if "schedule_interval_hours" in supplied:
         project.schedule_interval_hours = payload.schedule_interval_hours
+    if supplied & {"cadence", "schedule_interval_hours"}:
+        project.schedule_interval_hours = schedule_interval_for_project(
+            project.cadence,
+            project.schedule_interval_hours,
+        )
     if "labels" in supplied:
         labels = [label.strip() for label in (payload.labels or []) if label.strip()]
         project.labels_json = list(dict.fromkeys(labels))[:12]
@@ -2943,6 +2956,7 @@ def regenerate_opportunity(opportunity_id: UUID, db: Session = Depends(get_db)) 
     opportunity = db.get(Opportunity, opportunity_id)
     if opportunity is None:
         raise HTTPException(status_code=404, detail="Opportunity not found")
+    opportunity = current_thread_snapshot(db, opportunity)
 
     rows = cluster_signal_rows(db, opportunity.cluster_id)
     if not rows:
@@ -2994,6 +3008,7 @@ def enhance_opportunity_prompt(
     opportunity = db.get(Opportunity, opportunity_id)
     if opportunity is None:
         raise HTTPException(status_code=404, detail="Opportunity not found")
+    opportunity = current_thread_snapshot(db, opportunity)
 
     try:
         provider, model, enhanced_prompt = enhance_prompt(opportunity.generated_prompt)

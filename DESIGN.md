@@ -33,6 +33,20 @@ Interaction:
 - Loading states must be visible for async processing.
 - Focus states must remain visible.
 
+## Next-version workbench
+
+The alpha.2 interface retains the existing teal palette and system font. A
+slightly tinted navigation rail, a context bar, stronger page hierarchy, and a
+quiet home introduction distinguish navigation, orientation, and task content.
+Home totals always come from the API; loading and failed data are never shown as
+invented results. Current opportunities refer to latest snapshots, not lifetime
+snapshot counts.
+
+The decision queue precedes collection/setup tools in both visual and document
+order. Advanced scope filters and setup details use native disclosure controls.
+Quick navigation uses a native modal dialog, Cmd/Ctrl+K, visible focus, and Escape
+support. Motion respects the operating system's reduced-motion preference.
+
 ## Exports
 
 Generated from the locked TaskSignal system on 2026-07-10. The root

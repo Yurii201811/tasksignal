@@ -48,10 +48,10 @@ export function OpportunityThreads() {
       <Card variant="muted">
         <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_260px] sm:items-end">
           <div>
-            <h2 className="font-semibold text-ink">Server-side review queue</h2>
+            <h2 className="font-semibold text-ink">Follow your decisions</h2>
             <p className="mt-1 text-sm leading-6 text-muted">
-              The API applies the decision filter before returning thread
-              snapshots.
+              Filter current threads by your review decisions. Earlier snapshots
+              remain available inside each thread.
             </p>
           </div>
           <label>
@@ -89,7 +89,7 @@ export function OpportunityThreads() {
       ) : null}
       {!threads.isLoading && (threads.data ?? []).length === 0 ? (
         <StateMessage tone="warning" title="No threads match this review state">
-          Run a research project or choose another server-side filter.
+          Run a research project or choose another review state.
         </StateMessage>
       ) : null}
 

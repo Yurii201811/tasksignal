@@ -92,7 +92,11 @@ from app.services.opportunity_threads.service import (
     ThreadVersionConflict,
     set_thread_decision,
 )
-from app.services.research_projects.service import mark_latest_project_run, next_run_at_from
+from app.services.research_projects.service import (
+    mark_latest_project_run,
+    next_run_at_from,
+    schedule_interval_for_project,
+)
 from app.workers.scan_pipeline import (
     CONNECTOR_FACTORIES,
     ProjectVersionConflict,
@@ -413,6 +417,10 @@ def _create_project(db: Session, request: Mapping[str, Any]) -> dict[str, Any]:
     _validate_source_binding(db, source_type=source_type, source_id=payload.source_id)
     labels = _validate_labels(payload.labels)
     now = datetime.now(UTC)
+    schedule_interval_hours = schedule_interval_for_project(
+        payload.cadence,
+        payload.schedule_interval_hours,
+    )
     project = ResearchProject(
         name=payload.name,
         description=payload.description or None,
@@ -421,9 +429,9 @@ def _create_project(db: Session, request: Mapping[str, Any]) -> dict[str, Any]:
         query=payload.query,
         limit=payload.limit,
         cadence=payload.cadence,
-        schedule_interval_hours=payload.schedule_interval_hours,
+        schedule_interval_hours=schedule_interval_hours,
         next_run_at=(
-            next_run_at_from(now, payload.cadence, payload.schedule_interval_hours)
+            next_run_at_from(now, payload.cadence, schedule_interval_hours)
             if payload.enabled
             else None
         ),
@@ -491,6 +499,11 @@ def _update_project(db: Session, request: Mapping[str, Any]) -> dict[str, Any]:
         project.cadence = payload.cadence
     if "schedule_interval_hours" in supplied:
         project.schedule_interval_hours = payload.schedule_interval_hours
+    if supplied & {"cadence", "schedule_interval_hours"}:
+        project.schedule_interval_hours = schedule_interval_for_project(
+            project.cadence,
+            project.schedule_interval_hours,
+        )
     if "labels" in supplied:
         if payload.labels is None:
             raise _invalid_request()

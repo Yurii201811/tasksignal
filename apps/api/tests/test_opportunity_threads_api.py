@@ -385,6 +385,17 @@ def test_regenerate_and_enhance_apply_create_new_immutable_snapshots(client, mon
     assert detail["current_snapshot"]["match_method"] == "enhanced"
     assert detail["current_snapshot"]["generated_prompt"].endswith("Enhanced.")
 
+    repeated = client.post(
+        f"/api/v1/opportunities/{original['id']}/enhance?apply=true",
+        headers={"X-Operator-Scan-Token": "test-token"},
+    )
+    assert repeated.status_code == 200
+    detail = client.get(f"/api/v1/opportunity-threads/{thread['id']}").json()
+    assert detail["snapshot_count"] == 4
+    assert detail["current_snapshot"]["generated_prompt"].endswith(
+        "Enhanced.\n\nEnhanced."
+    )
+
 
 def test_legacy_prompt_artifacts_resolve_the_latest_snapshot_consistently(
     client,

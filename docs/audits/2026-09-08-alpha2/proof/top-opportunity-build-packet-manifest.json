@@ -1,0 +1,73 @@
+{
+  "decision_event_id": "69e5341e-2654-4ae0-bf8d-4048a85ba46a",
+  "decision_sha256": "3b38235caa4fbd3aabd25eb3f9997978dbac15a8696557388781f1623dabf191",
+  "deterministic_originals_authoritative": true,
+  "enhancement": {
+    "model": null,
+    "provider": null,
+    "requested": false,
+    "status": "not_requested"
+  },
+  "file_count": 10,
+  "files": [
+    {
+      "bytes": 1942,
+      "path": "README.md",
+      "sha256": "1f0aa8221788c1b53255fdbc7fedbe92388a0f859443597e889e297c7dac0884"
+    },
+    {
+      "bytes": 1227,
+      "path": "agent-brief.md",
+      "sha256": "1fcbe3f6fe4b75802c5e4a284c06eb404b5c9fd76a48e252c4ef3fcea3899fd3"
+    },
+    {
+      "bytes": 2641,
+      "path": "evidence.md",
+      "sha256": "b151352a8ff36bb9c57e7b713297a43de2daca5122dbe43aaabb9757b86463dd"
+    },
+    {
+      "bytes": 1118,
+      "path": "github-issue.md",
+      "sha256": "8030ccbe871777bcedfa5837c4d7b296f7fb91dc4ba85682251e873783d499b6"
+    },
+    {
+      "bytes": 1231,
+      "path": "implementation-plan.md",
+      "sha256": "a52efd99bd855f14323d9ae1b0282e3266a6906aec3ba7dd1367be31147e1108"
+    },
+    {
+      "bytes": 5462,
+      "path": "opportunity.json",
+      "sha256": "11018ad57b7d93d85077decc35b79a7374742cf67df77c384b4389e7bb5c9ab8"
+    },
+    {
+      "bytes": 1647,
+      "path": "product-requirements.md",
+      "sha256": "fa994f3fa6d5631ee24592521b173a90816e5a26f9afe13f020138b1027bf320"
+    },
+    {
+      "bytes": 1070,
+      "path": "task-pack.md",
+      "sha256": "d522f1ff3c178db0184beaec7f71d5855cc95781459e73a38dfa3d9c9ed29f44"
+    },
+    {
+      "bytes": 1587,
+      "path": "validation-plan.md",
+      "sha256": "80c218e38c132c665c8bbca479ddb0a341503f6b3e7b6b93582f780fca1d5653"
+    }
+  ],
+  "generated_at": "2026-09-07T22:41:18.389828Z",
+  "generation_mode": "deterministic",
+  "lineage_status": "complete",
+  "manifest_self_hash": null,
+  "manifest_self_hash_policy": "MANIFEST.json is excluded to avoid recursive self-hashing; persist the manifest immutably with the packet record.",
+  "packet_id": "7a069e24-96e9-48c1-8348-be5505d493e0",
+  "project_id": "3be58c98-c8bd-4413-9a52-36687e1b3c22",
+  "run_id": "a52e5bd0-17b0-4fee-8d82-945d5093f69a",
+  "schema_version": "tasksignal.build-packet/v1",
+  "snapshot_id": "24e5dc16-0248-4632-b0c1-80c596fce4ba",
+  "source_snapshot_sha256": "bc23990ed39c7ca3898d8b95ae65b9fd47b233bf103bf14625e1cc668487b965",
+  "tasksignal_version": "1.0.0a2",
+  "template_version": "deterministic-v1",
+  "thread_id": "66c7742e-8e4d-43df-8b82-c6168ce79e68"
+}

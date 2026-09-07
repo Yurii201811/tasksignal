@@ -38,7 +38,13 @@ const item: EvidenceItem = {
   review_label: null,
   review_note: null,
   reviewed_at: null,
+  review_version: null,
   review_history_count: 0,
+  agent_review_label: null,
+  agent_reviewed_at: null,
+  agent_review_history_count: 0,
+  agent_review_version: null,
+  agent_session_id: null,
 };
 
 describe("EvidenceReviewControl", () => {

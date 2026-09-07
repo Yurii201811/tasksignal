@@ -432,6 +432,41 @@ def test_due_research_project_run_advances_schedule(client) -> None:
     assert saved["run_count"] == 1
 
 
+def test_manual_cadence_ignores_stale_custom_interval(client) -> None:
+    created = client.post(
+        "/api/v1/research-projects",
+        json={
+            "name": "Manual research",
+            "source_type": "fixture",
+            "query": "",
+            "limit": 20,
+            "cadence": "manual",
+            "schedule_interval_hours": 1,
+            "labels": [],
+            "enabled": True,
+        },
+    )
+
+    assert created.status_code == 200
+    assert created.json()["schedule_interval_hours"] is None
+    assert created.json()["next_run_at"] is None
+
+    custom = client.patch(
+        f"/api/v1/research-projects/{created.json()['id']}",
+        json={"cadence": "custom", "schedule_interval_hours": 1},
+    )
+    assert custom.status_code == 200
+    assert custom.json()["next_run_at"] is not None
+
+    manual = client.patch(
+        f"/api/v1/research-projects/{created.json()['id']}",
+        json={"cadence": "manual"},
+    )
+    assert manual.status_code == 200
+    assert manual.json()["schedule_interval_hours"] is None
+    assert manual.json()["next_run_at"] is None
+
+
 def test_due_credentialed_research_project_skips_without_operator_token(client) -> None:
     create_response = client.post(
         "/api/research-projects",

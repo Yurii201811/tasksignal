@@ -1,0 +1,43 @@
+{
+  "artifact_count": 7,
+  "files": [
+    {
+      "bytes": 1042,
+      "path": "README.md",
+      "sha256": "ead90eeb850b5e55aa4eea96ccc963332ff3dc021904734cef2b3ddb4ceafdbd"
+    },
+    {
+      "bytes": 2461,
+      "path": "first-run-proof.md",
+      "sha256": "14db034552842947c6331888dcf141616246aea9d05ee09964b5d7bf82deb7a6"
+    },
+    {
+      "bytes": 4619,
+      "path": "first-run-summary.json",
+      "sha256": "a9b686d8446cdaf2bd40bf07b38295230baa99e31dcd33d7e7baa1f2e04893ae"
+    },
+    {
+      "bytes": 9443,
+      "path": "top-opportunity-task-pack.md",
+      "sha256": "faf076429e2df502c02b2b30f0e403891a3bd082e3ae1a594b0700d0b38876f1"
+    },
+    {
+      "bytes": 10525,
+      "path": "top-opportunity-build-packet.zip",
+      "sha256": "37b5b2a0f1bbab84946ca45da82fc4f47cd2eeb5f9222092206f8683f12c09e3"
+    },
+    {
+      "bytes": 2510,
+      "path": "top-opportunity-build-packet-manifest.json",
+      "sha256": "26c80ca369ee216cffdc1596a3b47d9499aaefcdfce628f90383ad592d5ca632"
+    },
+    {
+      "bytes": 166,
+      "path": "top-opportunity-build-packet-verification.json",
+      "sha256": "8b1cbe1ec665a150145d7ac29b988ca645bb5e52e2e78ebcfb6560ff464a4ee0"
+    }
+  ],
+  "generated_at": "2026-09-07T22:41:18+00:00",
+  "repository_revision": "codex/tasksignal-next-version @ eb11c5821754 (local changes present)",
+  "schema_version": "tasksignal.first-run-proof/v1"
+}
