@@ -28,8 +28,8 @@ boundaries.
 
 TaskSignal is an early-stage, local-first application for one operator. The
 latest public release is the [`v0.2.0` rollback baseline](https://github.com/Yurii201811/tasksignal/releases/tag/v0.2.0).
-The current source tree is the pre-GA v1 alpha (`1.0.0a2` for Python and
-`1.0.0-alpha.2` for the web app).
+The current source tree is the pre-GA v1 alpha (`1.0.0a3` for Python and
+`1.0.0-alpha.3` for the web app).
 
 The repository has a passing Linux/macOS Python 3.11–3.14 wheel matrix in this
 [`main` CI run](https://github.com/Yurii201811/tasksignal/actions/runs/29171023301).

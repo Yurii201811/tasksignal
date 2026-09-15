@@ -10,8 +10,9 @@ import {
   RefreshCw,
   ShieldCheck,
 } from "lucide-react";
+import { unresolvedSensitiveRisk } from "@/lib/review";
 import { api } from "@/lib/api";
-import type { BuildPacket, EvidenceItem, OpportunityThread } from "@/lib/types";
+import type { BuildPacket, OpportunityThread } from "@/lib/types";
 import {
   Badge,
   Button,
@@ -29,17 +30,6 @@ function errorMessage(error: unknown) {
   } catch {
     return error.message;
   }
-}
-
-function unresolvedSensitiveRisk(item: EvidenceItem) {
-  if (item.review_label === "sensitive_risk") return "human" as const;
-  if (
-    item.agent_review_label === "sensitive_risk" &&
-    (item.agent_review_version ?? 0) > (item.review_version ?? 0)
-  ) {
-    return "agent" as const;
-  }
-  return null;
 }
 
 export function BuildStudio({ thread }: { thread: OpportunityThread }) {

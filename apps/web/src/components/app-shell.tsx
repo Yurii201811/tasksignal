@@ -36,7 +36,7 @@ const navGroups: {
     label: "Research",
     items: [
       { href: "/", label: "Home", icon: Home },
-      { href: "/dashboard", label: "Dashboard", icon: BarChart3 },
+      { href: "/dashboard", label: "Decision queue", icon: BarChart3 },
       { href: "/evaluation", label: "Evaluation", icon: ClipboardCheck },
     ],
   },
@@ -52,7 +52,7 @@ const navGroups: {
   {
     label: "Tools",
     items: [
-      { href: "/search", label: "Search", icon: Search },
+      { href: "/search", label: "Evidence search", icon: Search },
       { href: "/sessions", label: "Agent sessions", icon: ShieldCheck },
       { href: "/settings", label: "Integrations", icon: Settings },
     ],
@@ -98,7 +98,7 @@ function ShellNavLink({
           navLinkBase,
           "flex min-h-11 items-center gap-3 px-3 py-2 text-sm",
           active
-            ? "bg-[var(--ts-accent-subtle)] font-semibold text-signal shadow-[inset_3px_0_0_var(--ts-accent)]"
+            ? "bg-[var(--ts-accent-subtle)] font-semibold text-signal"
             : "font-medium text-muted hover:bg-surface-muted hover:text-ink",
         )}
       >
@@ -272,13 +272,13 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       <aside className="fixed inset-y-0 left-0 z-[var(--z-sticky)] hidden w-56 flex-col overflow-y-auto border-r border-border bg-[var(--color-sidebar)] px-3 py-5 lg:flex">
         <BrandMark />
-        <nav className="mt-8 space-y-6" aria-label="Primary">
+        <nav className="mt-6 space-y-4" aria-label="Primary">
           {navGroups.map((group) => (
             <div key={group.label}>
               <p className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
                 {group.label}
               </p>
-              <div className="space-y-1">
+              <div className="space-y-0.5">
                 {group.items.map((item) => (
                   <ShellNavLink
                     key={item.href}
@@ -291,7 +291,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             </div>
           ))}
         </nav>
-        <div className="mt-auto border-t border-border px-3 pt-5">
+        <div className="mt-auto border-t border-border px-3 pt-4">
           <div className="flex items-center gap-2 text-sm font-semibold text-ink">
             <HardDrive className="h-4 w-4 text-signal" aria-hidden />
             {hostedApi ? "Protected workspace" : "Local-first workspace"}

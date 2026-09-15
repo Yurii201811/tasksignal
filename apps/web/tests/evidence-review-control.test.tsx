@@ -103,8 +103,11 @@ describe("EvidenceReviewControl", () => {
         user_note: "Useful signal.",
       });
       for (const queryKey of [
-        ["opportunity", "opportunity-1"],
+        ["opportunity"],
         ["opportunities"],
+        ["opportunity-thread"],
+        ["opportunity-threads"],
+        ["readiness"],
         ["evaluation"],
         ["item-labels", "item-1"],
       ]) {
@@ -251,5 +254,32 @@ describe("EvidenceReviewControl", () => {
     expect(
       screen.queryByText("Could not add evidence review."),
     ).not.toBeInTheDocument();
+  });
+  it("refreshes pristine labels but preserves an edited label and note during refetch", () => {
+    const client = new QueryClient();
+    const view = (label: EvidenceItem["review_label"]) => (
+      <QueryClientProvider client={client}>
+        <EvidenceReviewControl
+          opportunityId="opportunity-1"
+          item={{ ...item, review_label: label }}
+        />
+      </QueryClientProvider>
+    );
+    const { rerender } = render(view(null));
+    rerender(view("true_signal"));
+    expect(screen.getByLabelText("Evidence label")).toHaveValue("true_signal");
+    fireEvent.change(screen.getByLabelText("Evidence label"), {
+      target: { value: "sensitive_risk" },
+    });
+    fireEvent.change(screen.getByLabelText("New evidence review note"), {
+      target: { value: "Check the source" },
+    });
+    rerender(view("unclear"));
+    expect(screen.getByLabelText("Evidence label")).toHaveValue(
+      "sensitive_risk",
+    );
+    expect(screen.getByLabelText("New evidence review note")).toHaveValue(
+      "Check the source",
+    );
   });
 });

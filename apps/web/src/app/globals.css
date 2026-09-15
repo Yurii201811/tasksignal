@@ -133,3 +133,158 @@ summary:focus-visible {
       background-color var(--dur-micro);
   }
 }
+
+/* Hallmark · genre: modern-minimal · macrostructure: Workbench · design-system: DESIGN.md · designed-as-app */
+/* Alpha 3 keeps the established palette. Content, state and task order carry the design. */
+.workspace-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  padding-block: var(--space-sm) var(--space-lg);
+  border-bottom: var(--rule-hair) solid var(--color-rule);
+}
+.workspace-metrics > div {
+  padding-inline: var(--space-md);
+  border-left: var(--rule-hair) solid var(--color-rule);
+}
+.workspace-metrics > div:first-child {
+  border-left: 0;
+  padding-left: 0;
+}
+.attention-list {
+  border-block: var(--rule-hair) solid var(--color-rule);
+}
+.attention-item {
+  display: flex;
+  gap: var(--space-md);
+  justify-content: space-between;
+  padding: var(--space-md) var(--space-sm);
+  background: var(--color-paper-2);
+}
+.attention-item + .attention-item {
+  border-top: var(--rule-hair) solid var(--color-rule);
+}
+.attention-item:hover {
+  background: var(--color-paper-3);
+}
+.focus-view {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding-block: var(--space-sm);
+  border-radius: var(--radius-card);
+}
+.onboarding-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+  gap: var(--space-2xl);
+  padding: var(--space-lg);
+  border: var(--rule-hair) solid var(--color-rule);
+  border-radius: var(--radius-card);
+  background: var(--color-paper-2);
+}
+.onboarding-steps {
+  display: grid;
+  align-content: center;
+  gap: var(--space-md);
+}
+.onboarding-steps li {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+}
+.step-index {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: var(--radius-pill);
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+.queue-column-head,
+.queue-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 140px 110px 80px;
+  gap: var(--space-md);
+}
+.queue-column-head {
+  padding-block: var(--space-xs);
+  border-bottom: var(--rule-hair) solid var(--color-rule);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--color-muted);
+}
+.queue-row {
+  padding-block: var(--space-md) var(--space-xs);
+  border-bottom: var(--rule-hair) solid var(--color-rule);
+}
+.queue-row:last-child {
+  border-bottom: 0;
+}
+.queue-title {
+  font-size: var(--text-base);
+  font-weight: 600;
+  line-height: 1.5;
+}
+.queue-title:hover {
+  color: var(--color-accent);
+}
+.queue-cell {
+  min-width: 0;
+}
+.queue-mobile-label {
+  display: none;
+}
+.queue-details {
+  grid-column: 1 / -1;
+  border-top: var(--rule-hair) solid var(--color-rule);
+}
+input,
+textarea {
+  caret-color: var(--color-accent);
+}
+@media (max-width: 1279px) {
+  .queue-column-head,
+  .queue-row {
+    grid-template-columns: minmax(0, 1fr) 115px 96px 72px;
+    gap: var(--space-sm);
+  }
+}
+@media (max-width: 767px) {
+  .workspace-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    row-gap: var(--space-md);
+  }
+  .workspace-metrics > div:nth-child(3) {
+    border-left: 0;
+    padding-left: 0;
+  }
+  .onboarding-panel {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-lg);
+    padding: var(--space-md);
+  }
+  .queue-column-head {
+    display: none;
+  }
+  .queue-row {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-sm);
+  }
+  .queue-row > div:first-child {
+    grid-column: 1 / -1;
+  }
+  .queue-mobile-label {
+    display: block;
+    margin-bottom: var(--space-2xs);
+    font-size: var(--text-xs);
+    color: var(--color-muted);
+  }
+  .queue-cell {
+    padding-top: var(--space-2xs);
+  }
+}

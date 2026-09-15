@@ -4,6 +4,48 @@ All notable public-facing changes to TaskSignal are recorded here.
 
 ## Unreleased
 
+## 1.0.0a3 - 2026-09-16
+
+### Added
+
+- Shareable decision-queue views that retain text search, sort order, project,
+  source, readiness, age, and decision filters in the URL.
+- A filtered return link and continuous “Next in this queue” review path that
+  retains the next item when a saved decision removes the current item from the
+  filter. Unsaved reviews disable Next, warn before following other page links
+  or reloading, and survive background data refreshes.
+- Project search and run-status filters, plus focused project creation in an
+  accessible disclosure below the saved projects.
+
+### Changed
+
+- Replaced the populated home introduction with current research totals,
+  prioritized review work, saved views, and recent projects. Onboarding appears
+  only in an empty workspace.
+- Replaced the wide opportunity table with responsive evidence-rich rows,
+  visible sensitive-risk warnings, and expandable evidence gaps and score details.
+- Put source evidence and human review ahead of scoring and export tools on
+  opportunity detail pages; preserved the existing teal visual system.
+
+### Fixed
+
+- Failed thread/project/source requests no longer masquerade as empty data;
+  recovery actions stay available beside the error.
+- Review saves refresh thread, snapshot, evaluation, and readiness views.
+  Project runs also refresh project history and comparison data.
+- Background updates preserve in-progress review notes and labels.
+
+### Development status
+
+- Prepared and verified locally. This entry does not imply a public release,
+  deployment, or independently measured improvement in review speed.
+
+### Security
+
+- Updated Vitest and its mocker to 4.1.11 to resolve the development-tooling
+  advisory [GHSA-82fw-gwwq-j7x9](https://github.com/advisories/GHSA-82fw-gwwq-j7x9).
+  Production web dependencies are unchanged.
+
 ## 1.0.0a2 - 2026-09-08
 
 ### Added

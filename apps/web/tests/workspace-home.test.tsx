@@ -153,7 +153,7 @@ describe("WorkspaceHome", () => {
     expect(screen.getByRole("status")).toHaveTextContent(
       "Loading research overview",
     );
-    expect(screen.getAllByText("—")).toHaveLength(4);
+    expect(screen.getAllByText("—")).toHaveLength(7);
     expect(
       screen.queryByRole("link", { name: /New research project/ }),
     ).not.toBeInTheDocument();
@@ -234,17 +234,17 @@ describe("WorkspaceHome", () => {
         .map((node) => node.textContent),
     ).toEqual([
       "Unreviewed priority",
-      "Promising backlog item",
       "Build-ready item",
+      "Promising backlog item",
     ]);
     expect(
       within(reviewSection).getByRole("link", { name: /Unreviewed priority/ }),
-    ).toHaveAttribute("href", "/threads/thread-new");
+    ).toHaveAttribute("href", "/opportunities/new?queue=");
     expect(
       within(reviewSection).getByRole("link", {
         name: /Promising backlog item/,
       }),
-    ).toHaveAttribute("href", "/opportunities/old");
+    ).toHaveAttribute("href", "/opportunities/old?queue=");
 
     expect(
       screen.getByRole("link", { name: /Open decision queue/ }),

@@ -1,3 +1,6 @@
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => new URLSearchParams(window.location.search),
+}));
 import {
   fireEvent,
   render,
@@ -15,7 +18,8 @@ const opportunity: Opportunity = {
   id: "opportunity-1",
   cluster_id: "cluster-1",
   title: "AI-generated code needs production-readiness audits",
-  problem_statement: "Teams need evidence-backed checks before shipping AI code.",
+  problem_statement:
+    "Teams need evidence-backed checks before shipping AI code.",
   target_user: "Developer-tool founders",
   current_workaround: "Manual review",
   suggested_mvp: "Local audit checklist",
@@ -135,8 +139,12 @@ function deferred<T>() {
 }
 
 function renderWithClient(ui: React.ReactElement) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={client}>{ui}</QueryClientProvider>,
+  );
 }
 
 function installLocalStorageMock() {
@@ -162,6 +170,7 @@ function installLocalStorageMock() {
 
 describe("OpportunityDetail", () => {
   beforeEach(() => {
+    window.history.replaceState(null, "", "/opportunities/opportunity-1");
     vi.restoreAllMocks();
     installLocalStorageMock();
   });
@@ -191,7 +200,9 @@ describe("OpportunityDetail", () => {
     });
     const evidenceCard = evidenceHeading.closest("article");
     expect(evidenceCard).not.toBeNull();
-    expect(within(evidenceCard!).getByText("Evidence review")).toBeInTheDocument();
+    expect(
+      within(evidenceCard!).getByText("Evidence review"),
+    ).toBeInTheDocument();
     expect(within(evidenceCard!).getByLabelText("Evidence label")).toHaveValue(
       "",
     );
@@ -206,10 +217,7 @@ describe("OpportunityDetail", () => {
     const saveResponse = deferred<Response>();
     let decisionPersisted = false;
     const fetchMock = vi.fn(
-      (
-        input: RequestInfo | URL,
-        init?: RequestInit,
-      ): Promise<Response> => {
+      (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
         const url = String(input);
         if (
           url.endsWith("/api/opportunities/opportunity-1/review") &&
@@ -261,9 +269,7 @@ describe("OpportunityDetail", () => {
     decisionPersisted = true;
     saveResponse.resolve(Response.json(opportunityWithSavedDecision));
 
-    expect(
-      await screen.findByText("Confirmed: Promising"),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("Confirmed: Promising")).toBeInTheDocument();
     expect(await screen.findByText("Decision saved")).toBeInTheDocument();
     await waitFor(() => {
       expect(screen.getByLabelText("Local review note")).toHaveValue(
@@ -279,15 +285,16 @@ describe("OpportunityDetail", () => {
   });
 
   it("sends the local operator token when enhancing a prompt", async () => {
-    window.localStorage.setItem("tasksignal.operatorToken", "local-operator-token");
+    window.localStorage.setItem(
+      "tasksignal.operatorToken",
+      "local-operator-token",
+    );
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.endsWith("/api/opportunities/opportunity-1")) {
         return Response.json(opportunity);
       }
-      if (
-        url.endsWith("/api/opportunities/opportunity-1/enhance?apply=true")
-      ) {
+      if (url.endsWith("/api/opportunities/opportunity-1/enhance?apply=true")) {
         return Response.json({
           provider: "ollama",
           model: "llama3",
@@ -350,7 +357,9 @@ describe("OpportunityDetail", () => {
     fireEvent.click(enhanceButton);
 
     const calledUrls = fetchMock.mock.calls.map(([input]) => String(input));
-    expect(calledUrls.filter((url) => url.includes("/enhance"))).toHaveLength(0);
+    expect(calledUrls.filter((url) => url.includes("/enhance"))).toHaveLength(
+      0,
+    );
   });
 
   it("renders nullable signal metadata as unmeasured", async () => {

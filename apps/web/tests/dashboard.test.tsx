@@ -1,3 +1,6 @@
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => new URLSearchParams(window.location.search),
+}));
 import {
   fireEvent,
   render,
@@ -91,6 +94,7 @@ function opportunity(
 describe("Dashboard", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.history.replaceState(null, "", "/dashboard");
     vi.mocked(api.stats).mockResolvedValue({
       total_items: 0,
       problem_signals: 0,
@@ -155,7 +159,7 @@ describe("Dashboard", () => {
 
   it("renders the main processing action", async () => {
     renderWithClient(<Dashboard />);
-    expect(screen.getByText("Opportunity dashboard")).toBeInTheDocument();
+    expect(screen.getByText("Decision queue")).toBeInTheDocument();
     expect(screen.getByText("Process demo data")).toBeInTheDocument();
     expect(screen.getByText("Live source")).toBeInTheDocument();
     expect(screen.getByText("Run scan")).toBeInTheDocument();
@@ -323,6 +327,7 @@ describe("Dashboard", () => {
     expect(screen.getByText("medium")).toBeInTheDocument();
     expect(
       screen.getByRole("meter", {
+        hidden: true,
         name: "Promising idea feasibility score",
       }),
     ).toHaveAttribute("aria-valuetext", "80 percent");
@@ -470,7 +475,10 @@ describe("Dashboard", () => {
     );
     expect(
       await screen.findByRole("link", { name: /Review next/ }),
-    ).toHaveAttribute("href", "/opportunities/1");
+    ).toHaveAttribute(
+      "href",
+      expect.stringContaining("/opportunities/1?queue="),
+    );
     expect(
       await screen.findByText("Showing 1 of 1 current opportunities"),
     ).toHaveAttribute("aria-live", "polite");
@@ -493,6 +501,44 @@ describe("Dashboard", () => {
     expect(
       screen.getByRole("button", { name: "Clear filters" }),
     ).toBeDisabled();
+  });
+
+  it("restores a bookmarked view and reviews within its selected decision state", async () => {
+    window.history.replaceState(
+      null,
+      "",
+      "/dashboard?q=CI&review=promising&source=github&sort=newest",
+    );
+    const rows = [
+      opportunity("new", "CI unreviewed", "new"),
+      opportunity("chosen", "CI promising", "promising"),
+    ];
+    vi.mocked(api.opportunities).mockImplementation(async (filters) =>
+      filters?.reviewState === "promising" ? [rows[1]] : rows,
+    );
+    renderWithClient(<Dashboard />);
+    expect(screen.getByRole("searchbox", { name: "Search queue" })).toHaveValue(
+      "CI",
+    );
+    expect(
+      screen.getByRole("combobox", { name: "Sort opportunities" }),
+    ).toHaveValue("newest");
+    expect(
+      await screen.findByRole("link", { name: /Review next/ }),
+    ).toHaveAttribute(
+      "href",
+      expect.stringContaining("/opportunities/chosen?queue="),
+    );
+    expect(api.opportunities).toHaveBeenCalledWith({
+      currentOnly: true,
+      reviewState: "promising",
+      evidenceSource: "github",
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Reset view" }));
+    expect(window.location.search).toBe("");
+    expect(screen.getByRole("searchbox", { name: "Search queue" })).toHaveValue(
+      "",
+    );
   });
 
   it("searches and sorts the visible decision queue without changing API scope", async () => {
@@ -546,5 +592,6 @@ describe("Dashboard", () => {
       ),
     ).toBeInTheDocument();
     expect(api.opportunities).toHaveBeenCalledTimes(1);
+    expect(window.location.search).toBe("?q=researchers&sort=newest");
   });
 });

@@ -1,10 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  ArrowLeft,
   ArrowRight,
   Download,
   ExternalLink,
@@ -13,6 +12,10 @@ import {
   Sparkles,
 } from "lucide-react";
 import { api } from "@/lib/api";
+import { QueueNextLink } from "@/components/queue-next-link";
+import { useUnsavedReview } from "@/lib/use-unsaved-review";
+import { unresolvedSensitiveRisk } from "@/lib/review";
+import { QueueReturnLink } from "@/components/queue-return-link";
 import {
   Badge,
   Button,
@@ -57,8 +60,19 @@ function evidenceSnippets(item: EvidenceItem) {
 
 export function OpportunityDetail({ id }: { id: string }) {
   const queryClient = useQueryClient();
+  const [pendingDrafts, setPendingDrafts] = useState<Record<string, boolean>>(
+    {},
+  );
+  const reportDirty = useCallback((key: string, dirty: boolean) => {
+    setPendingDrafts((previous) =>
+      previous[key] === dirty ? previous : { ...previous, [key]: dirty },
+    );
+  }, []);
+  const hasUnsavedEdits = Object.values(pendingDrafts).some(Boolean);
+  useUnsavedReview(hasUnsavedEdits);
+  useEffect(() => setPendingDrafts({}), [id]);
   const [operatorToken, setOperatorToken] = useState("");
-  const { data, error, isError, isLoading } = useQuery({
+  const { data, error, isError, isLoading, refetch } = useQuery({
     queryKey: ["opportunity", id],
     queryFn: () => api.opportunity(id),
   });
@@ -96,7 +110,15 @@ export function OpportunityDetail({ id }: { id: string }) {
 
   if (isError) {
     return (
-      <StateMessage tone="danger" title="Could not load this opportunity">
+      <StateMessage
+        tone="danger"
+        title="Could not load this opportunity"
+        action={
+          <Button variant="secondary" onClick={() => void refetch()}>
+            Retry
+          </Button>
+        }
+      >
         {apiErrorMessage(error)}
       </StateMessage>
     );
@@ -132,12 +154,7 @@ export function OpportunityDetail({ id }: { id: string }) {
 
   return (
     <div className="space-y-6">
-      <Link
-        href="/dashboard"
-        className="inline-flex min-h-11 items-center gap-1 whitespace-nowrap rounded-product text-sm font-semibold text-signal hover:text-[var(--ts-accent-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)] motion-safe:active:translate-y-px"
-      >
-        <ArrowLeft size={15} /> Back to dashboard
-      </Link>
+      <QueueReturnLink />
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_180px]">
         <PageHeader
@@ -146,88 +163,42 @@ export function OpportunityDetail({ id }: { id: string }) {
           className="sm:flex-col sm:items-start"
           actions={
             <>
-              <Link
-                href={`/opportunities/${id}/prompt`}
-                className="inline-flex min-h-11 items-center justify-center gap-2 whitespace-nowrap rounded-product bg-signal px-4 py-2 text-sm font-semibold text-[var(--color-accent-ink)] hover:bg-[var(--ts-accent-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)] motion-safe:active:translate-y-px"
+              <a
+                href="#evidence"
+                className="inline-flex min-h-11 items-center gap-2 whitespace-nowrap rounded-product bg-signal px-4 py-2 text-sm font-semibold text-[var(--color-accent-ink)]"
               >
-                <FileText size={16} /> View Codex Prompt
-              </Link>
-              <Button
-                variant="secondary"
-                onClick={() => taskPackDownload.mutate()}
-                loading={taskPackDownload.isPending}
+                Read evidence
+              </a>
+              <a
+                href="#decision"
+                className="inline-flex min-h-11 items-center rounded-product px-3 text-sm font-semibold text-signal"
               >
-                <Download
-                  size={16}
-                  className={
-                    taskPackDownload.isPending
-                      ? "motion-safe:animate-pulse"
-                      : ""
-                  }
-                />
-                {taskPackDownload.isPending ? "Downloading…" : "Task Pack"}
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() => evidenceDownload.mutate()}
-                loading={evidenceDownload.isPending}
-              >
-                <Download
-                  size={16}
-                  className={
-                    evidenceDownload.isPending
-                      ? "motion-safe:animate-pulse"
-                      : ""
-                  }
-                />
-                {evidenceDownload.isPending
-                  ? "Downloading…"
-                  : "Export Evidence"}
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() => regenerate.mutate()}
-                loading={regenerate.isPending}
-                disabled={regenerate.isPending || enhance.isPending}
-              >
-                <RotateCw
-                  size={16}
-                  className={
-                    regenerate.isPending ? "motion-safe:animate-spin" : ""
-                  }
-                />
-                Regenerate
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() => enhance.mutate()}
-                loading={enhance.isPending}
-                disabled={
-                  regenerate.isPending || enhance.isPending || !hasOperatorToken
-                }
-                title={
-                  hasOperatorToken
-                    ? "Enhance Prompt"
-                    : "Add the local operator token in Settings first."
-                }
-              >
-                <Sparkles
-                  size={16}
-                  className={
-                    enhance.isPending ? "motion-safe:animate-pulse" : ""
-                  }
-                />
-                Enhance Prompt
-              </Button>
+                Record decision
+              </a>
+              {data.thread_id ? (
+                <Link
+                  href={`/threads/${data.thread_id}`}
+                  className="inline-flex min-h-11 items-center gap-2 rounded-product px-3 text-sm font-semibold text-signal"
+                >
+                  Build studio <ArrowRight size={16} aria-hidden />
+                </Link>
+              ) : null}
             </>
           }
         />
 
-        <Card variant="muted" className="lg:text-right">
-          <p className="text-sm font-semibold text-muted">Opportunity score</p>
-          <p className="mt-2 text-4xl font-semibold tabular-nums text-signal">
-            {Math.round(data.opportunity_score * 100)}
-          </p>
+        <Card
+          variant="muted"
+          className="flex items-center gap-4 lg:block lg:text-right"
+        >
+          <div className="shrink-0">
+            <p className="text-sm font-semibold text-muted">
+              Opportunity score
+            </p>
+            <p className="mt-2 text-4xl font-semibold tabular-nums text-signal">
+              {Math.round(data.opportunity_score * 100)}
+            </p>
+          </div>
           <p className="mt-2 text-xs leading-5 text-muted">
             Computed from evidence frequency, pain, task clarity, buying intent,
             feasibility, and competition penalty.
@@ -235,12 +206,132 @@ export function OpportunityDetail({ id }: { id: string }) {
         </Card>
       </div>
 
-      <OpportunityDecisionPanel
-        opportunityId={data.id}
-        reviewState={data.review_state}
-        reviewNote={data.review_note}
-        decisionUpdatedAt={data.decision_updated_at}
-      />
+      {data.evidence_items.some(unresolvedSensitiveRisk) ? (
+        <StateMessage tone="danger" title="Sensitive evidence needs review">
+          Build packet creation is blocked until the current sensitive-risk
+          review has been resolved.
+        </StateMessage>
+      ) : null}
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <EvidenceReadinessCard readiness={data.evidence_readiness} />
+        <Card variant="muted">
+          <h2 className="text-lg font-semibold text-ink">Evidence trail</h2>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Badge tone="blue">{data.signal_count} signals</Badge>
+            {sourceMixLabel ? (
+              <Badge>Source mix: {sourceMixLabel}</Badge>
+            ) : (
+              <Badge>No source mix yet</Badge>
+            )}
+            <Badge tone="green">
+              {data.evidence_readiness.safe_url_count}/
+              {data.evidence_items.length} with safe source URLs
+            </Badge>
+          </div>
+          <p className="mt-3 text-sm leading-6 text-muted">
+            Evidence excerpts come from detector spans. Author identity is
+            omitted from exports; safe source URLs are preserved for review.
+          </p>
+        </Card>
+      </div>
+
+      <section id="evidence" className="scroll-mt-6 space-y-4">
+        <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-end">
+          <div>
+            <h2 className="text-lg font-semibold text-ink">Evidence items</h2>
+            <p className="mt-1 text-sm text-muted">
+              Source attribution, signal type, and mini scores stay visible for
+              each excerpt.
+            </p>
+          </div>
+          <Badge>{data.evidence_items.length} evidence records</Badge>
+        </div>
+
+        <div className="grid gap-4">
+          {data.evidence_items.length === 0 ? (
+            <Card variant="muted">
+              <p className="text-sm leading-6 text-muted">
+                No evidence items were returned for this opportunity. Regenerate
+                after processing demo data.
+              </p>
+            </Card>
+          ) : null}
+          {data.evidence_items.map((item) => {
+            const sourceUrl = safeExternalUrl(item.url);
+            return (
+              <article
+                key={item.id}
+                className="rounded-product border border-border bg-surface p-4 shadow-soft"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                    <Badge tone="blue">{item.source}</Badge>
+                    <Badge tone={item.signal_type === null ? "slate" : "green"}>
+                      {item.signal_type === null
+                        ? "Not classified"
+                        : item.signal_type.replace("_", " ")}
+                    </Badge>
+                  </div>
+                  {sourceUrl ? (
+                    <a
+                      href={sourceUrl}
+                      className="inline-flex min-h-11 items-center gap-1 whitespace-nowrap rounded-product text-sm font-semibold text-signal hover:text-[var(--ts-accent-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)] motion-safe:active:translate-y-px"
+                      rel="noreferrer"
+                      target="_blank"
+                    >
+                      Source <ExternalLink size={14} />
+                    </a>
+                  ) : null}
+                </div>
+                <h3 className="mt-3 break-words font-semibold text-ink">
+                  {item.title}
+                </h3>
+                <div className="mt-3 grid gap-3 md:grid-cols-3">
+                  <MiniScore label="Pain" value={item.pain_score} />
+                  <MiniScore
+                    label="Task"
+                    value={item.task_concreteness_score}
+                  />
+                  <MiniScore label="Buying" value={item.buying_intent_score} />
+                </div>
+                <div className="mt-4 grid gap-2">
+                  {evidenceSnippets(item).map((snippet) => (
+                    <blockquote
+                      key={snippet}
+                      className="rounded-product bg-surface-muted px-4 py-3 text-sm leading-6 text-muted"
+                    >
+                      <span
+                        className="mr-2 font-semibold text-signal"
+                        aria-hidden
+                      >
+                        &quot;
+                      </span>
+                      <span className="break-words">{snippet}</span>
+                    </blockquote>
+                  ))}
+                </div>
+                <EvidenceReviewControl
+                  opportunityId={data.id}
+                  item={item}
+                  onDirtyChange={reportDirty}
+                />
+              </article>
+            );
+          })}
+        </div>
+      </section>
+
+      <section id="decision" className="scroll-mt-6 space-y-4">
+        <OpportunityDecisionPanel
+          opportunityId={data.id}
+          reviewState={data.review_state}
+          reviewNote={data.review_note}
+          decisionUpdatedAt={data.decision_updated_at}
+          onDirtyChange={reportDirty}
+        />
+        <QueueNextLink currentId={data.id} dirty={hasUnsavedEdits} />
+      </section>
 
       {regenerate.error ? (
         <StateMessage tone="danger" title="Regeneration did not complete">
@@ -269,46 +360,6 @@ export function OpportunityDetail({ id }: { id: string }) {
           {enhance.data.model}.
         </StateMessage>
       ) : null}
-      {!hasOperatorToken ? (
-        <StateMessage
-          tone="warning"
-          title="Local operator token required"
-          action={
-            <Link
-              href="/settings"
-              className="inline-flex min-h-11 items-center justify-center gap-1 whitespace-nowrap rounded-product border border-border-strong bg-surface px-3 py-2 text-xs font-semibold text-ink hover:bg-surface-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)] motion-safe:active:translate-y-px"
-            >
-              Settings <ArrowRight size={14} />
-            </Link>
-          }
-        >
-          Prompt enhancement is gated before it can use configured model
-          credentials or local runtime capacity.
-        </StateMessage>
-      ) : null}
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        <EvidenceReadinessCard readiness={data.evidence_readiness} />
-        <Card variant="muted">
-          <h2 className="text-lg font-semibold text-ink">Evidence trail</h2>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <Badge tone="blue">{data.signal_count} signals</Badge>
-            {sourceMixLabel ? (
-              <Badge>Source mix: {sourceMixLabel}</Badge>
-            ) : (
-              <Badge>No source mix yet</Badge>
-            )}
-            <Badge tone="green">
-              {data.evidence_readiness.safe_url_count}/
-              {data.evidence_items.length} with safe source URLs
-            </Badge>
-          </div>
-          <p className="mt-3 text-sm leading-6 text-muted">
-            Evidence excerpts come from detector spans. Author identity is
-            omitted from exports; safe source URLs are preserved for review.
-          </p>
-        </Card>
-      </div>
 
       <div className="grid gap-4 lg:grid-cols-[1.05fr_0.95fr]">
         <Card className="space-y-5">
@@ -438,87 +489,96 @@ export function OpportunityDetail({ id }: { id: string }) {
         </Card>
       </div>
 
-      <section className="space-y-4">
-        <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-end">
-          <div>
-            <h2 className="text-lg font-semibold text-ink">Evidence items</h2>
-            <p className="mt-1 text-sm text-muted">
-              Source attribution, signal type, and mini scores stay visible for
-              each excerpt.
-            </p>
-          </div>
-          <Badge>{data.evidence_items.length} evidence records</Badge>
+      <details className="group rounded-product border border-border bg-surface p-5">
+        <summary className="min-h-11 cursor-pointer text-base font-semibold">
+          Exports and generation tools
+        </summary>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Link
+            href={`/opportunities/${id}/prompt`}
+            className="inline-flex min-h-11 items-center justify-center gap-2 whitespace-nowrap rounded-product bg-signal px-4 py-2 text-sm font-semibold text-[var(--color-accent-ink)] hover:bg-[var(--ts-accent-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)] motion-safe:active:translate-y-px"
+          >
+            <FileText size={16} /> View Codex Prompt
+          </Link>
+          <Button
+            variant="secondary"
+            onClick={() => taskPackDownload.mutate()}
+            loading={taskPackDownload.isPending}
+          >
+            <Download
+              size={16}
+              className={
+                taskPackDownload.isPending ? "motion-safe:animate-pulse" : ""
+              }
+            />
+            {taskPackDownload.isPending ? "Downloading…" : "Task Pack"}
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={() => evidenceDownload.mutate()}
+            loading={evidenceDownload.isPending}
+          >
+            <Download
+              size={16}
+              className={
+                evidenceDownload.isPending ? "motion-safe:animate-pulse" : ""
+              }
+            />
+            {evidenceDownload.isPending ? "Downloading…" : "Export Evidence"}
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={() => regenerate.mutate()}
+            loading={regenerate.isPending}
+            disabled={regenerate.isPending || enhance.isPending}
+          >
+            <RotateCw
+              size={16}
+              className={regenerate.isPending ? "motion-safe:animate-spin" : ""}
+            />
+            Regenerate
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={() => enhance.mutate()}
+            loading={enhance.isPending}
+            disabled={
+              regenerate.isPending || enhance.isPending || !hasOperatorToken
+            }
+            title={
+              hasOperatorToken
+                ? "Enhance Prompt"
+                : "Add the local operator token in Settings first."
+            }
+          >
+            <Sparkles
+              size={16}
+              className={enhance.isPending ? "motion-safe:animate-pulse" : ""}
+            />
+            Enhance Prompt
+          </Button>
         </div>
-
-        <div className="grid gap-4">
-          {data.evidence_items.length === 0 ? (
-            <Card variant="muted">
-              <p className="text-sm leading-6 text-muted">
-                No evidence items were returned for this opportunity. Regenerate
-                after processing demo data.
-              </p>
-            </Card>
+        <div className="mt-4">
+          {" "}
+          {!hasOperatorToken ? (
+            <StateMessage
+              tone="warning"
+              title="Local operator token required"
+              action={
+                <Link
+                  href="/settings"
+                  className="inline-flex min-h-11 items-center justify-center gap-1 whitespace-nowrap rounded-product border border-border-strong bg-surface px-3 py-2 text-xs font-semibold text-ink hover:bg-surface-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)] motion-safe:active:translate-y-px"
+                >
+                  Settings <ArrowRight size={14} />
+                </Link>
+              }
+            >
+              Prompt enhancement is gated before it can use configured model
+              credentials or local runtime capacity.
+            </StateMessage>
           ) : null}
-          {data.evidence_items.map((item) => {
-            const sourceUrl = safeExternalUrl(item.url);
-            return (
-              <article
-                key={item.id}
-                className="rounded-product border border-border bg-surface p-4 shadow-soft"
-              >
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex min-w-0 flex-wrap items-center gap-2">
-                    <Badge tone="blue">{item.source}</Badge>
-                    <Badge tone={item.signal_type === null ? "slate" : "green"}>
-                      {item.signal_type === null
-                        ? "Not classified"
-                        : item.signal_type.replace("_", " ")}
-                    </Badge>
-                  </div>
-                  {sourceUrl ? (
-                    <a
-                      href={sourceUrl}
-                      className="inline-flex min-h-11 items-center gap-1 whitespace-nowrap rounded-product text-sm font-semibold text-signal hover:text-[var(--ts-accent-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)] motion-safe:active:translate-y-px"
-                      rel="noreferrer"
-                      target="_blank"
-                    >
-                      Source <ExternalLink size={14} />
-                    </a>
-                  ) : null}
-                </div>
-                <h3 className="mt-3 break-words font-semibold text-ink">
-                  {item.title}
-                </h3>
-                <div className="mt-3 grid gap-3 md:grid-cols-3">
-                  <MiniScore label="Pain" value={item.pain_score} />
-                  <MiniScore
-                    label="Task"
-                    value={item.task_concreteness_score}
-                  />
-                  <MiniScore label="Buying" value={item.buying_intent_score} />
-                </div>
-                <div className="mt-4 grid gap-2">
-                  {evidenceSnippets(item).map((snippet) => (
-                    <blockquote
-                      key={snippet}
-                      className="rounded-product bg-surface-muted px-4 py-3 text-sm leading-6 text-muted"
-                    >
-                      <span
-                        className="mr-2 font-semibold text-signal"
-                        aria-hidden
-                      >
-                        &quot;
-                      </span>
-                      <span className="break-words">{snippet}</span>
-                    </blockquote>
-                  ))}
-                </div>
-                <EvidenceReviewControl opportunityId={data.id} item={item} />
-              </article>
-            );
-          })}
         </div>
-      </section>
+      </details>
     </div>
   );
 }

@@ -22,7 +22,8 @@ Layout:
 
 - Left navigation on desktop.
 - Single-column mobile flow.
-- Data tables for ranked opportunities.
+- Responsive rows for ranked opportunities, with secondary scoring details in
+  a native disclosure; one readable column on mobile.
 - Cards only for bounded summaries, repeated evidence items, and focused panels.
 - No nested cards.
 
@@ -35,9 +36,9 @@ Interaction:
 
 ## Next-version workbench
 
-The alpha.2 interface retains the existing teal palette and system font. A
+The alpha.3 interface retains the existing teal palette and system font. A
 slightly tinted navigation rail, a context bar, stronger page hierarchy, and a
-quiet home introduction distinguish navigation, orientation, and task content.
+compact research overview distinguish navigation, orientation, and task content.
 Home totals always come from the API; loading and failed data are never shown as
 invented results. Current opportunities refer to latest snapshots, not lifetime
 snapshot counts.
@@ -46,6 +47,18 @@ The decision queue precedes collection/setup tools in both visual and document
 order. Advanced scope filters and setup details use native disclosure controls.
 Quick navigation uses a native modal dialog, Cmd/Ctrl+K, visible focus, and Escape
 support. Motion respects the operating system's reduced-motion preference.
+
+Populated home screens lead with current work. Empty-workspace onboarding is
+conditional on successful, empty data. Projects lead with the saved list, search,
+and run status; creation stays in a native disclosure below it. Failed requests
+use explicit recovery states instead of claiming the workspace is empty.
+
+Queue filters and ordering are represented in the URL. Detail pages preserve
+that queue context and show evidence before decisions and export tools. The
+next-item link follows the original order and is disabled while review drafts
+are unsaved. Internal page links and reloads warn about unsaved drafts; native
+browser Back/Forward is not intercepted. Review drafts survive background
+response updates while the page remains mounted.
 
 ## Exports
 

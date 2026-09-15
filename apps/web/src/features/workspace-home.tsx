@@ -5,38 +5,28 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowRight,
   Check,
-  FileCheck2,
   FolderPlus,
-  GitBranch,
   Play,
   RefreshCw,
   ScanLine,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
-import { reviewStateOption } from "@/lib/review";
-import { Badge, Button, ButtonLink, Card, StateMessage } from "@/components/ui";
-
-const steps = [
-  {
-    title: "Collect the signals",
-    description: "Save a research question. Gather public evidence.",
-    href: "/projects",
-    icon: ScanLine,
-  },
-  {
-    title: "Make a decision",
-    description: "Review the source, the score, and what is still missing.",
-    href: "/dashboard",
-    icon: GitBranch,
-  },
-  {
-    title: "Build with context",
-    description: "Turn a reviewed thread into a verifiable build packet.",
-    href: "/threads",
-    icon: FileCheck2,
-  },
-];
+import { READINESS_TONES, reviewStateOption } from "@/lib/review";
+import {
+  DEFAULT_QUEUE_VIEW,
+  queueHref,
+  queueOpportunityHref,
+  selectQueueItems,
+} from "@/lib/queue-view";
+import {
+  Badge,
+  Button,
+  ButtonLink,
+  Card,
+  PageHeader,
+  StateMessage,
+} from "@/components/ui";
 
 export function WorkspaceHome() {
   const queryClient = useQueryClient();
@@ -51,113 +41,78 @@ export function WorkspaceHome() {
   });
   const demo = useMutation({
     mutationFn: api.processDemo,
-    onSuccess: () => {
-      for (const key of [
-        "stats",
-        "opportunities",
-        "scans",
-        "readiness",
-        "opportunity-threads",
-        "sources",
-      ]) {
-        void queryClient.invalidateQueries({ queryKey: [key] });
-      }
+    onSuccess: async () => {
+      await Promise.all(
+        [
+          "stats",
+          "opportunities",
+          "scans",
+          "readiness",
+          "opportunity-threads",
+          "sources",
+          "evaluation",
+        ].map((key) => queryClient.invalidateQueries({ queryKey: [key] })),
+      );
     },
   });
   const hasEvidence = (stats.data?.total_items ?? 0) > 0;
-  const queue = opportunities.data ?? [];
+  const queue = selectQueueItems(opportunities.data ?? [], DEFAULT_QUEUE_VIEW);
   const nextReview = queue.find((item) => item.review_state === "new");
   const error = stats.error ?? opportunities.error ?? projects.error;
   const loading =
     stats.isLoading || opportunities.isLoading || projects.isLoading;
+  const attention = [
+    ...queue.filter((item) => item.review_state === "new"),
+    ...queue.filter((item) =>
+      ["promising", "needs_more_evidence", "build_candidate"].includes(
+        item.review_state,
+      ),
+    ),
+  ].slice(0, 3);
   const recentProjects = [...(projects.data ?? [])]
     .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
     .slice(0, 3);
+  const emptyWorkspace =
+    !loading && !error && !hasEvidence && queue.length === 0;
+  const focusViews = [
+    {
+      state: "new" as const,
+      label: "Needs a first look",
+      description: "Read the source and decide what to explore.",
+    },
+    {
+      state: "promising" as const,
+      label: "Promising ideas",
+      description: "Follow up on problems worth understanding.",
+    },
+    {
+      state: "build_candidate" as const,
+      label: "Build candidates",
+      description: "Check evidence readiness before creating a packet.",
+    },
+  ];
 
   return (
     <div className="space-y-8">
-      <section
-        className="home-hero grid gap-10 overflow-hidden rounded-2xl border border-border p-6 sm:p-9 xl:grid-cols-[1.25fr_1fr] xl:items-center xl:gap-16"
-        aria-labelledby="welcome-title"
-      >
-        <div>
-          <p className="eyebrow flex items-center gap-2 text-signal">
-            <span className="h-1.5 w-1.5 rounded-full bg-signal" /> Your
-            research workspace
-          </p>
-          <h1
-            id="welcome-title"
-            className="mt-5 max-w-xl text-4xl font-semibold leading-[1.12] tracking-[-0.045em] text-ink sm:text-5xl"
-          >
-            Good software starts with a real problem.
-          </h1>
-          <p className="mt-5 max-w-lg text-base leading-7 text-muted">
-            Find the signals in public conversations. Follow the evidence.
-            Decide what deserves to be built.
-          </p>
-          <div className="mt-7 flex flex-wrap items-center gap-3">
+      <PageHeader
+        title="Research overview"
+        description="A clearer path from a real problem to your next build."
+        actions={
+          <>
+            <Link
+              href="/projects"
+              className="inline-flex min-h-11 items-center gap-2 rounded-product px-3 text-sm font-semibold text-ink hover:bg-surface-muted"
+            >
+              <FolderPlus size={16} aria-hidden />
+              New project
+            </Link>
             <ButtonLink href="/dashboard">
               Open decision queue{" "}
-              <ArrowRight className="ml-2 h-4 w-4" aria-hidden />
+              <ArrowRight size={16} className="ml-2" aria-hidden />
             </ButtonLink>
-            {!loading && !error && !hasEvidence ? (
-              <Button
-                variant="secondary"
-                onClick={() => demo.mutate()}
-                loading={demo.isPending}
-              >
-                {demo.isPending ? (
-                  <RefreshCw
-                    className="h-4 w-4 motion-safe:animate-spin"
-                    aria-hidden
-                  />
-                ) : (
-                  <Play className="h-4 w-4" aria-hidden />
-                )}
-                {demo.isPending ? "Preparing demo…" : "Try demo data"}
-              </Button>
-            ) : !loading ? (
-              <Link
-                href="/projects"
-                className="inline-flex min-h-11 items-center gap-2 rounded-product px-3 text-sm font-semibold text-ink hover:bg-surface-muted"
-              >
-                New research project{" "}
-                <FolderPlus className="h-4 w-4" aria-hidden />
-              </Link>
-            ) : null}
-          </div>
-          <p className="mt-5 flex items-center gap-2 text-xs text-muted">
-            <Check className="h-3.5 w-3.5 text-signal" aria-hidden /> Demo runs
-            locally. No API keys or paid model required.
-          </p>
-        </div>
-        <ol className="divide-y divide-border border-y border-border">
-          {steps.map((step, index) => (
-            <li key={step.title}>
-              <Link
-                href={step.href}
-                className="group flex items-start gap-4 rounded-product px-2 py-6 hover:bg-surface-muted"
-              >
-                <span className="mt-1 font-mono text-xs tabular-nums text-muted">
-                  0{index + 1}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <h2 className="text-base font-semibold tracking-tight">
-                    {step.title}
-                  </h2>
-                  <p className="mt-1 text-sm leading-6 text-muted">
-                    {step.description}
-                  </p>
-                </div>
-                <step.icon
-                  className="mt-1 h-5 w-5 shrink-0 text-signal"
-                  aria-hidden
-                />
-              </Link>
-            </li>
-          ))}
-        </ol>
-      </section>
+          </>
+        }
+      />
 
       {error ? (
         <StateMessage
@@ -186,42 +141,115 @@ export function WorkspaceHome() {
       ) : null}
       {demo.isSuccess ? (
         <StateMessage tone="success" title="Demo evidence is ready">
-          Open the decision queue to review the generated opportunities. These
-          results come from bundled fixtures.
+          Your queue now includes bundled fixture results. Open an idea to
+          inspect its sources and practice a review.
         </StateMessage>
       ) : null}
 
-      <section
-        aria-label="Workspace overview"
-        className="grid grid-cols-2 gap-x-6 gap-y-5 border-b border-border px-1 pb-7 lg:grid-cols-4"
-      >
+      {emptyWorkspace || demo.isPending ? (
+        <section className="onboarding-panel" aria-labelledby="first-run-title">
+          <div>
+            <ScanLine className="h-7 w-7 text-signal" aria-hidden />
+            <h2
+              id="first-run-title"
+              className="mt-4 text-2xl font-semibold tracking-tight"
+            >
+              Start with a question worth answering.
+            </h2>
+            <p className="mt-3 max-w-lg text-sm leading-7 text-muted">
+              Explore a complete research example, inspect the original
+              evidence, and make your first decision. Or start a project around
+              a problem you already care about.
+            </p>
+            <div className="mt-5 flex flex-wrap items-center gap-3">
+              <Button loading={demo.isPending} onClick={() => demo.mutate()}>
+                {demo.isPending ? (
+                  <RefreshCw
+                    size={16}
+                    className="motion-safe:animate-spin"
+                    aria-hidden
+                  />
+                ) : (
+                  <Play size={16} aria-hidden />
+                )}
+                {demo.isPending ? "Preparing demo…" : "Try demo data"}
+              </Button>
+              <Link
+                href="/projects"
+                className="inline-flex min-h-11 items-center gap-2 rounded-product px-3 text-sm font-semibold text-signal"
+              >
+                Create a project <ArrowRight size={16} aria-hidden />
+              </Link>
+            </div>
+            <p className="mt-4 flex items-center gap-2 text-xs text-muted">
+              <Check size={14} aria-hidden />
+              Runs locally, with no API keys or paid model.
+            </p>
+          </div>
+          <ol className="onboarding-steps">
+            {[
+              {
+                title: "Collect",
+                description:
+                  "Gather public conversations around a recurring problem.",
+              },
+              {
+                title: "Review",
+                description:
+                  "Read source evidence and record your own judgment.",
+              },
+              {
+                title: "Build",
+                description:
+                  "Turn an eligible candidate into a verifiable build packet.",
+              },
+            ].map((step, index) => (
+              <li key={step.title}>
+                <span className="step-index">{index + 1}</span>
+                <div>
+                  <h3 className="font-semibold">{step.title}</h3>
+                  <p className="mt-1 text-sm leading-6 text-muted">
+                    {step.description}
+                  </p>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </section>
+      ) : null}
+
+      <section aria-label="Workspace overview" className="workspace-metrics">
         {[
           {
             label: "Evidence collected",
             value: stats.data?.total_items,
-            hint: "Source items in this workspace",
+            hint: "Public source items",
+            pending: stats.isLoading,
           },
           {
             label: "Problem signals",
             value: stats.data?.problem_signals,
-            hint: "Detected tasks and pain points",
+            hint: "Tasks and pain points",
+            pending: stats.isLoading,
           },
           {
             label: "Current opportunities",
             value: opportunities.data?.length,
-            hint: "Latest snapshots to consider",
+            hint: "Latest snapshot per thread",
+            pending: opportunities.isLoading,
           },
           {
             label: "Research projects",
             value: projects.data?.length,
             hint: "Repeatable research questions",
+            pending: projects.isLoading,
           },
         ].map((metric) => (
           <div key={metric.label}>
             <p className="text-sm text-muted">{metric.label}</p>
             <p
               className="mt-2 text-3xl font-semibold tracking-tight tabular-nums"
-              aria-busy={loading}
+              aria-busy={metric.pending}
             >
               {metric.value === undefined ? "—" : metric.value.toLocaleString()}
             </p>
@@ -230,188 +258,226 @@ export function WorkspaceHome() {
         ))}
       </section>
 
-      <div className="grid items-start gap-8 xl:grid-cols-[1.4fr_1fr]">
+      <div className="grid items-start gap-8 xl:grid-cols-[minmax(0,1.7fr)_minmax(260px,1fr)]">
         <section aria-labelledby="review-title" className="min-w-0">
-          <div className="mb-5 flex items-center justify-between gap-4">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div>
-              <p className="eyebrow text-muted">Make progress</p>
               <h2
                 id="review-title"
-                className="mt-1 text-xl font-semibold tracking-tight"
+                className="text-xl font-semibold tracking-tight"
               >
                 Ready for your attention
               </h2>
+              <p className="mt-1 text-sm text-muted">
+                Unreviewed ideas first, with the evidence close at hand.
+              </p>
             </div>
-            <Link
-              href="/dashboard"
-              className="inline-flex min-h-11 items-center gap-1 rounded-product px-2 text-sm font-semibold text-signal"
-            >
-              View all <ArrowRight className="h-4 w-4" aria-hidden />
-            </Link>
+            {nextReview && !opportunities.error ? (
+              <Link
+                href={queueOpportunityHref(nextReview.id, {
+                  ...DEFAULT_QUEUE_VIEW,
+                  review: "new",
+                })}
+                className="inline-flex min-h-11 items-center gap-2 whitespace-nowrap rounded-product text-sm font-semibold text-signal"
+              >
+                Review next <ArrowRight size={16} aria-hidden />
+              </Link>
+            ) : null}
           </div>
-          {loading ? (
+          {loading || demo.isPending ? (
             <div role="status" className="space-y-4">
               <span className="sr-only">Loading research overview</span>
               {[0, 1, 2].map((item) => (
                 <div
                   key={item}
-                  className="h-20 rounded-product bg-surface-muted motion-safe:animate-pulse"
+                  className="h-24 rounded-product bg-surface-muted motion-safe:animate-pulse"
                 />
               ))}
             </div>
           ) : null}
-          {!loading && !opportunities.error && queue.length === 0 ? (
-            <Card className="py-8">
-              <ScanLine className="h-7 w-7 text-signal" aria-hidden />
-              <h3 className="mt-4 font-semibold">
-                Start with a question worth answering.
+          {!loading &&
+          !demo.isPending &&
+          !opportunities.error &&
+          attention.length === 0 ? (
+            <Card variant="muted" className="py-8">
+              <h3 className="font-semibold">
+                {queue.length
+                  ? "Your first-pass reviews are complete."
+                  : "Your next idea starts with evidence."}
               </h3>
               <p className="mt-2 max-w-md text-sm leading-6 text-muted">
-                Run the demo to explore a complete example, or create a project
-                around a problem you want to understand.
+                {queue.length
+                  ? "Revisit a previous decision in the queue, or collect fresh evidence from a research project."
+                  : "Run the demo above or create a project. Your current opportunities will appear here."}
               </p>
-              <div className="mt-5 flex flex-wrap gap-2">
-                <Link
-                  href="/projects"
-                  className="inline-flex min-h-11 items-center px-3 text-sm font-semibold text-signal"
-                >
-                  Create a project{" "}
-                  <ArrowRight className="ml-2 h-4 w-4" aria-hidden />
-                </Link>
-              </div>
+              <Link
+                href={queue.length ? "/dashboard" : "/projects"}
+                className="mt-4 inline-flex min-h-11 items-center gap-2 rounded-product text-sm font-semibold text-signal"
+              >
+                {queue.length
+                  ? "View all decisions"
+                  : "Create your first project"}
+                <ArrowRight size={16} aria-hidden />
+              </Link>
             </Card>
           ) : null}
-          {!loading && queue.length > 0 ? (
-            <div className="divide-y divide-border rounded-xl border border-border bg-surface">
-              {(nextReview
-                ? [
-                    nextReview,
-                    ...queue.filter((item) => item.id !== nextReview.id),
-                  ]
-                : queue
-              )
-                .slice(0, 3)
-                .map((item, index) => {
-                  const state = reviewStateOption(item.review_state);
-                  return (
-                    <Link
-                      key={item.id}
-                      href={
-                        item.thread_id
-                          ? `/threads/${item.thread_id}`
-                          : `/opportunities/${item.id}`
-                      }
-                      className="group flex items-start gap-4 px-5 py-5 first:rounded-t-xl last:rounded-b-xl hover:bg-surface-muted"
-                    >
-                      <span className="mt-1 font-mono text-xs text-muted">
-                        0{index + 1}
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <h3 className="font-semibold leading-6 group-hover:text-signal">
-                          {item.title}
-                        </h3>
-                        <p className="mt-1 line-clamp-2 text-sm leading-6 text-muted">
-                          {item.problem_statement}
-                        </p>
-                        <div className="mt-3 flex flex-wrap items-center gap-2">
-                          <Badge tone={state.tone}>{state.label}</Badge>
-                          <span className="text-xs text-muted">
-                            {item.top_source}
-                          </span>
-                        </div>
+          {!loading && !demo.isPending && attention.length > 0 ? (
+            <div className="attention-list">
+              {attention.map((item) => {
+                const state = reviewStateOption(item.review_state);
+                return (
+                  <Link
+                    key={item.id}
+                    href={queueOpportunityHref(item.id, DEFAULT_QUEUE_VIEW)}
+                    className="attention-item group"
+                  >
+                    <div className="min-w-0">
+                      <div className="mb-3 flex flex-wrap items-center gap-2">
+                        <Badge tone={state.tone}>{state.label}</Badge>
+                        <span className="text-xs text-muted">
+                          {item.evidence_readiness.evidence_count} evidence
+                          items
+                        </span>
                       </div>
-                      <ArrowRight
-                        className="mt-1 h-4 w-4 shrink-0 text-muted group-hover:text-signal"
-                        aria-hidden
-                      />
-                    </Link>
-                  );
-                })}
-            </div>
-          ) : null}
-        </section>
-        <section aria-labelledby="projects-title" className="min-w-0">
-          <div className="mb-5">
-            <p className="eyebrow text-muted">Keep exploring</p>
-            <h2
-              id="projects-title"
-              className="mt-1 text-xl font-semibold tracking-tight"
-            >
-              Research projects
-            </h2>
-          </div>
-          {projects.isLoading ? (
-            <div
-              aria-hidden="true"
-              className="h-28 rounded-product bg-surface-muted motion-safe:animate-pulse"
-            />
-          ) : projects.error ? (
-            <p className="text-sm leading-7 text-muted">
-              Project details are temporarily unavailable.
-            </p>
-          ) : recentProjects.length > 0 ? (
-            <div className="divide-y divide-border">
-              {recentProjects.map((project) => (
-                <Link
-                  key={project.id}
-                  href={`/projects/${project.id}`}
-                  className="group block rounded-product py-4 first:pt-0"
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <h3 className="truncate font-semibold group-hover:text-signal">
-                      {project.name}
-                    </h3>
+                      <h3 className="text-base font-semibold leading-6 group-hover:text-signal">
+                        {item.title}
+                      </h3>
+                      <p className="mt-2 line-clamp-2 text-sm leading-6 text-muted">
+                        {item.problem_statement}
+                      </p>
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <Badge
+                          tone={READINESS_TONES[item.evidence_readiness.level]}
+                        >
+                          {item.evidence_readiness.level} evidence
+                        </Badge>
+                        <span className="text-xs text-muted">
+                          {item.evidence_readiness.reviewed_count} reviewed ·{" "}
+                          {item.top_source}
+                        </span>
+                      </div>
+                    </div>
                     <ArrowRight
-                      className="h-4 w-4 shrink-0 text-muted"
+                      size={18}
+                      className="mt-1 shrink-0 text-muted group-hover:text-signal"
                       aria-hidden
                     />
+                  </Link>
+                );
+              })}
+            </div>
+          ) : null}
+          {!loading && !opportunities.error && queue.length > 0 ? (
+            <p className="mt-4 text-xs leading-6 text-muted">
+              Scores help you prioritize. Reading the evidence and validating
+              the problem are still your decisions.
+            </p>
+          ) : null}
+        </section>
+
+        <div className="space-y-8">
+          <section aria-labelledby="focus-title">
+            <h2
+              id="focus-title"
+              className="text-xl font-semibold tracking-tight"
+            >
+              Pick up where you left off
+            </h2>
+            <div className="mt-3 divide-y divide-border">
+              {focusViews.map((view) => (
+                <Link
+                  key={view.state}
+                  href={queueHref({
+                    ...DEFAULT_QUEUE_VIEW,
+                    review: view.state,
+                  })}
+                  className="focus-view group"
+                >
+                  <div>
+                    <h3 className="text-sm font-semibold group-hover:text-signal">
+                      {view.label}
+                    </h3>
+                    <p className="mt-1 text-xs leading-5 text-muted">
+                      {view.description}
+                    </p>
                   </div>
-                  <p className="mt-1 line-clamp-1 text-sm text-muted">
-                    {project.query}
-                  </p>
-                  <p className="mt-2 text-xs text-muted">
-                    {project.source_type} · {project.run_count}{" "}
-                    {project.run_count === 1 ? "run" : "runs"}
-                  </p>
+                  <span className="text-xl font-semibold tabular-nums text-signal">
+                    {opportunities.data
+                      ? queue.filter((item) => item.review_state === view.state)
+                          .length
+                      : "—"}
+                  </span>
                 </Link>
               ))}
             </div>
-          ) : (
-            <p className="text-sm leading-7 text-muted">
-              Save your source, query, and research cadence once. Compare what
-              changes on each run without losing the earlier evidence.
-            </p>
-          )}
-          {!projects.isLoading ? (
-            <Link
-              href="/projects"
-              className="mt-4 inline-flex min-h-11 items-center gap-2 rounded-product text-sm font-semibold text-signal"
+          </section>
+          <section
+            aria-labelledby="projects-title"
+            className="min-w-0 border-t border-border pt-6"
+          >
+            <h2
+              id="projects-title"
+              className="text-xl font-semibold tracking-tight"
             >
-              <FolderPlus className="h-4 w-4" aria-hidden />
-              {projects.error
-                ? "View projects"
-                : recentProjects.length
-                  ? "Manage projects"
-                  : "Create your first project"}
-            </Link>
-          ) : null}
-          <div className="mt-7 border-t border-border pt-5">
-            <h3 className="text-sm font-semibold">
-              Evidence first. Your judgment always.
-            </h3>
-            <p className="mt-2 text-sm leading-6 text-muted">
-              Scores help prioritize research. Review the original sources
-              before treating an opportunity as demand.
-            </p>
-            <Link
-              href="/evaluation"
-              className="mt-2 inline-flex min-h-11 items-center gap-1 rounded-product text-sm font-semibold text-signal"
-            >
-              Review evidence quality{" "}
-              <ArrowRight className="h-4 w-4" aria-hidden />
-            </Link>
-          </div>
-        </section>
+              Research projects
+            </h2>
+            {projects.isLoading ? (
+              <div
+                aria-hidden
+                className="mt-4 h-20 rounded-product bg-surface-muted motion-safe:animate-pulse"
+              />
+            ) : projects.error ? (
+              <p className="mt-3 text-sm leading-6 text-muted">
+                Project details are temporarily unavailable.
+              </p>
+            ) : recentProjects.length ? (
+              <div className="mt-3 divide-y divide-border">
+                {recentProjects.map((project) => (
+                  <Link
+                    key={project.id}
+                    href={`/projects/${project.id}`}
+                    className="group block rounded-product py-4"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <h3 className="min-w-0 truncate text-sm font-semibold group-hover:text-signal">
+                        {project.name}
+                      </h3>
+                      <ArrowRight
+                        size={15}
+                        className="shrink-0 text-muted"
+                        aria-hidden
+                      />
+                    </div>
+                    <p className="mt-1 line-clamp-1 text-xs leading-5 text-muted">
+                      {project.query}
+                    </p>
+                    <p className="mt-2 text-xs text-muted">
+                      {project.source_type} · {project.run_count}{" "}
+                      {project.run_count === 1 ? "run" : "runs"}
+                    </p>
+                  </Link>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-3 text-sm leading-6 text-muted">
+                Save a research question and compare what changes on each run.
+              </p>
+            )}
+            {!projects.isLoading ? (
+              <Link
+                href="/projects"
+                className="mt-3 inline-flex min-h-11 items-center gap-2 rounded-product text-sm font-semibold text-signal"
+              >
+                <FolderPlus size={16} aria-hidden />
+                {projects.error
+                  ? "View projects"
+                  : recentProjects.length
+                    ? "Manage projects"
+                    : "Create a research project"}
+              </Link>
+            ) : null}
+          </section>
+        </div>
       </div>
     </div>
   );

@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { clsx } from "clsx";
 import {
@@ -20,6 +21,7 @@ import {
   ArrowRight,
   CheckCircle2,
   ChevronDown,
+  Copy,
   Play,
   RefreshCw,
   Search,
@@ -32,22 +34,27 @@ import {
   Card,
   Input,
   PageHeader,
-  ScoreBar,
   Select,
   StateMessage,
-  TableShell,
 } from "@/components/ui";
 import {
   browserSafeScanSourceOrder,
   queryExamplesLabel,
   sourceQueryPresetByType,
 } from "@/lib/source-query-presets";
-import {
-  READINESS_TONES,
-  REVIEW_STATE_OPTIONS,
-  reviewStateOption,
-} from "@/lib/review";
+import { REVIEW_STATE_OPTIONS } from "@/lib/review";
 import type { EvidenceReadinessLevel, ReviewState } from "@/lib/types";
+
+import { OpportunityQueueList } from "./opportunity-queue-list";
+import {
+  DEFAULT_QUEUE_VIEW,
+  parseQueueView,
+  queueHref,
+  queueOpportunityHref,
+  selectQueueItems,
+  type QueueSort,
+  type QueueView,
+} from "@/lib/queue-view";
 
 const chartColors = [
   "var(--ts-chart-1)",
@@ -58,13 +65,6 @@ const chartColors = [
 ];
 
 type QueueAgeFilter = "all" | "7" | "30" | "90";
-type QueueSort = "score" | "newest" | "readiness";
-
-const readinessRank: Record<EvidenceReadinessLevel, number> = {
-  weak: 0,
-  medium: 1,
-  strong: 2,
-};
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "The request failed.";
@@ -77,23 +77,65 @@ export function Dashboard() {
     sourceQueryPresetByType.hackernews.defaultQuery,
   );
   const [scanLimit, setScanLimit] = useState(30);
-  const [reviewStateFilter, setReviewStateFilter] = useState<
-    ReviewState | "all"
-  >("all");
-  const [projectFilter, setProjectFilter] = useState("all");
-  const [evidenceSourceFilter, setEvidenceSourceFilter] = useState("all");
-  const [readinessFilter, setReadinessFilter] = useState<
-    EvidenceReadinessLevel | "all"
-  >("all");
-  const [ageFilter, setAgeFilter] = useState<QueueAgeFilter>("all");
-  const [queueSearch, setQueueSearch] = useState("");
-  const [queueSort, setQueueSort] = useState<QueueSort>("score");
+  const locationSearch = useSearchParams().toString();
+  const [queueView, setQueueView] = useState(() =>
+    parseQueueView(new URLSearchParams(locationSearch)),
+  );
+  const [copyStatus, setCopyStatus] = useState("");
+  useEffect(() => {
+    setQueueView(parseQueueView(new URLSearchParams(locationSearch)));
+    setCopyStatus("");
+  }, [locationSearch]);
+  const {
+    review: reviewStateFilter,
+    project: projectFilter,
+    source: evidenceSourceFilter,
+    readiness: readinessFilter,
+    age: ageFilter,
+    q: queueSearch,
+    sort: queueSort,
+  } = queueView;
+  function updateQueueView(patch: Partial<QueueView>, replace = false) {
+    const next = { ...queueView, ...patch };
+    setQueueView(next);
+    setCopyStatus("");
+    window.history[replace ? "replaceState" : "pushState"](
+      null,
+      "",
+      queueHref(next),
+    );
+  }
+  const setReviewStateFilter = (review: QueueView["review"]) =>
+    updateQueueView({ review });
+  const setProjectFilter = (project: string) => updateQueueView({ project });
+  const setEvidenceSourceFilter = (source: string) =>
+    updateQueueView({ source });
+  const setReadinessFilter = (readiness: QueueView["readiness"]) =>
+    updateQueueView({ readiness });
+  const setAgeFilter = (age: QueueView["age"]) => updateQueueView({ age });
+  const setQueueSearch = (q: string) =>
+    updateQueueView({ q: q.slice(0, 300) }, true);
+  const setQueueSort = (sort: QueueSort) => updateQueueView({ sort });
+  async function copyViewLink() {
+    try {
+      await navigator.clipboard.writeText(
+        new URL(queueHref(queueView), window.location.origin).href,
+      );
+      setCopyStatus("View link copied");
+    } catch {
+      setCopyStatus("Copy the view link from your browser address bar.");
+    }
+  }
   const hasScopeFilters =
     projectFilter !== "all" ||
     evidenceSourceFilter !== "all" ||
     readinessFilter !== "all" ||
     ageFilter !== "all";
-  const hasAnyQueueFilter = hasScopeFilters || reviewStateFilter !== "all";
+  const hasAnyQueueFilter =
+    hasScopeFilters ||
+    reviewStateFilter !== "all" ||
+    Boolean(queueSearch) ||
+    queueSort !== "score";
   const scopeFilters = {
     currentOnly: true,
     ...(projectFilter !== "all" ? { projectId: projectFilter } : {}),
@@ -155,6 +197,9 @@ export function Dashboard() {
       queryClient.invalidateQueries({ queryKey: ["opportunities"] });
       queryClient.invalidateQueries({ queryKey: ["scans"] });
       queryClient.invalidateQueries({ queryKey: ["readiness"] });
+      queryClient.invalidateQueries({ queryKey: ["opportunity-threads"] });
+      queryClient.invalidateQueries({ queryKey: ["evaluation"] });
+      queryClient.invalidateQueries({ queryKey: ["sources"] });
     },
   });
   const runScan = useMutation({
@@ -164,6 +209,9 @@ export function Dashboard() {
       queryClient.invalidateQueries({ queryKey: ["opportunities"] });
       queryClient.invalidateQueries({ queryKey: ["scans"] });
       queryClient.invalidateQueries({ queryKey: ["readiness"] });
+      queryClient.invalidateQueries({ queryKey: ["opportunity-threads"] });
+      queryClient.invalidateQueries({ queryKey: ["evaluation"] });
+      queryClient.invalidateQueries({ queryKey: ["sources"] });
     },
   });
 
@@ -204,38 +252,13 @@ export function Dashboard() {
       ? queueScope
       : (filteredOpportunities.data ?? []);
   const normalizedQueueSearch = queueSearch.trim().toLocaleLowerCase();
-  const visibleOpportunities = filteredByServer.filter((opportunity) => {
-    if (!normalizedQueueSearch) return true;
-    return [
-      opportunity.title,
-      opportunity.problem_statement,
-      opportunity.target_user,
-      opportunity.top_source,
-      ...opportunity.evidence_items.map((item) => item.source),
-    ].some((value) =>
-      value.toLocaleLowerCase().includes(normalizedQueueSearch),
-    );
-  });
-  visibleOpportunities.sort((left, right) => {
-    if (queueSort === "newest") {
-      return (
-        new Date(right.created_at).getTime() -
-        new Date(left.created_at).getTime()
-      );
-    }
-    if (queueSort === "readiness") {
-      return (
-        readinessRank[right.evidence_readiness.level] -
-          readinessRank[left.evidence_readiness.level] ||
-        right.opportunity_score - left.opportunity_score
-      );
-    }
-    return right.opportunity_score - left.opportunity_score;
-  });
+  const visibleOpportunities = selectQueueItems(filteredByServer, queueView);
   const topOpportunity = allOpportunities[0];
-  const nextUnreviewed = queueScope.find((item) => item.review_state === "new");
+  const nextUnreviewed =
+    reviewStateFilter === "all"
+      ? visibleOpportunities.find((item) => item.review_state === "new")
+      : visibleOpportunities[0];
   const hasOpportunities = allOpportunities.length > 0;
-  const hasFilteredOpportunities = visibleOpportunities.length > 0;
   const queueScopeLoading =
     opportunities.isLoading ||
     (hasScopeFilters && scopedOpportunities.isLoading);
@@ -350,11 +373,7 @@ export function Dashboard() {
   }
 
   function clearQueueFilters() {
-    setProjectFilter("all");
-    setEvidenceSourceFilter("all");
-    setReadinessFilter("all");
-    setAgeFilter("all");
-    setReviewStateFilter("all");
+    updateQueueView(DEFAULT_QUEUE_VIEW);
   }
 
   function submitScan(event: FormEvent<HTMLFormElement>) {
@@ -369,98 +388,65 @@ export function Dashboard() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Opportunity dashboard"
-        description="Process public-source discussions into ranked, evidence-backed project ideas, then inspect the signals behind each score."
+        title="Decision queue"
+        description="Review the evidence. Find your next build."
         actions={
-          <Button
-            onClick={() => process.mutate()}
-            loading={process.isPending}
-            disabled={process.isPending}
-          >
-            {process.isPending ? (
-              <RefreshCw className="motion-safe:animate-spin" size={16} />
-            ) : (
-              <Play size={16} />
-            )}
-            {process.isPending ? "Processing fixtures" : "Process demo data"}
-          </Button>
+          nextUnreviewed && !isLoadingWorkflow && !queueFilterError ? (
+            <ButtonLink
+              href={queueOpportunityHref(nextUnreviewed.id, queueView)}
+              className="shadow-sm"
+            >
+              Review next <ArrowRight size={16} />
+            </ButtonLink>
+          ) : (
+            <Button disabled>
+              {isLoadingWorkflow
+                ? "Finding next item"
+                : queueFilterError
+                  ? "Review unavailable"
+                  : reviewStateFilter === "all"
+                    ? "No new items"
+                    : "No matching items"}
+            </Button>
+          )
         }
       />
 
       <Card className="min-w-0" id="top-opportunities">
-        <div className="mb-5 flex flex-col justify-between gap-4 border-b border-border pb-5 lg:flex-row lg:items-start">
-          <div>
-            <div className="mb-2 flex flex-wrap items-center gap-2">
-              <Badge tone="blue">Current snapshots only</Badge>
-              <span className="text-xs font-semibold uppercase tracking-[0.14em] text-muted">
-                Decision workspace
-              </span>
-            </div>
-            <h2 className="text-xl font-bold text-ink">
-              Opportunity decision queue
-            </h2>
-            <p className="mt-1 max-w-2xl text-sm leading-6 text-muted">
-              Triage ranked opportunities while their evidence readiness,
-              source, and computed score stay in view.
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-3">
-            {nextUnreviewed && !queueScopeLoading && !queueScopeError ? (
-              <ButtonLink
-                href={`/opportunities/${nextUnreviewed.id}`}
-                className="shadow-sm"
-              >
-                Review next <ArrowRight size={16} />
-              </ButtonLink>
-            ) : (
-              <Button disabled>
-                {queueScopeLoading
-                  ? "Finding next item"
-                  : queueScopeError
-                    ? "Review unavailable"
-                    : "No new items"}
-              </Button>
-            )}
-          </div>
-        </div>
-
-        <dl className="mb-5 grid overflow-hidden rounded-product border border-border bg-surface-muted sm:grid-cols-3">
-          <div className="border-b border-border px-4 py-3 sm:border-b-0 sm:border-r">
-            <dt className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">
+        <h2 className="sr-only">Current opportunities</h2>
+        <dl className="mb-4 hidden grid-cols-3 gap-3 border-b border-border pb-3 sm:grid">
+          <div className="min-w-0">
+            <dt className="text-xs font-medium text-muted">
               Needs a first look
             </dt>
             <dd className="mt-1 text-2xl font-bold tabular-nums text-ink">
-              {decisionCounts.new}
+              {queueScopeLoading || queueScopeError ? "—" : decisionCounts.new}
             </dd>
           </div>
-          <div className="border-b border-border px-4 py-3 sm:border-b-0 sm:border-r">
-            <dt className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">
-              Build candidates
-            </dt>
+          <div className="min-w-0">
+            <dt className="text-xs font-medium text-muted">Build candidates</dt>
             <dd className="mt-1 text-2xl font-bold tabular-nums text-ink">
-              {decisionCounts.build_candidate}
+              {queueScopeLoading || queueScopeError
+                ? "—"
+                : decisionCounts.build_candidate}
             </dd>
           </div>
-          <div className="px-4 py-3">
-            <dt className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">
-              Strong evidence
-            </dt>
+          <div className="min-w-0">
+            <dt className="text-xs font-medium text-muted">Strong evidence</dt>
             <dd className="mt-1 text-2xl font-bold tabular-nums text-ink">
-              {
-                queueScope.filter(
-                  (item) => item.evidence_readiness.level === "strong",
-                ).length
-              }
+              {queueScopeLoading || queueScopeError
+                ? "—"
+                : queueScope.filter(
+                    (item) => item.evidence_readiness.level === "strong",
+                  ).length}
             </dd>
           </div>
         </dl>
 
         <div className="mb-4 grid gap-3 lg:grid-cols-[minmax(260px,1fr)_220px]">
           <label>
-            <span className="text-sm font-semibold text-muted">
-              Search queue
-            </span>
-            <span className="relative mt-2 block">
+            <span className="sr-only">Search queue</span>
+            <span className="relative block">
               <Search
                 size={16}
                 className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted"
@@ -471,15 +457,14 @@ export function Dashboard() {
                 aria-label="Search queue"
                 value={queueSearch}
                 onChange={(event) => setQueueSearch(event.target.value)}
-                placeholder="Title, problem, user, or source"
+                placeholder="Search title, problem, user, or source"
                 className="pl-10"
               />
             </span>
           </label>
           <label>
-            <span className="text-sm font-semibold text-muted">Sort by</span>
+            <span className="sr-only">Sort by</span>
             <Select
-              className="mt-2"
               aria-label="Sort opportunities"
               value={queueSort}
               onChange={(event) =>
@@ -493,7 +478,11 @@ export function Dashboard() {
           </label>
         </div>
 
-        <details className="group mb-4 rounded-product border border-border bg-surface-muted">
+        <details
+          key={hasScopeFilters ? "scoped" : "unscoped"}
+          open={hasScopeFilters || undefined}
+          className="group mb-4 rounded-product border border-border bg-surface-muted"
+        >
           <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 rounded-product px-4 py-2 text-sm font-semibold text-ink hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]">
             <span className="flex flex-wrap items-center gap-2">
               Refine scope
@@ -512,8 +501,8 @@ export function Dashboard() {
               Queue filters
             </legend>
             <p className="mb-3 text-xs leading-5 text-muted">
-              Review next opens the highest-ranked new item in the project,
-              evidence-source, readiness, and age scope below.
+              Review next follows the selected filters and sort order. In All
+              decisions, it starts with the first new idea.
             </p>
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[repeat(4,minmax(0,1fr))_auto] xl:items-end">
               <label>
@@ -604,8 +593,25 @@ export function Dashboard() {
           </fieldset>
         </details>
 
+        <label className="mb-3 block sm:hidden">
+          <span className="sr-only">Filter decisions</span>
+          <Select
+            aria-label="Filter decisions"
+            value={reviewStateFilter}
+            onChange={(event) =>
+              setReviewStateFilter(event.target.value as QueueView["review"])
+            }
+          >
+            <option value="all">All decisions ({queueScope.length})</option>
+            {REVIEW_STATE_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label} ({decisionCounts[option.value]})
+              </option>
+            ))}
+          </Select>
+        </label>
         <div
-          className="mb-4 flex flex-wrap gap-2"
+          className="mb-3 hidden flex-wrap gap-2 sm:flex"
           role="group"
           aria-label="Decision state filter"
         >
@@ -632,6 +638,22 @@ export function Dashboard() {
           ))}
         </div>
 
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <Button variant="ghost" size="sm" onClick={() => void copyViewLink()}>
+            <Copy size={14} aria-hidden />
+            Copy view link
+          </Button>
+          {hasAnyQueueFilter ? (
+            <Button variant="ghost" size="sm" onClick={clearQueueFilters}>
+              Reset view
+            </Button>
+          ) : null}
+          {copyStatus ? (
+            <span role="status" className="text-xs text-muted">
+              {copyStatus}
+            </span>
+          ) : null}
+        </div>
         <p
           className="mb-3 text-sm text-muted"
           aria-live="polite"
@@ -646,144 +668,38 @@ export function Dashboard() {
                 : `Showing ${visibleOpportunities.length} of ${queueScope.length} current opportunities`}
         </p>
 
-        <TableShell
-          label="Top opportunities"
-          caption="Ranked opportunities with decision, evidence readiness, source, score, and feasibility"
-          tableClassName="min-w-[980px]"
-        >
-          <thead className="border-b border-border text-xs font-semibold text-muted">
-            <tr>
-              <th className="py-3 pr-4">Title</th>
-              <th className="py-3 pr-4">Decision</th>
-              <th className="py-3 pr-4">Readiness</th>
-              <th className="py-3 pr-4">Score</th>
-              <th className="py-3 pr-4">Signals</th>
-              <th className="py-3 pr-4">Top source</th>
-              <th className="py-3 pr-4">Feasibility</th>
-              <th className="py-3 pr-4">Created</th>
-              <th className="py-3">Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {isLoadingWorkflow && (
-              <>
-                <tr>
-                  <td colSpan={9} className="py-4">
-                    <div className="h-3 w-3/4 motion-safe:animate-pulse rounded-full bg-surface-muted" />
-                  </td>
-                </tr>
-                <tr>
-                  <td colSpan={9} className="py-4">
-                    <div className="h-3 w-1/2 motion-safe:animate-pulse rounded-full bg-surface-muted" />
-                  </td>
-                </tr>
-              </>
-            )}
-            {!isLoadingWorkflow && !hasOpportunities && !queueFilterError && (
-              <tr>
-                <td colSpan={9} className="py-8 text-center">
-                  <div className="mx-auto max-w-md px-4 py-6">
-                    <p className="text-sm font-semibold text-ink">
-                      No ranked opportunities yet
-                    </p>
-                    <p className="mt-2 text-sm leading-6 text-muted">
-                      Process demo data to generate evidence-backed cards from
-                      fixtures, then open the top result for its source trail.
-                    </p>
-                  </div>
-                </td>
-              </tr>
-            )}
-            {!isLoadingWorkflow &&
-              hasOpportunities &&
-              !hasFilteredOpportunities &&
-              !queueFilterError && (
-                <tr>
-                  <td colSpan={9} className="py-8 text-center">
-                    {normalizedQueueSearch
-                      ? "No current opportunities match your search"
-                      : hasScopeFilters
-                        ? "No current opportunities match these filters"
-                        : "No opportunities match this decision state"}
-                  </td>
-                </tr>
-              )}
-            {!isLoadingWorkflow &&
-              visibleOpportunities.map((opportunity) => (
-                <tr
-                  key={opportunity.id}
-                  className={clsx(
-                    "border-b border-border last:border-b-0 hover:bg-surface-muted",
-                    opportunity.id === nextUnreviewed?.id &&
-                      "bg-[var(--color-info-surface)]/40",
-                  )}
-                >
-                  <td className="max-w-md py-3 pr-4">
-                    <Link
-                      href={`/opportunities/${opportunity.id}`}
-                      className="font-semibold text-ink hover:text-signal"
-                    >
-                      {opportunity.title}
-                    </Link>
-                    <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted">
-                      {opportunity.problem_statement}
-                    </p>
-                  </td>
-                  <td className="py-3 pr-4">
-                    <Badge
-                      tone={reviewStateOption(opportunity.review_state).tone}
-                    >
-                      {reviewStateOption(opportunity.review_state).label}
-                    </Badge>
-                  </td>
-                  <td className="py-3 pr-4">
-                    <Badge
-                      tone={
-                        READINESS_TONES[opportunity.evidence_readiness.level]
-                      }
-                    >
-                      {opportunity.evidence_readiness.level}
-                    </Badge>
-                  </td>
-                  <td className="py-3 pr-4">
-                    <span className="font-semibold tabular-nums text-ink">
-                      {Math.round(opportunity.opportunity_score * 100)}
-                    </span>
-                  </td>
-                  <td className="py-3 pr-4 tabular-nums">
-                    {opportunity.signal_count}
-                  </td>
-                  <td className="py-3 pr-4">
-                    <Badge>{opportunity.top_source}</Badge>
-                  </td>
-                  <td className="py-3 pr-4">
-                    <div className="w-28">
-                      <ScoreBar
-                        value={opportunity.feasibility_score}
-                        label={`${opportunity.title} feasibility score`}
-                      />
-                    </div>
-                  </td>
-                  <td className="py-3 pr-4 text-muted">
-                    {new Date(opportunity.created_at).toLocaleDateString()}
-                  </td>
-                  <td className="py-3">
-                    <Link
-                      className="inline-flex min-h-11 items-center gap-1 whitespace-nowrap rounded-product font-semibold text-signal hover:text-[var(--ts-accent-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)] motion-safe:active:translate-y-px"
-                      href={`/opportunities/${opportunity.id}`}
-                    >
-                      Open <ArrowRight size={14} />
-                    </Link>
-                  </td>
-                </tr>
-              ))}
-          </tbody>
-        </TableShell>
+        <OpportunityQueueList
+          items={visibleOpportunities}
+          view={queueView}
+          loading={isLoadingWorkflow}
+          error={Boolean(queueFilterError)}
+          hasOpportunities={hasOpportunities}
+          hasScopeFilters={hasScopeFilters}
+        />
       </Card>
 
       {dataError && (
         <div>
-          <StateMessage tone="danger" title="Could not load dashboard data">
+          <StateMessage
+            tone="danger"
+            title="Could not load dashboard data"
+            action={
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  void queryClient.invalidateQueries({
+                    queryKey: ["opportunities"],
+                  });
+                  void stats.refetch();
+                  void projects.refetch();
+                  void sources.refetch();
+                  void scans.refetch();
+                }}
+              >
+                Retry
+              </Button>
+            }
+          >
             {errorMessage(dataError)}
           </StateMessage>
         </div>
@@ -968,19 +884,30 @@ export function Dashboard() {
               not require a paid model.
             </p>
           </div>
-          {latestScan ? (
-            <Badge
-              tone={
-                latestScan.status === "completed"
-                  ? "green"
-                  : latestScan.status === "failed"
-                    ? "red"
-                    : "blue"
-              }
+          <div className="flex shrink-0 flex-wrap items-center gap-3">
+            <Button
+              variant="secondary"
+              onClick={() => process.mutate()}
+              loading={process.isPending}
+              disabled={process.isPending}
             >
-              Latest scan: {latestScan.status}
-            </Badge>
-          ) : null}
+              <Play size={16} aria-hidden />
+              {process.isPending ? "Processing fixtures" : "Process demo data"}
+            </Button>
+            {latestScan ? (
+              <Badge
+                tone={
+                  latestScan.status === "completed"
+                    ? "green"
+                    : latestScan.status === "failed"
+                      ? "red"
+                      : "blue"
+                }
+              >
+                Latest scan: {latestScan.status}
+              </Badge>
+            ) : null}
+          </div>
         </div>
         <details className="group border-t border-border pt-2">
           <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 rounded-product px-2 text-sm font-semibold text-ink hover:bg-surface-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]">

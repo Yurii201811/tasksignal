@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, GitBranch, Scissors, Save } from "lucide-react";
+import { refreshReviewQueries } from "@/lib/research-cache";
 import { api } from "@/lib/api";
 import type { ReviewState } from "@/lib/types";
 import {
@@ -60,7 +61,7 @@ export function OpportunityThreadDetail({ id }: { id: string }) {
     onSuccess: (next) => {
       setDecisionDirty(false);
       queryClient.setQueryData(["opportunity-thread", id], next);
-      void queryClient.invalidateQueries({ queryKey: ["opportunity-threads"] });
+      void refreshReviewQueries(queryClient);
     },
     onError: () => {
       void queryClient.invalidateQueries({
@@ -77,7 +78,7 @@ export function OpportunityThreadDetail({ id }: { id: string }) {
         result.source_thread,
       );
       setDetachedThreadId(result.new_thread.id);
-      void queryClient.invalidateQueries({ queryKey: ["opportunity-threads"] });
+      void refreshReviewQueries(queryClient);
     },
     onError: () => {
       void queryClient.invalidateQueries({

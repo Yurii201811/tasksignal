@@ -79,9 +79,17 @@ describe("OpportunityDecisionPanel", () => {
         },
       );
       expect(invalidate).toHaveBeenCalledWith({
-        queryKey: ["opportunity", "opportunity-1"],
+        queryKey: ["opportunity"],
       });
       expect(invalidate).toHaveBeenCalledWith({ queryKey: ["opportunities"] });
+      for (const key of [
+        "opportunity-thread",
+        "opportunity-threads",
+        "evaluation",
+        "readiness",
+      ]) {
+        expect(invalidate).toHaveBeenCalledWith({ queryKey: [key] });
+      }
     });
     expect(await screen.findByRole("status")).toHaveTextContent(
       "Decision saved",
@@ -189,5 +197,34 @@ describe("OpportunityDecisionPanel", () => {
     expect(screen.getByText("Confirmed: New")).toBeInTheDocument();
     expect(screen.queryByText("Decision saved")).not.toBeInTheDocument();
     expect(invalidate).not.toHaveBeenCalled();
+  });
+  it("preserves unsaved edits when a background response changes the confirmed decision", () => {
+    const client = new QueryClient();
+    const dirty = vi.fn();
+    const view = (state: "new" | "rejected") => (
+      <QueryClientProvider client={client}>
+        <OpportunityDecisionPanel
+          opportunityId="opportunity-1"
+          reviewState={state}
+          reviewNote={null}
+          decisionUpdatedAt={state === "new" ? null : "2026-09-16T10:00:00Z"}
+          onDirtyChange={dirty}
+        />
+      </QueryClientProvider>
+    );
+    const { rerender } = render(view("new"));
+    fireEvent.change(screen.getByLabelText("Decision state"), {
+      target: { value: "promising" },
+    });
+    fireEvent.change(screen.getByLabelText("Local review note"), {
+      target: { value: "My unsaved research" },
+    });
+    rerender(view("rejected"));
+    expect(screen.getByLabelText("Decision state")).toHaveValue("promising");
+    expect(screen.getByLabelText("Local review note")).toHaveValue(
+      "My unsaved research",
+    );
+    expect(screen.getByText("Confirmed: Rejected")).toBeInTheDocument();
+    expect(dirty).toHaveBeenLastCalledWith("decision", true);
   });
 });

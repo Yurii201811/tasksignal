@@ -11,7 +11,7 @@ def installed_tasksignal_version() -> str:
             return version(distribution)
         except PackageNotFoundError:
             continue
-    return "1.0.0a2"
+    return "1.0.0a3"
 
 
 TASKSIGNAL_VERSION = installed_tasksignal_version()

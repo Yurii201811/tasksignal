@@ -13,6 +13,7 @@ import {
 } from "@/lib/review";
 import {
   Badge,
+  Button,
   Card,
   PageHeader,
   Select,
@@ -78,7 +79,15 @@ export function OpportunityThreads() {
       </Card>
 
       {threads.error ? (
-        <StateMessage tone="danger" title="Could not load opportunity threads">
+        <StateMessage
+          tone="danger"
+          title="Could not load opportunity threads"
+          action={
+            <Button variant="secondary" onClick={() => void threads.refetch()}>
+              Retry
+            </Button>
+          }
+        >
           {errorMessage(threads.error)}
         </StateMessage>
       ) : null}
@@ -87,7 +96,7 @@ export function OpportunityThreads() {
           Reading current snapshots and their lineage metadata.
         </StateMessage>
       ) : null}
-      {!threads.isLoading && (threads.data ?? []).length === 0 ? (
+      {threads.isSuccess && (threads.data ?? []).length === 0 ? (
         <StateMessage tone="warning" title="No threads match this review state">
           Run a research project or choose another review state.
         </StateMessage>

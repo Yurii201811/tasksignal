@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { refreshReviewQueries } from "@/lib/research-cache";
 import { api } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { EVIDENCE_REVIEW_OPTIONS, evidenceReviewLabel } from "@/lib/review";
@@ -9,17 +10,27 @@ import type { EvidenceItem, EvidenceReviewLabel } from "@/lib/types";
 import { Badge, Button, Select, StateMessage, Textarea } from "@/components/ui";
 
 export function EvidenceReviewControl({
-  opportunityId,
   item,
+  onDirtyChange,
 }: {
   opportunityId: string;
   item: EvidenceItem;
+  onDirtyChange?: (id: string, dirty: boolean) => void;
 }) {
   const queryClient = useQueryClient();
   const [label, setLabel] = useState<EvidenceReviewLabel | "">(
     item.review_label ?? "",
   );
   const [note, setNote] = useState("");
+  const edited = useRef(false);
+  const draftItem = useRef(item.id);
+  useEffect(() => {
+    if (draftItem.current === item.id && edited.current) return;
+    draftItem.current = item.id;
+    edited.current = false;
+    setLabel(item.review_label ?? "");
+    setNote("");
+  }, [item.id, item.review_label]);
   const mutation = useMutation({
     mutationFn: (reviewLabel: EvidenceReviewLabel) =>
       api.createEvidenceReview({
@@ -28,17 +39,20 @@ export function EvidenceReviewControl({
         user_note: note.trim() || null,
       }),
     onSuccess: async () => {
+      edited.current = false;
       await Promise.all([
-        queryClient.invalidateQueries({
-          queryKey: ["opportunity", opportunityId],
-        }),
-        queryClient.invalidateQueries({ queryKey: ["opportunities"] }),
-        queryClient.invalidateQueries({ queryKey: ["evaluation"] }),
+        refreshReviewQueries(queryClient),
         queryClient.invalidateQueries({ queryKey: ["item-labels", item.id] }),
       ]);
       setNote("");
     },
   });
+
+  const dirty =
+    label !== (item.review_label ?? "") || Boolean(note) || mutation.isPending;
+  useEffect(() => {
+    onDirtyChange?.(item.id, dirty);
+  }, [dirty, item.id, onDirtyChange]);
 
   function clearMutationFeedback() {
     if (mutation.isSuccess || mutation.isError) mutation.reset();
@@ -81,6 +95,7 @@ export function EvidenceReviewControl({
             disabled={mutation.isPending}
             value={label}
             onChange={(event) => {
+              edited.current = true;
               clearMutationFeedback();
               setLabel(event.target.value as EvidenceReviewLabel | "");
             }}
@@ -106,6 +121,7 @@ export function EvidenceReviewControl({
             maxLength={500}
             value={note}
             onChange={(event) => {
+              edited.current = true;
               clearMutationFeedback();
               setNote(event.target.value);
             }}
