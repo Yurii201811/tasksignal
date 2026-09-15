@@ -30,6 +30,9 @@ claim measured speed gains or change build-packet eligibility.
 - Backend: **535 tests passed**, repository Python 3.12, isolated temporary DB.
 - Web: **106 tests passed**, 22 files, Node 20.20.0, Vitest 4.1.11.
 - TypeScript, ESLint, Ruff, fixture redaction, and `git diff --check`: passed.
+- Impeccable static detector: **0 findings** across all changed TSX/CSS targets;
+  recorded once in `DETECTOR.json`. Do not rerun it during the remaining visual
+  review; pass this report to the reviewer.
 - Repository release metadata, documentation, tracked-file secret-pattern scan,
   and changelog checks: passed for 1.0.0a3 (without a clean-tree requirement or
   remote CI URL).
@@ -59,7 +62,7 @@ copy-link success; bookmarked view survives reload; dirty review disables Next.
 **Pending:** the Mac locked during the unsaved-navigation warning check. Browser
 and native-app tools could no longer inspect or dismiss the prompt. The user was
 asked to unlock the Mac. Do not report the final responsive pass, save-and-next
-readback, console check, Impeccable detector/finish review, or design-documenter
+readback, console check, Impeccable finish review, or design-documenter
 handoff as complete yet. Existing `.impeccable/review/alpha3` images are first-pass
 captures, not final review evidence.
 
@@ -86,6 +89,13 @@ review. Reset viewport override and keep the preview tab as the deliverable.
   no new brand identity or replacement visual world was introduced.
 
 ## Runtime and boundaries
+
+The user subsequently authorized implementing the remaining recommendations,
+committing all task changes, and pushing them to GitHub after completion. Target:
+`Yurii201811/tasksignal`, current branch `codex/tasksignal-next-version`. GitHub
+actor was verified as `Yurii201811`; the remote branch does not yet exist. The
+push remains pending the final browser/design review. No further push approval
+is needed for this scope. Latest local implementation checkpoint: `08f0c5e`.
 
 - Production Next preview: `http://127.0.0.1:3000`, exec session `98181`.
 - API: `http://127.0.0.1:8000`, exec session `7580`, packaged/fixture mode,
