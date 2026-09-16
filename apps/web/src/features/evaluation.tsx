@@ -6,6 +6,7 @@ import { apiErrorMessage } from "@/lib/api-error";
 import { EVIDENCE_REVIEW_OPTIONS, formatPercentage } from "@/lib/review";
 import type { EvaluationSlice } from "@/lib/types";
 import {
+  Button,
   Card,
   EmptyState,
   MetricTile,
@@ -41,10 +42,7 @@ function BreakdownTable({
         </thead>
         <tbody>
           {Object.entries(rows).map(([name, row]) => (
-            <tr
-              key={name}
-              className="border-b border-border last:border-0"
-            >
+            <tr key={name} className="border-b border-border last:border-0">
               <td className="py-3 pr-3 font-medium">{name}</td>
               <td className="py-3 pr-3 tabular-nums">{row.total_items}</td>
               <td className="py-3 pr-3 tabular-nums">{row.reviewed_items}</td>
@@ -70,22 +68,32 @@ export function Evaluation() {
     queryFn: api.evaluation,
   });
   if (query.isLoading) {
-    return (
-      <StateMessage tone="info" title="Loading evidence evaluation" />
-    );
+    return <StateMessage tone="info" title="Loading evidence evaluation" />;
   }
   if (query.error) {
     return (
-      <StateMessage tone="danger" title="Could not load evidence evaluation">
+      <StateMessage
+        tone="danger"
+        title="Could not load evidence evaluation"
+        action={
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => void query.refetch()}
+            loading={query.isFetching}
+            disabled={query.isFetching}
+          >
+            {query.isFetching ? "Retrying" : "Retry"}
+          </Button>
+        }
+      >
         {apiErrorMessage(query.error)}
       </StateMessage>
     );
   }
   const data = query.data;
   if (!data) {
-    return (
-      <StateMessage tone="danger" title="Evaluation response was empty" />
-    );
+    return <StateMessage tone="danger" title="Evaluation response was empty" />;
   }
   const limits = (
     <StateMessage tone="warning" title="Evaluation limits">

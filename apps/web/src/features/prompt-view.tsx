@@ -6,16 +6,13 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import ReactMarkdown from "react-markdown";
 import { ArrowLeft, Copy, Download } from "lucide-react";
 import { api } from "@/lib/api";
+import { apiErrorMessage as errorMessage } from "@/lib/api-error";
 import { Badge, Button, Card, PageHeader, StateMessage } from "@/components/ui";
-
-function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : "The request failed.";
-}
 
 export function PromptView({ id }: { id: string }) {
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState<string | null>(null);
-  const { data, error, isError, isLoading } = useQuery({
+  const { data, error, isError, isLoading, isFetching, refetch } = useQuery({
     queryKey: ["prompt", id],
     queryFn: () => api.prompt(id),
   });
@@ -89,9 +86,7 @@ export function PromptView({ id }: { id: string }) {
                   evidenceDownload.isPending ? "motion-safe:animate-pulse" : ""
                 }
               />
-              {evidenceDownload.isPending
-                ? "Downloading…"
-                : "Evidence bundle"}
+              {evidenceDownload.isPending ? "Downloading…" : "Evidence bundle"}
             </Button>
             <Button
               variant="secondary"
@@ -137,7 +132,21 @@ export function PromptView({ id }: { id: string }) {
         </StateMessage>
       ) : null}
       {isError ? (
-        <StateMessage tone="danger" title="Could not load generated prompt">
+        <StateMessage
+          tone="danger"
+          title="Could not load generated prompt"
+          action={
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => void refetch()}
+              loading={isFetching}
+              disabled={isFetching}
+            >
+              {isFetching ? "Retrying" : "Retry"}
+            </Button>
+          }
+        >
           {errorMessage(error)}
         </StateMessage>
       ) : null}

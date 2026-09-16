@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -30,7 +30,8 @@ const completedScan: Scan = {
   signals_detected: 6,
   clusters_created: 2,
   opportunities_created: 1,
-  outcome_message: "The scan generated 1 ranked opportunity from 6 detected signals.",
+  outcome_message:
+    "The scan generated 1 ranked opportunity from 6 detected signals.",
 };
 
 const failedScan: Scan = {
@@ -44,7 +45,8 @@ const failedScan: Scan = {
   signals_detected: 0,
   clusters_created: 0,
   opportunities_created: 0,
-  outcome_message: "The scan failed before a complete outcome could be computed.",
+  outcome_message:
+    "The scan failed before a complete outcome could be computed.",
 };
 
 const zeroOpportunityScan: Scan = {
@@ -60,8 +62,12 @@ const zeroOpportunityScan: Scan = {
 };
 
 function renderWithClient(ui: React.ReactElement) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={client}>{ui}</QueryClientProvider>,
+  );
 }
 
 describe("Scans", () => {
@@ -81,12 +87,49 @@ describe("Scans", () => {
     );
   });
 
+  it("keeps the empty-history claim off a failed load and retries", async () => {
+    vi.mocked(api.scans)
+      .mockRejectedValueOnce(new Error('{"detail":"Scan store unavailable"}'))
+      .mockResolvedValue([completedScan]);
+
+    renderWithClient(<Scans />);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Could not load scan history");
+    expect(alert).toHaveTextContent("Scan store unavailable");
+    expect(screen.queryByText("No scans recorded yet")).not.toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /Scan history is unavailable until the request above succeeds/,
+      ),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    expect(await screen.findByText("Hacker News")).toBeInTheDocument();
+    expect(api.scans).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("shows the empty-history state only after a successful empty load", async () => {
+    vi.mocked(api.scans).mockResolvedValue([]);
+
+    renderWithClient(<Scans />);
+
+    expect(
+      await screen.findByText("No scans recorded yet"),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("renders a completed scan detail with metadata and counts", async () => {
     vi.mocked(api.scan).mockResolvedValue(completedScan);
 
     renderWithClient(<ScanDetail id={completedScan.id} />);
 
-    expect(await screen.findByText("Scan completed with opportunities")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Scan completed with opportunities"),
+    ).toBeInTheDocument();
     expect(screen.getAllByText("Hacker News").length).toBeGreaterThan(0);
     expect(screen.getAllByText("30").length).toBeGreaterThan(0);
     expect(screen.getAllByText("18").length).toBeGreaterThan(0);
@@ -100,9 +143,12 @@ describe("Scans", () => {
 
     renderWithClient(<ScanDetail id={zeroOpportunityScan.id} />);
 
-    expect(await screen.findByText("Scan completed without opportunities")).toBeInTheDocument();
     expect(
-      screen.getAllByText(/did not detect concrete problem or task signals/i).length,
+      await screen.findByText("Scan completed without opportunities"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getAllByText(/did not detect concrete problem or task signals/i)
+        .length,
     ).toBeGreaterThan(0);
     expect(screen.getAllByText("0").length).toBeGreaterThan(0);
   });
@@ -115,7 +161,9 @@ describe("Scans", () => {
     expect(
       await screen.findByText("Scan failed with a redacted message"),
     ).toBeInTheDocument();
-    expect(screen.getAllByText(failedScan.error_message as string).length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText(failedScan.error_message as string).length,
+    ).toBeGreaterThan(0);
   });
 
   it("shows a clear not-found state when the scan id is missing", async () => {
@@ -125,6 +173,8 @@ describe("Scans", () => {
 
     renderWithClient(<ScanDetail id="missing-scan" />);
 
-    expect((await screen.findAllByText("Scan not found")).length).toBeGreaterThan(0);
+    expect(
+      (await screen.findAllByText("Scan not found")).length,
+    ).toBeGreaterThan(0);
   });
 });

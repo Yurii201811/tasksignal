@@ -9,13 +9,22 @@ whose provenance can be verified before implementation starts.
 
 ![TaskSignal alpha 1 opportunity queue after processing demo data](docs/images/dashboard-browser-verified.jpg)
 
-## Next version: 1.0.0 alpha 2
+## Next version: 1.0.0 alpha 3
 
-The workspace home now shows live research totals, the next opportunity to
-review, and recent projects. Use **Try demo data** for a credential-free first
-run, then **Open decision queue** to review current snapshots. The queue supports
-text search and score, evidence-readiness, and recency sorting; **Refine scope**
-opens project, source, age, and readiness filters.
+The decision queue keeps its text search, sort order, and project, source,
+readiness, age, and decision filters in the URL, so a view can be copied or
+reopened later. Opening an idea from the queue preserves that view: **Back to
+filtered queue** returns to it and **Next in this queue** continues in the same
+order. Unsaved reviews disable Next and warn before another page link or a reload
+would discard them.
+
+The home page shows current research totals, unreviewed ideas, saved views, and
+recent projects; onboarding appears only in an empty workspace. Projects list
+saved work first with local search, run-status filters, and a focused **New
+project** disclosure. Run history can rerun a project, open its scoped queue, and
+jump to each run's scan record. Threads link every snapshot to its evidence page,
+confirm saved decisions, and guard unsaved edits. Failed loads on every page keep
+a **Retry** action and never masquerade as empty data.
 
 Press **Cmd+K** on macOS or **Ctrl+K** elsewhere to jump between views or search
 for evidence. Submitted evidence searches have a reusable `?q=` address, with

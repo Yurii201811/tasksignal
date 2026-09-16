@@ -196,6 +196,26 @@ describe("ResearchProjects", () => {
     expect(screen.getByLabelText("Project name")).toHaveFocus();
   });
 
+  it("offers a project-scoped queue link only once a project has run", async () => {
+    vi.mocked(api.researchProjects).mockResolvedValue([
+      ciProject,
+      forumProject,
+    ]);
+
+    renderFeature();
+
+    expect(
+      await screen.findByRole("link", {
+        name: "Open queue for Track CI/CD pain",
+      }),
+    ).toHaveAttribute("href", "/dashboard?project=project-ci");
+    expect(
+      screen.queryByRole("link", {
+        name: "Open queue for Forum workaround hunt",
+      }),
+    ).not.toBeInTheDocument();
+  });
+
   it("keeps the empty state hidden while loading and expands creation only for a truly empty list", async () => {
     const request = deferred<ResearchProject[]>();
     vi.mocked(api.researchProjects).mockReturnValue(request.promise);

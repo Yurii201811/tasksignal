@@ -1,14 +1,11 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { Database, KeyRound } from "lucide-react";
+import { Database, KeyRound, RefreshCw } from "lucide-react";
 import { api } from "@/lib/api";
-import { Badge, Card, PageHeader, StateMessage } from "@/components/ui";
+import { apiErrorMessage } from "@/lib/api-error";
+import { Badge, Button, Card, PageHeader, StateMessage } from "@/components/ui";
 import { DiscourseSourceManager } from "@/features/discourse-source-manager";
-
-function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : "The request failed.";
-}
 
 export function Sources() {
   const sources = useQuery({ queryKey: ["sources"], queryFn: api.sources });
@@ -21,8 +18,32 @@ export function Sources() {
       />
 
       {sources.error ? (
-        <StateMessage tone="danger" title="Could not load sources">
-          {errorMessage(sources.error)}
+        <StateMessage
+          tone="danger"
+          title="Could not load sources"
+          action={
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => void sources.refetch()}
+              loading={sources.isFetching}
+              disabled={sources.isFetching}
+            >
+              <RefreshCw
+                size={15}
+                aria-hidden
+                className={
+                  sources.isFetching ? "motion-safe:animate-spin" : undefined
+                }
+              />
+              {sources.isFetching ? "Retrying" : "Retry"}
+            </Button>
+          }
+        >
+          {apiErrorMessage(sources.error)}{" "}
+          {sources.data
+            ? "The last loaded registry stays below until a retry succeeds."
+            : "Check that the local API is running, then retry."}
         </StateMessage>
       ) : null}
 
@@ -32,7 +53,7 @@ export function Sources() {
         </StateMessage>
       ) : null}
 
-      {!sources.isLoading && (sources.data ?? []).length === 0 ? (
+      {sources.isSuccess && sources.data.length === 0 ? (
         <StateMessage tone="warning" title="No sources are registered">
           Fixture data can still be processed if the backend has local fixture
           files available.
@@ -84,7 +105,8 @@ function connectorCopy(type: string) {
     fixture: "Loads local JSON fixtures for a no-credential demo pipeline.",
     reddit: "Uses Reddit OAuth variables when configured on the backend.",
     hackernews: "Uses the public Hacker News API.",
-    github: "Uses GitHub REST search, optionally with GITHUB_TOKEN on the backend.",
+    github:
+      "Uses GitHub REST search, optionally with GITHUB_TOKEN on the backend.",
     stackexchange:
       "Uses the Stack Exchange API, optionally with STACK_EXCHANGE_KEY on the backend.",
     discourse:
@@ -100,8 +122,10 @@ function connectorName(type: string, fallback: string) {
     hackernews: "Hacker News API",
     github: "GitHub Issues API",
     stackexchange: "Stack Exchange API",
-    discourse: "Discourse forum",
   };
+  // Discourse forums are operator-named and there can be several, so their
+  // own display name must stay visible instead of a shared connector label.
+  if (type === "discourse") return fallback.trim() || "Discourse forum";
   return names[type] ?? fallback;
 }
 

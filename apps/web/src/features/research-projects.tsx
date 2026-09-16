@@ -13,6 +13,8 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { api } from "@/lib/api";
+import { refreshProjectRunQueries } from "@/lib/research-cache";
+import { DEFAULT_QUEUE_VIEW, queueHref } from "@/lib/queue-view";
 import {
   Badge,
   Button,
@@ -202,43 +204,14 @@ export function ResearchProjects() {
   const run = useMutation({
     mutationFn: (project: ResearchProject) =>
       api.runResearchProject(project.id, operatorToken.trim() || undefined),
-    onSuccess: (_scan, project) => {
-      queryClient.invalidateQueries({ queryKey: ["research-projects"] });
-      queryClient.invalidateQueries({ queryKey: ["scans"] });
-      queryClient.invalidateQueries({ queryKey: ["stats"] });
-      queryClient.invalidateQueries({ queryKey: ["opportunities"] });
-      queryClient.invalidateQueries({ queryKey: ["opportunity-threads"] });
-      queryClient.invalidateQueries({ queryKey: ["readiness"] });
-      queryClient.invalidateQueries({ queryKey: ["evaluation"] });
-      queryClient.invalidateQueries({
-        queryKey: ["research-project", project.id],
-      });
-      queryClient.invalidateQueries({
-        queryKey: ["research-project-runs", project.id],
-      });
-      queryClient.invalidateQueries({
-        queryKey: ["research-project-run-delta", project.id],
-      });
-    },
+    onSuccess: (_scan, project) =>
+      refreshProjectRunQueries(queryClient, project.id),
   });
   const runDue = useMutation({
     mutationFn: () =>
       api.runDueResearchProjects(operatorToken.trim() || undefined),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["research-projects"] });
-      queryClient.invalidateQueries({ queryKey: ["scans"] });
-      queryClient.invalidateQueries({ queryKey: ["stats"] });
-      queryClient.invalidateQueries({ queryKey: ["opportunities"] });
-      queryClient.invalidateQueries({ queryKey: ["opportunity-threads"] });
-      queryClient.invalidateQueries({ queryKey: ["readiness"] });
-      queryClient.invalidateQueries({ queryKey: ["evaluation"] });
-      // Due runs can touch any project, so refresh every per-project cache.
-      queryClient.invalidateQueries({ queryKey: ["research-project"] });
-      queryClient.invalidateQueries({ queryKey: ["research-project-runs"] });
-      queryClient.invalidateQueries({
-        queryKey: ["research-project-run-delta"],
-      });
-    },
+    // Due runs can touch any project, so every per-project cache refreshes.
+    onSuccess: () => refreshProjectRunQueries(queryClient),
   });
 
   useEffect(() => {
@@ -718,6 +691,18 @@ export function ResearchProjects() {
                         >
                           Run history <GitCompareArrows size={16} aria-hidden />
                         </Link>
+                        {project.run_count > 0 ? (
+                          <Link
+                            href={queueHref({
+                              ...DEFAULT_QUEUE_VIEW,
+                              project: project.id,
+                            })}
+                            className={secondaryLinkClass}
+                            aria-label={`Open queue for ${project.name}`}
+                          >
+                            Open queue <ArrowRight size={16} aria-hidden />
+                          </Link>
+                        ) : null}
                       </div>
                     </div>
                   </Card>

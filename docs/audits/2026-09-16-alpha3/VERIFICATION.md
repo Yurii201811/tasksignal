@@ -59,17 +59,15 @@ Verified through the real UI: demo completion; fixture project creation and
 run; project status/cache refresh; queue project/decision/search/sort filtering;
 copy-link success; bookmarked view survives reload; dirty review disables Next.
 
-**Pending:** the Mac locked during the unsaved-navigation warning check. Browser
-and native-app tools could no longer inspect or dismiss the prompt. The user was
-asked to unlock the Mac. Do not report the final responsive pass, save-and-next
-readback, console check, Impeccable finish review, or design-documenter
-handoff as complete yet. Existing `.impeccable/review/alpha3` images are first-pass
-captures, not final review evidence.
-
-After unlock: dismiss any pending warning while keeping the draft, save it,
-verify next/back behavior, reload the production preview, capture desktop and
-320/375/390/414/768px plus the user's viewport, and complete the skill finish
-review. Reset viewport override and keep the preview tab as the deliverable.
+**Closed on 2026-09-16 (later session):** the unsaved-navigation warning,
+save-and-next readback, next/back context, project rerun and cache refresh,
+thread save, packet generation and verification, production-preview reload,
+320/768px overflow measurements, and console check were completed against a
+new disposable database. Results, the one concrete fix they produced (the
+opportunity score card at 320px), and the remaining deferred items are recorded
+in [`IMPLEMENTATION-LEDGER.md`](IMPLEMENTATION-LEDGER.md). Existing
+`.impeccable/review/alpha3` images remain first-pass captures. The Impeccable
+finish review and design-documenter handoff were not run in that session.
 
 ## Requested assistance
 

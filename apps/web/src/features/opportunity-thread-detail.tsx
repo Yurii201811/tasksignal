@@ -3,9 +3,18 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, GitBranch, Scissors, Save } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  GitBranch,
+  RefreshCw,
+  Scissors,
+  Save,
+} from "lucide-react";
 import { refreshReviewQueries } from "@/lib/research-cache";
 import { api } from "@/lib/api";
+import { apiErrorMessage as errorMessage } from "@/lib/api-error";
+import { useUnsavedReview } from "@/lib/use-unsaved-review";
 import type { ReviewState } from "@/lib/types";
 import {
   READINESS_TONES,
@@ -24,20 +33,16 @@ import {
   Textarea,
 } from "@/components/ui";
 
+const secondaryLinkClass =
+  "inline-flex min-h-11 items-center gap-2 whitespace-nowrap rounded-product border border-border-strong bg-surface px-4 py-2 text-sm font-semibold text-ink hover:bg-surface-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]";
+
+const inlineLinkClass =
+  "inline-flex min-h-11 items-center gap-1 whitespace-nowrap rounded-product text-sm font-semibold text-signal hover:text-[var(--ts-accent-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]";
+
 function percent(value: number | null | undefined) {
   return value === null || value === undefined
     ? "Not scored"
     : `${Math.round(value * 100)}%`;
-}
-
-function errorMessage(error: unknown) {
-  if (!(error instanceof Error)) return "The request failed.";
-  try {
-    const detail = JSON.parse(error.message)?.detail;
-    return typeof detail === "string" ? detail : error.message;
-  } catch {
-    return error.message;
-  }
 }
 
 export function OpportunityThreadDetail({ id }: { id: string }) {
@@ -69,6 +74,9 @@ export function OpportunityThreadDetail({ id }: { id: string }) {
       });
     },
   });
+  // Same guard as the opportunity page: unsaved decision edits warn before
+  // following another page link or reloading.
+  useUnsavedReview(decisionDirty || updateDecision.isPending);
   const detach = useMutation({
     mutationFn: (snapshotId: string) =>
       api.detachOpportunitySnapshot(id, snapshotId, thread.data?.version ?? 0),
@@ -106,8 +114,31 @@ export function OpportunityThreadDetail({ id }: { id: string }) {
   }
   if (thread.error || !thread.data) {
     return (
-      <StateMessage tone="danger" title="Could not load opportunity thread">
-        {errorMessage(thread.error)}
+      <StateMessage
+        tone="danger"
+        title="Could not load opportunity thread"
+        action={
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => void thread.refetch()}
+            loading={thread.isFetching}
+            disabled={thread.isFetching}
+          >
+            <RefreshCw
+              size={15}
+              aria-hidden
+              className={
+                thread.isFetching ? "motion-safe:animate-spin" : undefined
+              }
+            />
+            {thread.isFetching ? "Retrying" : "Retry"}
+          </Button>
+        }
+      >
+        {thread.error
+          ? errorMessage(thread.error)
+          : "The API returned no thread for this address."}
       </StateMessage>
     );
   }
@@ -124,12 +155,19 @@ export function OpportunityThreadDetail({ id }: { id: string }) {
           current?.problem_statement ?? "This thread has no current snapshot."
         }
         actions={
-          <Link
-            href="/threads"
-            className="inline-flex min-h-11 items-center gap-2 rounded-product border border-border-strong bg-surface px-4 py-2 text-sm font-semibold text-ink hover:bg-surface-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]"
-          >
-            <ArrowLeft size={16} aria-hidden /> Threads
-          </Link>
+          <>
+            <Link href="/threads" className={secondaryLinkClass}>
+              <ArrowLeft size={16} aria-hidden /> Threads
+            </Link>
+            {current ? (
+              <Link
+                href={`/opportunities/${current.id}`}
+                className="inline-flex min-h-11 items-center gap-2 whitespace-nowrap rounded-product bg-signal px-4 py-2 text-sm font-semibold text-[var(--color-accent-ink)] hover:bg-[var(--ts-accent-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]"
+              >
+                Review evidence <ArrowRight size={16} aria-hidden />
+              </Link>
+            ) : null}
+          </>
         }
       />
 
@@ -203,9 +241,11 @@ export function OpportunityThreadDetail({ id }: { id: string }) {
             <Select
               className="mt-2"
               value={reviewState}
+              disabled={updateDecision.isPending}
               onChange={(event) => {
                 setReviewState(event.target.value as ReviewState);
                 setDecisionDirty(true);
+                if (updateDecision.isSuccess) updateDecision.reset();
               }}
             >
               {REVIEW_STATE_OPTIONS.map((option) => (
@@ -222,20 +262,31 @@ export function OpportunityThreadDetail({ id }: { id: string }) {
             <Textarea
               className="mt-2"
               value={reviewNote}
+              disabled={updateDecision.isPending}
               onChange={(event) => {
                 setReviewNote(event.target.value);
                 setDecisionDirty(true);
+                if (updateDecision.isSuccess) updateDecision.reset();
               }}
               maxLength={1000}
             />
           </label>
-          <Button
-            className="mt-4"
-            loading={updateDecision.isPending}
-            onClick={() => updateDecision.mutate()}
-          >
-            <Save size={16} aria-hidden /> Save thread decision
-          </Button>
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+            <p className="text-xs text-muted">
+              {decisionDirty
+                ? "Unsaved changes."
+                : data.decision_updated_at
+                  ? `Last saved ${new Date(data.decision_updated_at).toLocaleString()}.`
+                  : "No decision saved yet."}
+            </p>
+            <Button
+              loading={updateDecision.isPending}
+              disabled={updateDecision.isPending || !decisionDirty}
+              onClick={() => updateDecision.mutate()}
+            >
+              <Save size={16} aria-hidden /> Save thread decision
+            </Button>
+          </div>
           {updateDecision.error ? (
             <StateMessage
               className="mt-4"
@@ -243,6 +294,16 @@ export function OpportunityThreadDetail({ id }: { id: string }) {
               title="Decision was not saved"
             >
               {errorMessage(updateDecision.error)}
+            </StateMessage>
+          ) : null}
+          {updateDecision.isSuccess && !decisionDirty ? (
+            <StateMessage
+              className="mt-4"
+              tone="success"
+              title="Thread decision saved"
+            >
+              The queue, snapshot, evaluation, and readiness views now reflect
+              this state.
             </StateMessage>
           ) : null}
         </Card>
@@ -288,6 +349,13 @@ export function OpportunityThreadDetail({ id }: { id: string }) {
                     Observed {new Date(snapshot.created_at).toLocaleString()} ·{" "}
                     {snapshot.signal_count} signals
                   </p>
+                  <Link
+                    href={`/opportunities/${snapshot.id}`}
+                    className={inlineLinkClass}
+                    aria-label={`Open evidence for ${snapshot.title}${isCurrent ? " (current snapshot)" : " (historical snapshot)"}`}
+                  >
+                    Open snapshot evidence <ArrowRight size={14} aria-hidden />
+                  </Link>
                 </div>
                 {canDetach ? (
                   <Button

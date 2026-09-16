@@ -84,7 +84,7 @@ export function AgentSessions() {
       void queryClient.invalidateQueries({ queryKey: ["agent-sessions"] });
     },
   });
-  const error = sessions.error ?? approve.error ?? revoke.error;
+  const actionError = approve.error ?? revoke.error;
 
   return (
     <div className="space-y-6">
@@ -109,9 +109,38 @@ export function AgentSessions() {
         </div>
       </Card>
 
-      {error ? (
+      {sessions.error ? (
+        <StateMessage
+          tone="danger"
+          title="Could not load agent sessions"
+          action={
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => void sessions.refetch()}
+              loading={sessions.isFetching}
+              disabled={sessions.isFetching}
+            >
+              <RefreshCw
+                size={15}
+                aria-hidden
+                className={
+                  sessions.isFetching ? "motion-safe:animate-spin" : undefined
+                }
+              />
+              {sessions.isFetching ? "Retrying" : "Retry"}
+            </Button>
+          }
+        >
+          {errorMessage(sessions.error)}{" "}
+          {sessions.data
+            ? "The last loaded sessions stay below until a retry succeeds."
+            : "Check that the local API is running, then retry."}
+        </StateMessage>
+      ) : null}
+      {actionError ? (
         <StateMessage tone="danger" title="Agent session action failed">
-          {errorMessage(error)}
+          {errorMessage(actionError)}
         </StateMessage>
       ) : null}
       {sessions.isLoading ? (
@@ -119,7 +148,7 @@ export function AgentSessions() {
           Expiring missed heartbeat leases before showing current state.
         </StateMessage>
       ) : null}
-      {!sessions.isLoading && (sessions.data ?? []).length === 0 ? (
+      {sessions.isSuccess && sessions.data.length === 0 ? (
         <StateMessage tone="warning" title="No agent sessions">
           Start `tasksignal mcp` to register a process and request guarded write
           access.
@@ -130,9 +159,8 @@ export function AgentSessions() {
         {(sessions.data ?? []).map((session) => {
           const pending = session.effective_status === "pending";
           const approved = session.effective_status === "approved";
-          const configuredAiRequested = session.requested_capabilities.includes(
-            "use_configured_ai",
-          );
+          const configuredAiRequested =
+            session.requested_capabilities.includes("use_configured_ai");
           const visibleCapabilities = pending
             ? session.requested_capabilities
             : session.approved_capabilities;

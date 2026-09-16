@@ -21,6 +21,7 @@ import {
   StateMessage,
 } from "@/components/ui";
 import { api } from "@/lib/api";
+import { apiErrorMessage as errorMessage } from "@/lib/api-error";
 import type { Integration } from "@/lib/types";
 
 const sourceOptions = [
@@ -38,22 +39,6 @@ const cadenceOptions = [
   { value: "weekly", label: "Weekly" },
   { value: "custom", label: "Custom" },
 ];
-
-function errorMessage(error: unknown) {
-  if (error instanceof Error) {
-    try {
-      const parsed = JSON.parse(error.message);
-      if (parsed?.detail) {
-        return typeof parsed.detail === "string"
-          ? parsed.detail
-          : JSON.stringify(parsed.detail);
-      }
-    } catch {
-      return error.message;
-    }
-  }
-  return "The request failed.";
-}
 
 function statusTone(
   status: string,
@@ -160,10 +145,22 @@ export default function SettingsPage() {
             <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
               <div>
                 <div className="flex flex-wrap gap-2">
-                  <Badge tone={localWorkspace.data?.configured ? "green" : "amber"}>
-                    {localWorkspace.data?.configured
-                      ? "Local user set"
-                      : "Local user not set"}
+                  <Badge
+                    tone={
+                      localWorkspace.isLoading
+                        ? "slate"
+                        : localWorkspace.data?.configured
+                          ? "green"
+                          : "amber"
+                    }
+                  >
+                    {localWorkspace.isLoading
+                      ? "Loading local profile"
+                      : localWorkspace.isError && !localWorkspace.data
+                        ? "Local profile unavailable"
+                        : localWorkspace.data?.configured
+                          ? "Local user set"
+                          : "Local user not set"}
                   </Badge>
                   <Badge>Single-machine workspace</Badge>
                 </div>
@@ -175,7 +172,12 @@ export default function SettingsPage() {
                 type="submit"
                 variant="secondary"
                 loading={saveWorkspace.isPending}
-                disabled={saveWorkspace.isPending}
+                disabled={saveWorkspace.isPending || !localWorkspace.data}
+                title={
+                  localWorkspace.data
+                    ? undefined
+                    : "The saved profile must load before it can be replaced."
+                }
               >
                 {saveWorkspace.isPending ? (
                   <RefreshCw className="motion-safe:animate-spin" size={16} />
@@ -298,6 +300,26 @@ export default function SettingsPage() {
           </form>
         </Card>
 
+        {localWorkspace.error ? (
+          <StateMessage
+            tone="danger"
+            title="Could not load the local workspace profile"
+            action={
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => void localWorkspace.refetch()}
+                loading={localWorkspace.isFetching}
+                disabled={localWorkspace.isFetching}
+              >
+                {localWorkspace.isFetching ? "Retrying" : "Retry"}
+              </Button>
+            }
+          >
+            {errorMessage(localWorkspace.error)} Saving stays disabled so an
+            unseen profile is not overwritten.
+          </StateMessage>
+        ) : null}
         {saveWorkspace.error ? (
           <StateMessage tone="danger" title="Workspace was not saved">
             {errorMessage(saveWorkspace.error)}
@@ -339,6 +361,25 @@ export default function SettingsPage() {
           </div>
         </Card>
 
+        {readiness.error ? (
+          <StateMessage
+            tone="danger"
+            title="Readiness check failed"
+            action={
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => void readiness.refetch()}
+                loading={readiness.isFetching}
+                disabled={readiness.isFetching}
+              >
+                {readiness.isFetching ? "Retrying" : "Retry"}
+              </Button>
+            }
+          >
+            {errorMessage(readiness.error)}
+          </StateMessage>
+        ) : null}
         {readiness.data ? (
           <Card>
             <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
@@ -434,8 +475,34 @@ export default function SettingsPage() {
         ) : null}
 
         {integrations.error ? (
-          <StateMessage tone="danger" title="Could not load integrations">
-            {errorMessage(integrations.error)}
+          <StateMessage
+            tone="danger"
+            title="Could not load integrations"
+            action={
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => void integrations.refetch()}
+                loading={integrations.isFetching}
+                disabled={integrations.isFetching}
+              >
+                <RefreshCw
+                  size={15}
+                  aria-hidden
+                  className={
+                    integrations.isFetching
+                      ? "motion-safe:animate-spin"
+                      : undefined
+                  }
+                />
+                {integrations.isFetching ? "Retrying" : "Retry"}
+              </Button>
+            }
+          >
+            {errorMessage(integrations.error)}{" "}
+            {integrations.data
+              ? "The last loaded connector status stays below until a retry succeeds."
+              : "Check that the local API is running, then retry."}
           </StateMessage>
         ) : null}
         {integrations.isLoading ? (
@@ -561,7 +628,9 @@ function ReadinessCheck({
     <div className="py-3">
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm font-semibold text-ink">{label}</p>
-        <Badge tone={done ? "green" : "amber"}>{done ? "Ready" : "Needed"}</Badge>
+        <Badge tone={done ? "green" : "amber"}>
+          {done ? "Ready" : "Needed"}
+        </Badge>
       </div>
       <p className="mt-1 text-xs leading-5 text-muted">{detail}</p>
     </div>

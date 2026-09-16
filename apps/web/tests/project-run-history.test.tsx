@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -10,6 +10,7 @@ vi.mock("../src/lib/api", () => ({
     researchProject: vi.fn(),
     researchProjectRuns: vi.fn(),
     researchProjectRunDelta: vi.fn(),
+    runResearchProject: vi.fn(),
   },
 }));
 
@@ -17,11 +18,14 @@ function renderFeature() {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  return render(
-    <QueryClientProvider client={client}>
-      <ProjectRunHistory id="project-1" />
-    </QueryClientProvider>,
-  );
+  return {
+    client,
+    ...render(
+      <QueryClientProvider client={client}>
+        <ProjectRunHistory id="project-1" />
+      </QueryClientProvider>,
+    ),
+  };
 }
 
 describe("ProjectRunHistory", () => {
@@ -143,5 +147,99 @@ describe("ProjectRunHistory", () => {
       "project-1",
       "run-2",
     );
+  });
+
+  it("links each run to its scan and the project to its scoped queue", async () => {
+    renderFeature();
+
+    expect(await screen.findByText("Track workflow pain")).toBeInTheDocument();
+    const scanLinks = screen.getAllByRole("link", { name: /Scan detail/ });
+    expect(scanLinks.map((link) => link.getAttribute("href"))).toEqual([
+      "/scans/scan-2",
+      "/scans/legacy-scan",
+    ]);
+    expect(
+      screen.getByRole("link", { name: /Open queue for this project/ }),
+    ).toHaveAttribute("href", "/dashboard?project=project-1");
+  });
+
+  it("reruns the project from its history and refreshes the ledger caches", async () => {
+    window.localStorage.setItem("tasksignal.operatorToken", "local-secret");
+    vi.mocked(api.runResearchProject).mockResolvedValue({
+      id: "scan-3",
+      source_id: null,
+      source_type: "hackernews",
+      source_name: "Hacker News",
+      status: "completed",
+      query: "ask",
+      started_at: "2026-07-12T10:00:00Z",
+      finished_at: "2026-07-12T10:00:30Z",
+      error_message: null,
+      items_found: 9,
+      items_saved: 3,
+      signals_detected: 4,
+      clusters_created: 1,
+      opportunities_created: 1,
+      outcome_message: null,
+    });
+    const { client } = renderFeature();
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+
+    expect(await screen.findByText("Track workflow pain")).toBeInTheDocument();
+    const runButton = screen.getByRole("button", { name: "Run project" });
+    await waitFor(() => expect(runButton).toBeEnabled());
+    fireEvent.click(runButton);
+
+    await waitFor(() =>
+      expect(api.runResearchProject).toHaveBeenCalledWith(
+        "project-1",
+        "local-secret",
+      ),
+    );
+    expect(await screen.findByText("Project run finished")).toBeInTheDocument();
+    expect(screen.getByText(/3 saved from 9 found/)).toBeInTheDocument();
+    expect(
+      screen
+        .getAllByRole("link", { name: /Scan detail/ })
+        .map((link) => link.getAttribute("href")),
+    ).toContain("/scans/scan-3");
+    await waitFor(() => {
+      for (const queryKey of [
+        ["research-projects"],
+        ["scans"],
+        ["stats"],
+        ["opportunities"],
+        ["opportunity-threads"],
+        ["readiness"],
+        ["evaluation"],
+        ["research-project", "project-1"],
+        ["research-project-runs", "project-1"],
+        ["research-project-run-delta", "project-1"],
+      ]) {
+        expect(invalidate).toHaveBeenCalledWith({ queryKey });
+      }
+    });
+    window.localStorage.clear();
+  });
+
+  it("offers Retry on a failed load without claiming the project has no runs", async () => {
+    vi.mocked(api.researchProjectRuns)
+      .mockReset()
+      .mockRejectedValueOnce(new Error('{"detail":"Run ledger unavailable"}'))
+      .mockResolvedValue([]);
+    renderFeature();
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Could not load run history");
+    expect(alert).toHaveTextContent("Run ledger unavailable");
+    expect(screen.queryByText("No runs yet")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    expect(await screen.findByText("No runs yet")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: /Open queue for this project/ }),
+    ).not.toBeInTheDocument();
   });
 });

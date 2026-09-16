@@ -11,6 +11,7 @@ import {
   SearchIcon,
 } from "lucide-react";
 import { api } from "@/lib/api";
+import { apiErrorMessage as errorMessage } from "@/lib/api-error";
 import type { SemanticSearch as SemanticSearchResults } from "@/lib/types";
 import { safeExternalUrl } from "@/lib/url";
 import {
@@ -26,10 +27,6 @@ const DEFAULT_QUERY = "weekly spreadsheet client report";
 const EMPTY_STATE_QUERY = "support ticket triage";
 
 type SearchStatus = "idle" | "pending" | "success" | "error";
-
-function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : "The request failed.";
-}
 
 export function SemanticSearch() {
   const searchParams = useSearchParams();

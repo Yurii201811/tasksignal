@@ -1,10 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, GitCompareArrows } from "lucide-react";
+import { useEffect, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  ArrowLeft,
+  ArrowRight,
+  GitCompareArrows,
+  Play,
+  RefreshCw,
+} from "lucide-react";
 import { api } from "@/lib/api";
+import { apiErrorMessage as errorMessage } from "@/lib/api-error";
+import { refreshProjectRunQueries } from "@/lib/research-cache";
+import { DEFAULT_QUEUE_VIEW, queueHref } from "@/lib/queue-view";
 import type { RunDeltaCounts } from "@/lib/types";
 import {
   Badge,
@@ -15,15 +24,8 @@ import {
   TableShell,
 } from "@/components/ui";
 
-function errorMessage(error: unknown) {
-  if (!(error instanceof Error)) return "The request failed.";
-  try {
-    const detail = JSON.parse(error.message)?.detail;
-    return typeof detail === "string" ? detail : error.message;
-  } catch {
-    return error.message;
-  }
-}
+const secondaryLinkClass =
+  "inline-flex min-h-11 items-center gap-2 whitespace-nowrap rounded-product border border-border-strong bg-surface px-4 py-2 text-sm font-semibold text-ink hover:bg-surface-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]";
 
 function formatDate(value: string) {
   return new Date(value).toLocaleString();
@@ -54,7 +56,9 @@ function DeltaCounts({ counts }: { counts: RunDeltaCounts }) {
 }
 
 export function ProjectRunHistory({ id }: { id: string }) {
+  const queryClient = useQueryClient();
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const [operatorToken, setOperatorToken] = useState("");
   const project = useQuery({
     queryKey: ["research-project", id],
     queryFn: () => api.researchProject(id),
@@ -68,7 +72,24 @@ export function ProjectRunHistory({ id }: { id: string }) {
     queryFn: () => api.researchProjectRunDelta(id, selectedRunId as string),
     enabled: selectedRunId !== null,
   });
+  const run = useMutation({
+    mutationFn: () =>
+      api.runResearchProject(id, operatorToken.trim() || undefined),
+    onSuccess: () => refreshProjectRunQueries(queryClient, id),
+  });
+  useEffect(() => {
+    setOperatorToken(
+      window.localStorage.getItem("tasksignal.operatorToken") ?? "",
+    );
+  }, []);
   const error = project.error ?? runs.error;
+  const isFetching = project.isFetching || runs.isFetching;
+  const hasRuns = (runs.data ?? []).length > 0;
+
+  function retryLoad() {
+    void project.refetch();
+    void runs.refetch();
+  }
 
   return (
     <div className="space-y-6">
@@ -76,18 +97,63 @@ export function ProjectRunHistory({ id }: { id: string }) {
         title={project.data?.name ?? "Project run history"}
         description="Immutable run snapshots show what the connector observed and how that evidence changed from the previous complete run."
         actions={
-          <Link
-            href="/projects"
-            className="inline-flex min-h-11 items-center gap-2 rounded-product border border-border-strong bg-surface px-4 py-2 text-sm font-semibold text-ink hover:bg-surface-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]"
-          >
-            <ArrowLeft size={16} aria-hidden /> Projects
-          </Link>
+          <>
+            <Link href="/projects" className={secondaryLinkClass}>
+              <ArrowLeft size={16} aria-hidden /> Projects
+            </Link>
+            {hasRuns ? (
+              <Link
+                href={queueHref({ ...DEFAULT_QUEUE_VIEW, project: id })}
+                className={secondaryLinkClass}
+              >
+                Open queue for this project <ArrowRight size={16} aria-hidden />
+              </Link>
+            ) : null}
+            <Button
+              onClick={() => run.mutate()}
+              loading={run.isPending}
+              disabled={run.isPending || project.isLoading || !project.data}
+            >
+              {run.isPending ? (
+                <RefreshCw
+                  className="motion-safe:animate-spin"
+                  size={16}
+                  aria-hidden
+                />
+              ) : (
+                <Play size={16} aria-hidden />
+              )}
+              {run.isPending ? "Running project" : "Run project"}
+            </Button>
+          </>
         }
       />
 
       {error ? (
-        <StateMessage tone="danger" title="Could not load run history">
-          {errorMessage(error)}
+        <StateMessage
+          tone="danger"
+          title="Could not load run history"
+          action={
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={retryLoad}
+              loading={isFetching}
+              disabled={isFetching}
+            >
+              <RefreshCw
+                size={15}
+                aria-hidden
+                className={isFetching ? "motion-safe:animate-spin" : undefined}
+              />
+              {isFetching ? "Retrying" : "Retry"}
+            </Button>
+          }
+        >
+          {errorMessage(error)}{" "}
+          {runs.data
+            ? "The last loaded ledger stays below until a retry succeeds."
+            : "Check that the local API is running, then retry."}
         </StateMessage>
       ) : null}
       {project.isLoading || runs.isLoading ? (
@@ -95,8 +161,33 @@ export function ProjectRunHistory({ id }: { id: string }) {
           Reading this project&apos;s tracked and legacy scan lineage.
         </StateMessage>
       ) : null}
+      {run.error ? (
+        <StateMessage tone="danger" title="Project run did not complete">
+          {errorMessage(run.error)}
+        </StateMessage>
+      ) : null}
+      {run.data ? (
+        <StateMessage
+          tone="success"
+          title="Project run finished"
+          action={
+            <Link
+              href={`/scans/${run.data.id}`}
+              className="inline-flex min-h-11 items-center gap-1 whitespace-nowrap rounded-product px-2 text-sm font-semibold text-success hover:bg-surface-success focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-success"
+            >
+              Scan detail <ArrowRight size={15} aria-hidden />
+            </Link>
+          }
+        >
+          {run.data.items_saved} saved from {run.data.items_found} found.
+          Signals: {run.data.signals_detected}. Opportunities:{" "}
+          {run.data.opportunities_created}. The ledger below now includes this
+          run.
+          {run.data.outcome_message ? ` ${run.data.outcome_message}` : ""}
+        </StateMessage>
+      ) : null}
 
-      {!runs.isLoading && (runs.data ?? []).length === 0 ? (
+      {runs.isSuccess && runs.data.length === 0 ? (
         <StateMessage tone="warning" title="No runs yet">
           Run the project once to create its first auditable snapshot.
         </StateMessage>
@@ -141,19 +232,38 @@ export function ProjectRunHistory({ id }: { id: string }) {
                         ? "Legacy run"
                         : `Run ${run.sequence}`}
                     </p>
-                    <Badge
-                      tone={
-                        run.lineage_status === "complete"
-                          ? "green"
-                          : run.lineage_status === "incomplete"
-                            ? "amber"
-                            : "slate"
-                      }
+                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                      <Badge
+                        tone={
+                          run.lineage_status === "complete"
+                            ? "green"
+                            : run.lineage_status === "incomplete"
+                              ? "amber"
+                              : "slate"
+                        }
+                      >
+                        {run.lineage_status === "untracked"
+                          ? "Lineage untracked"
+                          : `Lineage ${run.lineage_status}`}
+                      </Badge>
+                      <Badge
+                        tone={
+                          run.scan_status === "completed"
+                            ? "green"
+                            : run.scan_status === "failed"
+                              ? "red"
+                              : "blue"
+                        }
+                      >
+                        {run.scan_status}
+                      </Badge>
+                    </div>
+                    <Link
+                      href={`/scans/${run.scan_id}`}
+                      className="mt-1 inline-flex min-h-11 items-center gap-1 whitespace-nowrap rounded-product text-sm font-semibold text-signal hover:text-[var(--ts-accent-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ts-focus-ring)]"
                     >
-                      {run.lineage_status === "untracked"
-                        ? "Lineage untracked"
-                        : `Lineage ${run.lineage_status}`}
-                    </Badge>
+                      Scan detail <ArrowRight size={14} aria-hidden />
+                    </Link>
                   </td>
                   <td className="py-4 pr-4 align-top text-muted">
                     {formatDate(run.started_at)}

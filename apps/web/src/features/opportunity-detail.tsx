@@ -189,7 +189,7 @@ export function OpportunityDetail({ id }: { id: string }) {
 
         <Card
           variant="muted"
-          className="flex items-center gap-4 lg:block lg:text-right"
+          className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4 lg:block lg:text-right"
         >
           <div className="shrink-0">
             <p className="text-sm font-semibold text-muted">
@@ -199,7 +199,7 @@ export function OpportunityDetail({ id }: { id: string }) {
               {Math.round(data.opportunity_score * 100)}
             </p>
           </div>
-          <p className="mt-2 text-xs leading-5 text-muted">
+          <p className="text-xs leading-5 text-muted lg:mt-2">
             Computed from evidence frequency, pain, task clarity, buying intent,
             feasibility, and competition penalty.
           </p>

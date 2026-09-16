@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, Plus, RefreshCw } from "lucide-react";
 import { api } from "@/lib/api";
+import { apiErrorMessage as errorMessage } from "@/lib/api-error";
 import {
   Badge,
   Button,
@@ -12,24 +13,6 @@ import {
   StateMessage,
   TableShell,
 } from "@/components/ui";
-
-function errorMessage(error: unknown) {
-  if (error instanceof Error) {
-    try {
-      // The local fetch wrapper puts backend JSON strings inside error.message
-      const parsed = JSON.parse(error.message);
-      if (parsed?.detail) {
-        return typeof parsed.detail === "string"
-          ? parsed.detail
-          : JSON.stringify(parsed.detail);
-      }
-    } catch {
-      // Fallback to the raw error text if it isn't JSON string formatted
-      return error.message;
-    }
-  }
-  return "The request failed.";
-}
 
 function statusTone(status: string): "green" | "amber" | "blue" | "red" {
   if (status === "completed") return "green";
@@ -91,8 +74,32 @@ export function Scans() {
         </StateMessage>
       ) : null}
       {scans.error ? (
-        <StateMessage tone="danger" title="Could not load scan history">
-          {errorMessage(scans.error)}
+        <StateMessage
+          tone="danger"
+          title="Could not load scan history"
+          action={
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => void scans.refetch()}
+              loading={scans.isFetching}
+              disabled={scans.isFetching}
+            >
+              <RefreshCw
+                size={15}
+                aria-hidden
+                className={
+                  scans.isFetching ? "motion-safe:animate-spin" : undefined
+                }
+              />
+              {scans.isFetching ? "Retrying" : "Retry"}
+            </Button>
+          }
+        >
+          {errorMessage(scans.error)}{" "}
+          {scans.data
+            ? "The last loaded history stays below until a retry succeeds."
+            : "Check that the local API is running, then retry."}
         </StateMessage>
       ) : null}
 
@@ -119,12 +126,25 @@ export function Scans() {
           <tbody>
             {scans.isLoading ? (
               <tr>
-                <td colSpan={10} className="py-8 text-center text-sm text-muted">
+                <td
+                  colSpan={10}
+                  className="py-8 text-center text-sm text-muted"
+                >
                   Loading scan history...
                 </td>
               </tr>
             ) : null}
-            {!scans.isLoading && (scans.data ?? []).length === 0 ? (
+            {scans.isError && !scans.data ? (
+              <tr>
+                <td
+                  colSpan={10}
+                  className="py-8 text-center text-sm text-muted"
+                >
+                  Scan history is unavailable until the request above succeeds.
+                </td>
+              </tr>
+            ) : null}
+            {scans.isSuccess && scans.data.length === 0 ? (
               <tr>
                 <td colSpan={10} className="py-8 text-center">
                   <div className="mx-auto max-w-md px-4 py-6">
@@ -133,7 +153,8 @@ export function Scans() {
                     </p>
                     <p className="mt-2 text-sm leading-6 text-muted">
                       Run fixture processing from the dashboard or start the
-                      public Hacker News scan to create an auditable scan record.
+                      public Hacker News scan to create an auditable scan
+                      record.
                     </p>
                   </div>
                 </td>
@@ -141,7 +162,10 @@ export function Scans() {
             ) : null}
             {!scans.isLoading &&
               (scans.data ?? []).map((scan) => (
-                <tr key={scan.id} className="border-b border-border last:border-b-0">
+                <tr
+                  key={scan.id}
+                  className="border-b border-border last:border-b-0"
+                >
                   <td className="py-3 pr-4">
                     <Badge tone={statusTone(scan.status)}>{scan.status}</Badge>
                   </td>
@@ -159,8 +183,12 @@ export function Scans() {
                   </td>
                   <td className="py-3 pr-4 tabular-nums">{scan.items_found}</td>
                   <td className="py-3 pr-4 tabular-nums">{scan.items_saved}</td>
-                  <td className="py-3 pr-4 tabular-nums">{scan.signals_detected}</td>
-                  <td className="py-3 pr-4 tabular-nums">{scan.opportunities_created}</td>
+                  <td className="py-3 pr-4 tabular-nums">
+                    {scan.signals_detected}
+                  </td>
+                  <td className="py-3 pr-4 tabular-nums">
+                    {scan.opportunities_created}
+                  </td>
                   <td className="py-3">
                     <Link
                       href={`/scans/${scan.id}`}

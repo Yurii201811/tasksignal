@@ -5,6 +5,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowRight, GitBranch } from "lucide-react";
 import { api } from "@/lib/api";
+import { apiErrorMessage as errorMessage } from "@/lib/api-error";
 import type { ReviewState } from "@/lib/types";
 import {
   READINESS_TONES,
@@ -21,9 +22,8 @@ import {
   TableShell,
 } from "@/components/ui";
 
-function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : "The request failed.";
-}
+const inlineLinkClass =
+  "inline-flex min-h-11 items-center gap-1 whitespace-nowrap rounded-product px-2 text-sm font-semibold text-warning hover:bg-surface-warning focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-warning";
 
 export function matchMethodLabel(method: string | null | undefined) {
   if (!method) return "initial snapshot";
@@ -96,10 +96,38 @@ export function OpportunityThreads() {
           Reading current snapshots and their lineage metadata.
         </StateMessage>
       ) : null}
-      {threads.isSuccess && (threads.data ?? []).length === 0 ? (
-        <StateMessage tone="warning" title="No threads match this review state">
-          Run a research project or choose another review state.
-        </StateMessage>
+      {threads.isSuccess && threads.data.length === 0 ? (
+        reviewState === "all" ? (
+          <StateMessage
+            tone="warning"
+            title="No opportunity threads yet"
+            action={
+              <Link href="/projects" className={inlineLinkClass}>
+                Run a project <ArrowRight size={15} aria-hidden />
+              </Link>
+            }
+          >
+            Threads appear after a research project or demo run generates ranked
+            opportunities.
+          </StateMessage>
+        ) : (
+          <StateMessage
+            tone="warning"
+            title="No threads match this review state"
+            action={
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setReviewState("all")}
+              >
+                Show all states
+              </Button>
+            }
+          >
+            Choose another review state or review more opportunities in the
+            decision queue.
+          </StateMessage>
+        )
       ) : null}
 
       {(threads.data ?? []).length > 0 ? (

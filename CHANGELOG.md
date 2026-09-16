@@ -16,6 +16,11 @@ All notable public-facing changes to TaskSignal are recorded here.
   or reloading, and survive background data refreshes.
 - Project search and run-status filters, plus focused project creation in an
   accessible disclosure below the saved projects.
+- Project run history can rerun the project, open its scoped decision queue, and
+  jump to each run's scan record; project cards link to their scoped queue once
+  a run exists.
+- Thread pages link the current and historical snapshots to their evidence
+  pages, confirm saved thread decisions, and warn before unsaved edits are lost.
 
 ### Changed
 
@@ -31,6 +36,15 @@ All notable public-facing changes to TaskSignal are recorded here.
 
 - Failed thread/project/source requests no longer masquerade as empty data;
   recovery actions stay available beside the error.
+- Failed scan-history, run-history, agent-session, source-registry,
+  stored-packet, integration, readiness, and workspace-profile loads now show
+  the API's error detail with a Retry action instead of raw JSON, a silent gap,
+  or an empty-state claim; the workspace form stays read-only until the stored
+  profile has loaded.
+- Discourse forums keep their own names on the Sources page instead of sharing
+  one connector label.
+- The opportunity score card stacks at narrow widths instead of squeezing its
+  description into a one-word column.
 - Review saves refresh thread, snapshot, evaluation, and readiness views.
   Project runs also refresh project history and comparison data.
 - Background updates preserve in-progress review notes and labels.

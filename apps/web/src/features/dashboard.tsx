@@ -27,6 +27,7 @@ import {
   Search,
 } from "lucide-react";
 import { api } from "@/lib/api";
+import { apiErrorMessage as errorMessage } from "@/lib/api-error";
 import {
   Badge,
   Button,
@@ -65,10 +66,6 @@ const chartColors = [
 ];
 
 type QueueAgeFilter = "all" | "7" | "30" | "90";
-
-function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : "The request failed.";
-}
 
 export function Dashboard() {
   const queryClient = useQueryClient();
