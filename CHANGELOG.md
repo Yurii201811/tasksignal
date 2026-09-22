@@ -4,6 +4,12 @@ All notable public-facing changes to TaskSignal are recorded here.
 
 ## Unreleased
 
+### Fixed
+
+- Project run history now distinguishes failed and unfinished scan responses
+  from completed runs, including failures returned with HTTP 200. Failed runs
+  display the connector error and retain their scan-detail link and ledger refresh.
+
 ## 1.0.0a3 - 2026-09-16
 
 ### Added

@@ -168,21 +168,31 @@ export function ProjectRunHistory({ id }: { id: string }) {
       ) : null}
       {run.data ? (
         <StateMessage
-          tone="success"
-          title="Project run finished"
+          tone={
+            run.data.status === "failed"
+              ? "danger"
+              : run.data.status === "completed"
+                ? "success"
+                : "info"
+          }
+          title={
+            run.data.status === "failed"
+              ? "Project run failed"
+              : run.data.status === "completed"
+                ? "Project run finished"
+                : "Project run response received"
+          }
           action={
-            <Link
-              href={`/scans/${run.data.id}`}
-              className="inline-flex min-h-11 items-center gap-1 whitespace-nowrap rounded-product px-2 text-sm font-semibold text-success hover:bg-surface-success focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-success"
-            >
+            <Link href={`/scans/${run.data.id}`} className={secondaryLinkClass}>
               Scan detail <ArrowRight size={15} aria-hidden />
             </Link>
           }
         >
-          {run.data.items_saved} saved from {run.data.items_found} found.
-          Signals: {run.data.signals_detected}. Opportunities:{" "}
-          {run.data.opportunities_created}. The ledger below now includes this
-          run.
+          Status: {run.data.status}. {run.data.items_saved} saved from{" "}
+          {run.data.items_found} found. Signals: {run.data.signals_detected}.
+          Opportunities: {run.data.opportunities_created}. The ledger below now
+          includes this run.
+          {run.data.error_message ? ` ${run.data.error_message}` : ""}
           {run.data.outcome_message ? ` ${run.data.outcome_message}` : ""}
         </StateMessage>
       ) : null}

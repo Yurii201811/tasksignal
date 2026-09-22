@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -221,6 +227,93 @@ describe("ProjectRunHistory", () => {
     });
     window.localStorage.clear();
   });
+
+  it.each([
+    null,
+    "The scan failed before a complete outcome could be computed.",
+  ])(
+    "reports a failed scan returned over HTTP 200, with outcome %s",
+    async (outcomeMessage) => {
+      vi.mocked(api.runResearchProject).mockResolvedValue({
+        id: "failed-scan",
+        source_id: null,
+        source_type: "hackernews",
+        source_name: "Hacker News",
+        status: "failed",
+        query: "ask",
+        started_at: "2026-09-22T06:00:00Z",
+        finished_at: "2026-09-22T06:00:01Z",
+        error_message: "The connector is temporarily unavailable.",
+        items_found: 0,
+        items_saved: 0,
+        signals_detected: 0,
+        clusters_created: 0,
+        opportunities_created: 0,
+        outcome_message: outcomeMessage,
+      });
+      const { client } = renderFeature();
+      const invalidate = vi.spyOn(client, "invalidateQueries");
+
+      await screen.findByText("Track workflow pain");
+      fireEvent.click(screen.getByRole("button", { name: "Run project" }));
+
+      const alert = await screen.findByRole("alert");
+      expect(alert).toHaveTextContent("Project run failed");
+      expect(alert).toHaveTextContent("Status: failed");
+      expect(alert).toHaveTextContent(
+        "The connector is temporarily unavailable.",
+      );
+      if (outcomeMessage) expect(alert).toHaveTextContent(outcomeMessage);
+      expect(
+        screen.queryByText("Project run finished"),
+      ).not.toBeInTheDocument();
+      expect(
+        within(alert).getByRole("link", { name: /Scan detail/ }),
+      ).toHaveAttribute("href", "/scans/failed-scan");
+      await waitFor(() =>
+        expect(invalidate).toHaveBeenCalledWith({
+          queryKey: ["research-project-runs", "project-1"],
+        }),
+      );
+    },
+  );
+
+  it.each(["queued", "running"])(
+    "does not claim completion for a %s scan response",
+    async (status) => {
+      vi.mocked(api.runResearchProject).mockResolvedValue({
+        id: "pending-scan",
+        source_id: null,
+        source_type: "hackernews",
+        source_name: "Hacker News",
+        status,
+        query: "ask",
+        started_at: "2026-09-22T06:00:00Z",
+        finished_at: null,
+        error_message: null,
+        items_found: 0,
+        items_saved: 0,
+        signals_detected: 0,
+        clusters_created: 0,
+        opportunities_created: 0,
+        outcome_message: null,
+      });
+      renderFeature();
+
+      await screen.findByText("Track workflow pain");
+      fireEvent.click(screen.getByRole("button", { name: "Run project" }));
+
+      const message = await screen.findByText("Project run response received");
+      expect(message).not.toHaveClass("text-success");
+      expect(message.closest('[role="status"]')).toHaveTextContent(
+        `Status: ${status}`,
+      );
+      expect(
+        screen.queryByText("Project run finished"),
+      ).not.toBeInTheDocument();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    },
+  );
 
   it("offers Retry on a failed load without claiming the project has no runs", async () => {
     vi.mocked(api.researchProjectRuns)

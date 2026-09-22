@@ -6,6 +6,19 @@ Base: `d9d55223246fcb933c3884a7781ed2107aa781ef`.
 Worktree: `/Users/yuriibakurov/Documents/Github Project/tasksignal/.worktrees/tasksignal-next-improvement`.
 Version: Python `1.0.0a3`; web `1.0.0-alpha.3`.
 
+## Latest follow-up: 2026-09-22
+
+Fable's full follow-up is committed as `7a8c736` (26 files, 123 web tests).
+The subsequent review found that run history treated failed HTTP-200 scan
+responses as successful runs. This is now fixed, with four regression cases,
+**127 passing web tests**, browser checks of failed/completed responses,
+TypeScript, ESLint, and a production build. See
+[`../2026-09-22-run-status-fix.md`](../2026-09-22-run-status-fix.md).
+
+The user requested committing all task changes and pushing the current feature
+branch on 2026-09-22. This is branch publication, not a public release or
+deployment. The final Impeccable/design-documenter review remains unperformed.
+
 ## Scope
 
 The user's priority is to find and review buildable ideas faster. This update
@@ -25,7 +38,7 @@ claim measured speed gains or change build-packet eligibility.
   in-progress notes survive background response updates. Browser Back/Forward
   is not intercepted and should follow a saved review.
 
-## Completed verification
+## Original checkpoint verification (before Fable's full follow-up)
 
 - Backend: **535 tests passed**, repository Python 3.12, isolated temporary DB.
 - Web: **106 tests passed**, 22 files, Node 20.20.0, Vitest 4.1.11.
@@ -77,28 +90,28 @@ finish review and design-documenter handoff were not run in that session.
   Applied its recommendations for URL-backed views, evidence-first review,
   continuous queue navigation, populated-home density, and browse-first projects.
 - Cursor: **Claude Fable 5.1 Max** (later displayed `1M Max`), task
-  `TaskSignal alpha 3 improvement`. It exclusively changed
-  `research-projects.tsx` and its eight-test suite, which passed. Its temporary
-  preview-tab cleanup was requested; final UI confirmation awaits unlock.
+  `TaskSignal alpha 3 improvement`. The initial two-file project-list work was
+  followed by a completed 26-file improvement pass in `7a8c736`. That pass
+  recorded 123 passing web tests and completed the browser flows listed in
+  `IMPLEMENTATION-LEDGER.md`; its final handoff is visible in Cursor.
 - Grok Build CLI: bounded read-only analysis completed. Verified and fixed
   false-empty thread/project/source states and premature home-demo feedback.
   Did not apply its unverified mutation-staleness suggestion.
 - Impeccable and Hallmark applied to the existing Operate/workbench design;
   no new brand identity or replacement visual world was introduced.
 
-## Runtime and boundaries
+## Historical runtime and publication boundaries
 
-The user subsequently authorized implementing the remaining recommendations,
-committing all task changes, and pushing them to GitHub after completion. Target:
-`Yurii201811/tasksignal`, current branch `codex/tasksignal-next-version`. GitHub
-actor was verified as `Yurii201811`; the remote branch does not yet exist. The
-push remains pending the final browser/design review. No further push approval
-is needed for this scope. Latest local implementation checkpoint: `08f0c5e`.
+Publication target: `Yurii201811/tasksignal`, branch
+`codex/tasksignal-next-version`, acting as `Yurii201811`. The 2026-09-22
+instruction authorizes the bug fix, all task commits, and the branch push.
+Remote publication must be checked against the resulting local HEAD; the
+historical test and preview records below do not establish remote state.
 
-- Production Next preview: `http://127.0.0.1:3000`, exec session `98181`.
-- API: `http://127.0.0.1:8000`, exec session `7580`, packaged/fixture mode,
-  model provider disabled. These session IDs are only valid for this live run.
+- Original preview: web `http://127.0.0.1:3000`, API `http://127.0.0.1:8000`,
+  packaged/fixture mode with the model provider disabled. These were temporary
+  runtimes, not guaranteed-current services; Fable's later ports are in its ledger.
 - No original database, unrelated checkout, authentication, or permissions changed.
-- No push, tag, public release, deployment, remote CI, or independent usability
-  study. PostgreSQL/Docker, optional ML, and the full platform wheel matrix were
-  not rerun. The local checkpoint is not final visual sign-off.
+- No tag, public release, deployment, remote CI, or independent usability study
+  is established by this checkpoint. PostgreSQL/Docker, optional ML, and the
+  full platform wheel matrix were not rerun. This is not final design sign-off.
