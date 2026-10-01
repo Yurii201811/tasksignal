@@ -194,6 +194,11 @@ stamping; do not let application startup guess its lineage.
 - Prepare command: `scripts/prepare_vercel_api.sh`
 - Generated deployment root: `.vercel-api` (gitignored)
 - Entrypoint: `app.main:app`
+- Enable Fluid compute for the configured 300-second Python function timeout.
+
+Deploy the generated `.vercel-api` directory for this prepared-bundle route. A
+connected Git project rooted at `apps/api` instead uses the tracked
+`app/resources/fixtures` package data; it does not depend on the prepare script.
 
 The prepare script limits the upload to runtime code, locked dependencies,
 configuration, migrations, and canonical public fixtures. It must not copy local
