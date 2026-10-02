@@ -128,7 +128,7 @@ def test_hosted_deployment_manifests_are_safe_and_reproducible() -> None:
     assert api_vercel_config["framework"] == "fastapi"
     assert api_vercel_config["regions"] == ["iad1"]
     api_function = api_vercel_config["functions"]["app/main.py"]
-    assert api_function["maxDuration"] == 60
+    assert api_function["maxDuration"] == 300
     assert api_function["includeFiles"] == "data/fixtures/**"
     assert api_function["excludeFiles"] == "{tests/**,**/__pycache__/**}"
     assert api_project["tool"]["vercel"]["entrypoint"] == "app.main:app"

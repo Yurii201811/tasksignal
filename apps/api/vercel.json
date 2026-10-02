@@ -4,7 +4,7 @@
   "regions": ["iad1"],
   "functions": {
     "app/main.py": {
-      "maxDuration": 60,
+      "maxDuration": 300,
       "includeFiles": "data/fixtures/**",
       "excludeFiles": "{tests/**,**/__pycache__/**}"
     }
