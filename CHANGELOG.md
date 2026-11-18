@@ -4,6 +4,12 @@ All notable public-facing changes to TaskSignal are recorded here.
 
 ## Unreleased
 
+### Security
+
+- Refreshed locked web and API dependencies so the production web audit and
+  the base and MCP Python audits report no known vulnerabilities. The only
+  remaining web advisory is the unpatched `picomatch` ReDoS in dev tooling.
+
 ## 1.0.0a1 - 2026-07-11
 
 ### Added
