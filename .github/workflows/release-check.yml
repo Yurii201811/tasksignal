@@ -60,7 +60,7 @@ jobs:
       - name: Audit frontend dependencies
         run: |
           mkdir -p release-artifacts
-          npm --prefix apps/web audit --audit-level=moderate --json \
+          npm --prefix apps/web audit --omit=dev --audit-level=moderate --json \
             | tee release-artifacts/npm-audit.json
 
       - name: Audit locked base and MCP Python dependencies
