@@ -4,11 +4,126 @@ All notable public-facing changes to TaskSignal are recorded here.
 
 ## Unreleased
 
+### Fixed
+
+- Project run history now distinguishes failed and unfinished scan responses
+  from completed runs, including failures returned with HTTP 200. Failed runs
+  display the connector error and retain their scan-detail link and ledger refresh.
+- Allow the documented Fluid compute duration limit (`maxDuration: 300`) for
+  Vercel API preview deployments.
+
 ### Security
 
-- Refreshed locked web and API dependencies so the production web audit and
-  the base and MCP Python audits report no known vulnerabilities. The only
-  remaining web advisory is the unpatched `picomatch` ReDoS in dev tooling.
+- Refreshed locked web and API dependencies (including Next.js 15.5.29) so the
+  production web audit (`npm audit --omit=dev`) and the base and MCP Python
+  audits report no known vulnerabilities.
+
+## 1.0.0a3 - 2026-09-16
+
+### Added
+
+- Shareable decision-queue views that retain text search, sort order, project,
+  source, readiness, age, and decision filters in the URL.
+- A filtered return link and continuous “Next in this queue” review path that
+  retains the next item when a saved decision removes the current item from the
+  filter. Unsaved reviews disable Next, warn before following other page links
+  or reloading, and survive background data refreshes.
+- Project search and run-status filters, plus focused project creation in an
+  accessible disclosure below the saved projects.
+- Project run history can rerun the project, open its scoped decision queue, and
+  jump to each run's scan record; project cards link to their scoped queue once
+  a run exists.
+- Thread pages link the current and historical snapshots to their evidence
+  pages, confirm saved thread decisions, and warn before unsaved edits are lost.
+
+### Changed
+
+- Replaced the populated home introduction with current research totals,
+  prioritized review work, saved views, and recent projects. Onboarding appears
+  only in an empty workspace.
+- Replaced the wide opportunity table with responsive evidence-rich rows,
+  visible sensitive-risk warnings, and expandable evidence gaps and score details.
+- Put source evidence and human review ahead of scoring and export tools on
+  opportunity detail pages; preserved the existing teal visual system.
+
+### Fixed
+
+- Failed thread/project/source requests no longer masquerade as empty data;
+  recovery actions stay available beside the error.
+- Failed scan-history, run-history, agent-session, source-registry,
+  stored-packet, integration, readiness, and workspace-profile loads now show
+  the API's error detail with a Retry action instead of raw JSON, a silent gap,
+  or an empty-state claim; the workspace form stays read-only until the stored
+  profile has loaded.
+- Discourse forums keep their own names on the Sources page instead of sharing
+  one connector label.
+- The opportunity score card stacks at narrow widths instead of squeezing its
+  description into a one-word column.
+- Review saves refresh thread, snapshot, evaluation, and readiness views.
+  Project runs also refresh project history and comparison data.
+- Background updates preserve in-progress review notes and labels.
+
+### Development status
+
+- Prepared and verified locally. This entry does not imply a public release,
+  deployment, or independently measured improvement in review speed.
+
+### Security
+
+- Updated Vitest and its mocker to 4.1.11 to resolve the development-tooling
+  advisory [GHSA-82fw-gwwq-j7x9](https://github.com/advisories/GHSA-82fw-gwwq-j7x9).
+  Production web dependencies are unchanged.
+
+## 1.0.0a2 - 2026-09-08
+
+### Added
+
+- A live workspace home with real research totals, the next unreviewed
+  opportunity, recent projects, and a direct credential-free demo action.
+- Keyboard-accessible quick navigation with Cmd/Ctrl+K, page filtering, and
+  direct evidence-search handoff.
+- Queue text search and score, readiness, and recency sorting, alongside the
+  existing server-side research and decision filters.
+- Shareable evidence-search URLs with browser history, stale-response protection,
+  preserved results during refresh, and copy-link support.
+- Branded missing-page and recoverable page-error views.
+
+### Changed
+
+- Refreshed navigation, contextual page headers, visual hierarchy, loading
+  feedback, focus treatment, and the home layout for desktop and mobile.
+- Opportunity review takes priority over setup and scan controls; advanced
+  settings remain available through progressive disclosure.
+
+### Development status
+
+- Prepared as a local alpha update. No public release, deployment, or GA claim
+  is implied by this version entry.
+
+### Fixed
+
+- Fixed/manual scheduling clears stale custom intervals across the API and
+  agent tools, so changing cadence no longer preserves an unintended schedule.
+- Generation requested through a historical opportunity now uses the thread's
+  current snapshot.
+- Detaching a snapshot referenced by an immutable build packet returns a clear
+  conflict response while preserving the packet's evidence.
+- Dashboard onboarding now reports the immutable build-packet handoff complete
+  only after a packet exists and opens the current thread's Build Studio instead
+  of the legacy task-pack exporter.
+- Repository test commands allocate an isolated temporary SQLite database per
+  run, preventing overlapping local verification processes from dropping one
+  another's test tables.
+
+### Security
+
+- Updated compatible web dependencies, including Next.js 15.5.25 and PostCSS
+  8.5.28, and refreshed the lockfile to clear the web dependency audit.
+- Updated the transitive Python cryptography dependency to 50.0.1; the hashed
+  production and MCP dependency audit reports no known vulnerabilities.
+- Directly guarded API routes now reject malformed non-ASCII operator and demo
+  reset tokens with a constant-time byte comparison and a stable `403` response
+  instead of raising an internal error.
 
 ## 1.0.0a1 - 2026-07-11
 

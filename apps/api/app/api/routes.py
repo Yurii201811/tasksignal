@@ -4,7 +4,6 @@ import hashlib
 import json
 import re
 from datetime import UTC, datetime, timedelta
-from secrets import compare_digest
 from uuid import UUID, uuid4
 
 import httpx
@@ -14,6 +13,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.security import secret_text_matches
 from app.core.version import TASKSIGNAL_VERSION
 from app.db.session import get_db
 from app.models.all_models import (
@@ -162,7 +162,10 @@ from app.services.research_memory.service import (
     get_project_run,
     list_project_runs,
 )
-from app.services.research_projects.service import next_run_at_from
+from app.services.research_projects.service import (
+    next_run_at_from,
+    schedule_interval_for_project,
+)
 from app.services.scoring.service import score_opportunity
 from app.services.search.service import semantic_search as search_semantically
 from app.workers.demo_pipeline import ensure_sources, process_demo, stats
@@ -323,11 +326,7 @@ def author_hash_salt_uses_default() -> bool:
 
 
 def operator_scan_authorized(token: str | None) -> bool:
-    return bool(
-        settings.operator_scan_token
-        and token
-        and compare_digest(token, settings.operator_scan_token)
-    )
+    return secret_text_matches(token, settings.operator_scan_token)
 
 
 def require_operator_token(token: str | None, action: str) -> None:
@@ -339,7 +338,7 @@ def require_operator_token(token: str | None, action: str) -> None:
                 "and sent as X-Operator-Scan-Token."
             ),
         )
-    if not token or not compare_digest(token, settings.operator_scan_token):
+    if not secret_text_matches(token, settings.operator_scan_token):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"{action} requires a valid X-Operator-Scan-Token.",
@@ -706,6 +705,7 @@ def readiness_payload(db: Session) -> ReadinessOut:
     local_workspace = get_or_create_local_workspace(db)
     project_count = len(db.scalars(select(ResearchProject.id)).all())
     opportunity_count = len(db.scalars(select(Opportunity.id)).all())
+    build_packet_count = len(db.scalars(select(BuildPacket.id)).all())
     due_count = len(db.scalars(due_project_query(datetime.now(UTC))).all())
     blockers: list[str] = []
     warnings: list[str] = []
@@ -713,7 +713,9 @@ def readiness_payload(db: Session) -> ReadinessOut:
     if project_count == 0:
         warnings.append("Create at least one saved research project.")
     if opportunity_count == 0:
-        warnings.append("Run a project or process fixtures before exporting task packs.")
+        warnings.append("Run a project or process fixtures before creating a build packet.")
+    elif build_packet_count == 0:
+        warnings.append("Review a thread and create an immutable build packet.")
     if not local_workspace.configured:
         warnings.append("Set the local workspace owner or goal for this machine.")
     if warning := public_scan_config_warning():
@@ -734,6 +736,7 @@ def readiness_payload(db: Session) -> ReadinessOut:
     checks = {
         "projects": project_count,
         "opportunities": opportunity_count,
+        "build_packets": build_packet_count,
         "due_projects": due_count,
         "local_workspace_configured": local_workspace.configured,
         "ready_sources": ready_sources,
@@ -1708,6 +1711,11 @@ def create_research_project(
     )
 
     labels = [label.strip() for label in payload.labels if label.strip()]
+    cadence = payload.cadence.strip() or "manual"
+    schedule_interval_hours = schedule_interval_for_project(
+        cadence,
+        payload.schedule_interval_hours,
+    )
     project = ResearchProject(
         name=payload.name.strip(),
         description=payload.description.strip() if payload.description else None,
@@ -1715,12 +1723,12 @@ def create_research_project(
         source_id=payload.source_id,
         query=payload.query.strip(),
         limit=payload.limit,
-        cadence=payload.cadence.strip() or "manual",
-        schedule_interval_hours=payload.schedule_interval_hours,
+        cadence=cadence,
+        schedule_interval_hours=schedule_interval_hours,
         next_run_at=next_run_at_from(
             datetime.now(UTC),
-            payload.cadence.strip() or "manual",
-            payload.schedule_interval_hours,
+            cadence,
+            schedule_interval_hours,
         ),
         labels_json=labels[:12],
         enabled=payload.enabled,
@@ -1831,6 +1839,11 @@ def update_research_project(
         project.cadence = cadence
     if "schedule_interval_hours" in supplied:
         project.schedule_interval_hours = payload.schedule_interval_hours
+    if supplied & {"cadence", "schedule_interval_hours"}:
+        project.schedule_interval_hours = schedule_interval_for_project(
+            project.cadence,
+            project.schedule_interval_hours,
+        )
     if "labels" in supplied:
         labels = [label.strip() for label in (payload.labels or []) if label.strip()]
         project.labels_json = list(dict.fromkeys(labels))[:12]
@@ -2049,7 +2062,7 @@ def run_demo(
     if reset and (
         not settings.demo_reset_token
         or x_demo_reset_token is None
-        or not compare_digest(x_demo_reset_token, settings.demo_reset_token)
+        or not secret_text_matches(x_demo_reset_token, settings.demo_reset_token)
     ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -2943,6 +2956,7 @@ def regenerate_opportunity(opportunity_id: UUID, db: Session = Depends(get_db)) 
     opportunity = db.get(Opportunity, opportunity_id)
     if opportunity is None:
         raise HTTPException(status_code=404, detail="Opportunity not found")
+    opportunity = current_thread_snapshot(db, opportunity)
 
     rows = cluster_signal_rows(db, opportunity.cluster_id)
     if not rows:
@@ -2994,6 +3008,7 @@ def enhance_opportunity_prompt(
     opportunity = db.get(Opportunity, opportunity_id)
     if opportunity is None:
         raise HTTPException(status_code=404, detail="Opportunity not found")
+    opportunity = current_thread_snapshot(db, opportunity)
 
     try:
         provider, model, enhanced_prompt = enhance_prompt(opportunity.generated_prompt)

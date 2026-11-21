@@ -97,6 +97,28 @@ describe("AgentSessions", () => {
     ]);
   });
 
+  it("separates a failed session load from action errors and retries without a false empty state", async () => {
+    vi.mocked(api.agentSessions)
+      .mockRejectedValueOnce(
+        new Error('{"detail":"Session store unavailable"}'),
+      )
+      .mockResolvedValue([pendingSession]);
+    renderFeature();
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Could not load agent sessions");
+    expect(alert).toHaveTextContent("Session store unavailable");
+    expect(screen.queryByText("No agent sessions")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Agent session action failed"),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    expect(await screen.findByText("Codex MCP")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("approves a process-bound session and shows the redacted audit", async () => {
     renderFeature();
 

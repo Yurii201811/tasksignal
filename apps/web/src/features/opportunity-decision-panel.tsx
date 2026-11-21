@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { refreshReviewQueries } from "@/lib/research-cache";
 import { api } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { REVIEW_STATE_OPTIONS, reviewStateOption } from "@/lib/review";
@@ -20,15 +21,19 @@ export function OpportunityDecisionPanel({
   reviewState,
   reviewNote,
   decisionUpdatedAt,
+  onDirtyChange,
 }: {
   opportunityId: string;
   reviewState: ReviewState;
   reviewNote: string | null;
   decisionUpdatedAt: string | null;
+  onDirtyChange?: (id: string, dirty: boolean) => void;
 }) {
   const queryClient = useQueryClient();
   const [draftState, setDraftState] = useState<ReviewState>(reviewState);
   const [draftNote, setDraftNote] = useState(reviewNote ?? "");
+  const edited = useRef(false);
+  const draftOpportunity = useRef(opportunityId);
   const mutation = useMutation({
     mutationFn: () =>
       api.updateOpportunityReview(opportunityId, {
@@ -36,17 +41,24 @@ export function OpportunityDecisionPanel({
         review_note: draftNote.trim() || null,
       }),
     onSuccess: async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({
-          queryKey: ["opportunity", opportunityId],
-        }),
-        queryClient.invalidateQueries({ queryKey: ["opportunities"] }),
-      ]);
+      edited.current = false;
+      setDraftNote((note) => note.trim());
+      await refreshReviewQueries(queryClient);
     },
   });
   const confirmed = reviewStateOption(reviewState);
+  const dirty =
+    draftState !== reviewState ||
+    draftNote !== (reviewNote ?? "") ||
+    mutation.isPending;
+  useEffect(() => {
+    onDirtyChange?.("decision", dirty);
+  }, [dirty, onDirtyChange]);
 
   useEffect(() => {
+    if (draftOpportunity.current === opportunityId && edited.current) return;
+    draftOpportunity.current = opportunityId;
+    edited.current = false;
     setDraftState(reviewState);
     setDraftNote(reviewNote ?? "");
   }, [decisionUpdatedAt, opportunityId, reviewNote, reviewState]);
@@ -74,6 +86,7 @@ export function OpportunityDecisionPanel({
           disabled={mutation.isPending}
           value={draftState}
           onChange={(event) => {
+            edited.current = true;
             clearMutationFeedback();
             setDraftState(event.target.value as ReviewState);
           }}
@@ -96,6 +109,7 @@ export function OpportunityDecisionPanel({
           maxLength={1000}
           value={draftNote}
           onChange={(event) => {
+            edited.current = true;
             clearMutationFeedback();
             setDraftNote(event.target.value);
           }}

@@ -6,6 +6,7 @@ import {
   within,
 } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import Link from "next/link";
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { OpportunityThreadDetail } from "../src/features/opportunity-thread-detail";
@@ -457,5 +458,126 @@ describe("Opportunity threads", () => {
         use_configured_ai: false,
       }),
     );
+  });
+
+  it("distinguishes an empty workspace from an empty review-state filter and retries failed loads", async () => {
+    vi.mocked(api.opportunityThreads)
+      .mockRejectedValueOnce(new Error('{"detail":"Thread store unavailable"}'))
+      .mockResolvedValueOnce([])
+      .mockResolvedValue([]);
+    renderWithClient(<OpportunityThreads />);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Could not load opportunity threads");
+    expect(alert).toHaveTextContent("Thread store unavailable");
+    expect(
+      screen.queryByText(/No opportunity threads yet/),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(
+      await screen.findByText("No opportunity threads yet"),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Run a project/ })).toHaveAttribute(
+      "href",
+      "/projects",
+    );
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Review state" }), {
+      target: { value: "rejected" },
+    });
+    expect(
+      await screen.findByText("No threads match this review state"),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Show all states" }));
+    await waitFor(() =>
+      expect(api.opportunityThreads).toHaveBeenLastCalledWith(undefined),
+    );
+  });
+
+  it("links every snapshot to its evidence page and confirms a saved thread decision", async () => {
+    vi.mocked(api.updateOpportunityThreadDecision).mockResolvedValue({
+      ...thread,
+      version: 4,
+      review_state: "promising",
+      review_note: "Follow up",
+      decision_updated_at: "2026-07-12T09:00:00Z",
+    });
+    renderWithClient(<OpportunityThreadDetail id="thread-1" />);
+
+    expect(
+      await screen.findByRole("link", { name: "Review evidence" }),
+    ).toHaveAttribute("href", "/opportunities/snapshot-2");
+    expect(
+      screen.getByRole("link", {
+        name: /Open evidence for Recurring CI diagnosis pain \(current snapshot\)/,
+      }),
+    ).toHaveAttribute("href", "/opportunities/snapshot-2");
+    expect(
+      screen.getByRole("link", {
+        name: /Open evidence for CI diagnosis pain \(historical snapshot\)/,
+      }),
+    ).toHaveAttribute("href", "/opportunities/snapshot-1");
+
+    const save = screen.getByRole("button", { name: "Save thread decision" });
+    expect(save).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Review state"), {
+      target: { value: "promising" },
+    });
+    expect(screen.getByText("Unsaved changes.")).toBeInTheDocument();
+    expect(save).toBeEnabled();
+    fireEvent.click(save);
+
+    expect(
+      await screen.findByText("Thread decision saved"),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Last saved/)).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Save thread decision" }),
+    ).toBeDisabled();
+  });
+
+  it("warns before leaving the thread page with an unsaved decision", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    renderWithClient(
+      <>
+        <Link href="/threads">Threads list</Link>
+        <OpportunityThreadDetail id="thread-1" />
+      </>,
+    );
+
+    fireEvent.change(await screen.findByLabelText("Review state"), {
+      target: { value: "rejected" },
+    });
+    const outcome = fireEvent.click(screen.getByText("Threads list"));
+
+    expect(confirm).toHaveBeenCalledWith(
+      "Discard unsaved review changes and leave this page?",
+    );
+    expect(outcome).toBe(false);
+    expect(screen.getByLabelText("Review state")).toHaveValue("rejected");
+  });
+
+  it("surfaces a failed stored-packet load with a retry instead of hiding it", async () => {
+    vi.mocked(api.buildPackets)
+      .mockRejectedValueOnce(new Error('{"detail":"Packet index unavailable"}'))
+      .mockResolvedValue([packetSummary("packet-1")]);
+    renderWithClient(<OpportunityThreadDetail id="thread-1" />);
+
+    expect(
+      await screen.findByText("Could not load stored packets"),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Packet index unavailable/)).toBeInTheDocument();
+    expect(
+      screen.queryByText("No packets stored for this thread yet"),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(
+      await screen.findByText("Stored packet snapshots"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("Could not load stored packets"),
+    ).not.toBeInTheDocument();
   });
 });

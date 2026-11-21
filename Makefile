@@ -43,7 +43,10 @@ smoke:
 	$(API_PYTHON) -u scripts/first_run_smoke.py
 
 test:
-	$(API_PYTHON) -m pytest apps/api/tests
+	@test_db_dir="$$(mktemp -d /tmp/tasksignal-tests.XXXXXX)"; \
+	trap 'rm -rf "$$test_db_dir"' EXIT; \
+	DATABASE_URL="sqlite:///$$test_db_dir/tasksignal.db" \
+		$(API_PYTHON) -m pytest apps/api/tests
 	cd apps/web && PATH="$(WEB_PATH)" npm test
 
 lint:

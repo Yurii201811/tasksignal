@@ -250,6 +250,7 @@ export type Readiness = {
   checks: {
     projects?: number;
     opportunities?: number;
+    build_packets?: number;
     due_projects?: number;
     local_workspace_configured?: boolean;
     ready_sources?: string[];

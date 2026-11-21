@@ -102,6 +102,9 @@ def test_build_packet_requires_ready_build_candidate_and_is_immutable_downloadab
     )
     assert created.status_code == 201, created.text
     packet = created.json()
+    readiness = client.get("/api/v1/readiness")
+    assert readiness.status_code == 200
+    assert readiness.json()["checks"]["build_packets"] == 1
     assert packet["generation_mode"] == "deterministic"
     assert packet["thread_id"] == thread["id"]
     assert packet["snapshot_id"] == thread["current_snapshot"]["id"]
@@ -350,6 +353,36 @@ def test_regenerated_snapshot_keeps_packet_run_lineage(client, monkeypatch) -> N
     evidence_rows = json.loads(opportunity_artifact["content"])["evidence"]
     assert {row["run_ids"][0] for row in evidence_rows} == {packet.json()["run_id"]}
     assert all(row["scan_ids"] for row in evidence_rows)
+
+
+def test_snapshot_with_immutable_packet_cannot_be_detached(client, monkeypatch) -> None:
+    thread, evidence = create_packet_candidate(client, monkeypatch)
+    assert client.post(
+        "/api/v1/labels",
+        json={"item_id": evidence[0]["id"], "label": "true_signal"},
+    ).status_code == 200
+    assert client.post(
+        f"/api/v1/research-projects/{thread['project_id']}/run"
+    ).status_code == 200
+    current = client.get(f"/api/v1/opportunity-threads/{thread['id']}").json()
+    snapshot_id = current["current_snapshot"]["id"]
+    assert current["current_snapshot"]["match_method"] == "exact_evidence"
+
+    packet = client.post(
+        f"/api/v1/opportunity-threads/{thread['id']}/build-packets",
+        json={"expected_version": current["version"]},
+    )
+    assert packet.status_code == 201, packet.text
+
+    detached = client.post(
+        f"/api/v1/opportunity-threads/{thread['id']}/snapshots/{snapshot_id}/detach",
+        json={"expected_version": current["version"]},
+    )
+    assert detached.status_code == 409
+    assert "immutable build packet" in detached.json()["detail"]
+    unchanged = client.get(f"/api/v1/opportunity-threads/{thread['id']}").json()
+    assert unchanged["current_snapshot"]["id"] == snapshot_id
+    assert unchanged["snapshot_count"] == 2
 
 
 def test_packet_uses_state_decision_not_latest_detach_event(client, monkeypatch) -> None:

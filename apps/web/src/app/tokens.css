@@ -1,7 +1,6 @@
-/* Hallmark · macrostructure: Workbench · tone: technical utilitarian research-grade · anchor hue: teal · genre: modern-minimal · theme: TaskSignal locked · enrichment: none · nav: existing product side navigation · footer: none · contrast: pass (40–41) · slop: pass (2–58) · exception: gate 1 preserves DESIGN.md system sans · honest: pass (46) · chrome: pass (47) · tokens: pass (48) · responsive: pass (49) · icons: pass (30) · mobile: pass (34, 49, 50–57) */
-/* Hallmark · pre-emit critique: P5 H5 E4 S5 R5 V4 */
 :root {
   /* Core colour system */
+  --color-sidebar: oklch(98.3% 0.007 255);
   --color-paper: oklch(97% 0.007 255);
   --color-paper-2: oklch(99% 0.004 255);
   --color-paper-3: oklch(95.8% 0.01 255);

@@ -1,3 +1,6 @@
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => new URLSearchParams(window.location.search),
+}));
 import {
   fireEvent,
   render,
@@ -91,6 +94,7 @@ function opportunity(
 describe("Dashboard", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.history.replaceState(null, "", "/dashboard");
     vi.mocked(api.stats).mockResolvedValue({
       total_items: 0,
       problem_signals: 0,
@@ -116,11 +120,12 @@ describe("Dashboard", () => {
       blockers: [],
       warnings: [
         "Create at least one saved research project.",
-        "Run a project or process fixtures before exporting task packs.",
+        "Run a project or process fixtures before creating a build packet.",
       ],
       checks: {
         projects: 0,
         opportunities: 0,
+        build_packets: 0,
         due_projects: 0,
         local_workspace_configured: false,
         ready_sources: ["hackernews"],
@@ -154,7 +159,7 @@ describe("Dashboard", () => {
 
   it("renders the main processing action", async () => {
     renderWithClient(<Dashboard />);
-    expect(screen.getByText("Opportunity dashboard")).toBeInTheDocument();
+    expect(screen.getByText("Decision queue")).toBeInTheDocument();
     expect(screen.getByText("Process demo data")).toBeInTheDocument();
     expect(screen.getByText("Live source")).toBeInTheDocument();
     expect(screen.getByText("Run scan")).toBeInTheDocument();
@@ -191,6 +196,9 @@ describe("Dashboard", () => {
     const { client } = renderWithClient(<Dashboard />);
     await waitFor(() => expect(client.isFetching()).toBe(0));
 
+    fireEvent.click(
+      screen.getByText("Open live scan controls").closest("summary")!,
+    );
     const liveSource = screen.getByRole("combobox", { name: "Live source" });
     expect(
       within(liveSource).getAllByRole("option", { name: "Hacker News" }),
@@ -206,9 +214,82 @@ describe("Dashboard", () => {
     expect(
       screen.getByText("Generate ranked opportunities"),
     ).toBeInTheDocument();
-    expect(screen.getByText("Export a task pack")).toBeInTheDocument();
+    expect(
+      screen.getByText("Create an immutable build packet"),
+    ).toBeInTheDocument();
     expect(
       await screen.findByText("Create at least one saved research project."),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps the build-packet step incomplete until a packet exists", async () => {
+    vi.mocked(api.opportunities).mockResolvedValue([
+      {
+        ...opportunity("1", "Packet-ready idea", "build_candidate"),
+        thread_id: "thread-1",
+      },
+    ]);
+    vi.mocked(api.readiness).mockResolvedValue({
+      status: "ready",
+      blockers: [],
+      warnings: ["Review a thread and create an immutable build packet."],
+      checks: {
+        projects: 1,
+        opportunities: 1,
+        build_packets: 0,
+        local_workspace_configured: true,
+        ready_sources: ["hackernews"],
+        codex_task_packs: true,
+      },
+    });
+
+    renderWithClient(<Dashboard />);
+
+    expect(await screen.findByText("Packet-ready idea")).toBeInTheDocument();
+    const packetStep = (
+      await screen.findByText("Create an immutable build packet")
+    ).closest("li");
+    expect(packetStep).not.toBeNull();
+    expect(
+      within(packetStep as HTMLElement).getByText("Next"),
+    ).toBeInTheDocument();
+    expect(
+      within(packetStep as HTMLElement).getByRole("link", {
+        name: "Open Build Studio",
+      }),
+    ).toHaveAttribute("href", "/threads/thread-1");
+  });
+
+  it("marks the build-packet step complete after a packet exists", async () => {
+    vi.mocked(api.opportunities).mockResolvedValue([
+      {
+        ...opportunity("1", "Packaged idea", "build_candidate"),
+        thread_id: "thread-1",
+      },
+    ]);
+    vi.mocked(api.readiness).mockResolvedValue({
+      status: "ready",
+      blockers: [],
+      warnings: [],
+      checks: {
+        projects: 1,
+        opportunities: 1,
+        build_packets: 1,
+        local_workspace_configured: true,
+        ready_sources: ["hackernews"],
+        codex_task_packs: true,
+      },
+    });
+
+    renderWithClient(<Dashboard />);
+
+    expect(await screen.findByText("Packaged idea")).toBeInTheDocument();
+    const packetStep = (
+      await screen.findByText("Create an immutable build packet")
+    ).closest("li");
+    expect(packetStep).not.toBeNull();
+    expect(
+      within(packetStep as HTMLElement).getByText("Done"),
     ).toBeInTheDocument();
   });
 
@@ -246,6 +327,7 @@ describe("Dashboard", () => {
     expect(screen.getByText("medium")).toBeInTheDocument();
     expect(
       screen.getByRole("meter", {
+        hidden: true,
         name: "Promising idea feasibility score",
       }),
     ).toHaveAttribute("aria-valuetext", "80 percent");
@@ -308,7 +390,9 @@ describe("Dashboard", () => {
     expect(
       await screen.findByText("Current opportunity results unavailable"),
     ).toBeInTheDocument();
-    expect(screen.getByText("Opportunity queue unavailable")).toBeInTheDocument();
+    expect(
+      screen.getByText("Opportunity queue unavailable"),
+    ).toBeInTheDocument();
     expect(
       screen.queryByText("No ranked opportunities yet"),
     ).not.toBeInTheDocument();
@@ -328,6 +412,7 @@ describe("Dashboard", () => {
     renderWithClient(<Dashboard />);
 
     expect(await screen.findByText("New idea")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Refine scope").closest("summary")!);
     fireEvent.change(
       screen.getByRole("combobox", { name: "Evidence source" }),
       { target: { value: "github" } },
@@ -358,6 +443,7 @@ describe("Dashboard", () => {
     );
     renderWithClient(<Dashboard />);
 
+    fireEvent.click(screen.getByText("Refine scope").closest("summary")!);
     expect(
       await screen.findByRole("group", { name: "Queue filters" }),
     ).toBeInTheDocument();
@@ -389,7 +475,10 @@ describe("Dashboard", () => {
     );
     expect(
       await screen.findByRole("link", { name: /Review next/ }),
-    ).toHaveAttribute("href", "/opportunities/1");
+    ).toHaveAttribute(
+      "href",
+      expect.stringContaining("/opportunities/1?queue="),
+    );
     expect(
       await screen.findByText("Showing 1 of 1 current opportunities"),
     ).toHaveAttribute("aria-live", "polite");
@@ -409,6 +498,100 @@ describe("Dashboard", () => {
     expect(screen.getByRole("combobox", { name: "Snapshot age" })).toHaveValue(
       "all",
     );
-    expect(screen.getByRole("button", { name: "Clear filters" })).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Clear filters" }),
+    ).toBeDisabled();
+  });
+
+  it("restores a bookmarked view and reviews within its selected decision state", async () => {
+    window.history.replaceState(
+      null,
+      "",
+      "/dashboard?q=CI&review=promising&source=github&sort=newest",
+    );
+    const rows = [
+      opportunity("new", "CI unreviewed", "new"),
+      opportunity("chosen", "CI promising", "promising"),
+    ];
+    vi.mocked(api.opportunities).mockImplementation(async (filters) =>
+      filters?.reviewState === "promising" ? [rows[1]] : rows,
+    );
+    renderWithClient(<Dashboard />);
+    expect(screen.getByRole("searchbox", { name: "Search queue" })).toHaveValue(
+      "CI",
+    );
+    expect(
+      screen.getByRole("combobox", { name: "Sort opportunities" }),
+    ).toHaveValue("newest");
+    expect(
+      await screen.findByRole("link", { name: /Review next/ }),
+    ).toHaveAttribute(
+      "href",
+      expect.stringContaining("/opportunities/chosen?queue="),
+    );
+    expect(api.opportunities).toHaveBeenCalledWith({
+      currentOnly: true,
+      reviewState: "promising",
+      evidenceSource: "github",
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Reset view" }));
+    expect(window.location.search).toBe("");
+    expect(screen.getByRole("searchbox", { name: "Search queue" })).toHaveValue(
+      "",
+    );
+  });
+
+  it("searches and sorts the visible decision queue without changing API scope", async () => {
+    const rows = [
+      {
+        ...opportunity("1", "Fast CI repair", "new"),
+        opportunity_score: 0.62,
+        created_at: "2026-07-10T10:00:00Z",
+        problem_statement: "Slow pipelines block maintainers.",
+      },
+      {
+        ...opportunity("2", "Evidence notebook", "promising"),
+        opportunity_score: 0.91,
+        created_at: "2026-07-08T10:00:00Z",
+        problem_statement: "Researchers lose source context.",
+      },
+    ];
+    vi.mocked(api.opportunities).mockResolvedValue(rows);
+    renderWithClient(<Dashboard />);
+
+    const queue = await screen.findByRole("region", {
+      name: "Top opportunities",
+    });
+    await screen.findByText("Evidence notebook");
+    expect(
+      within(queue)
+        .getAllByRole("link")
+        .map((link) => link.textContent),
+    ).toEqual(["Evidence notebook", "Open ", "Fast CI repair", "Open "]);
+
+    fireEvent.change(
+      screen.getByRole("combobox", { name: "Sort opportunities" }),
+      {
+        target: { value: "newest" },
+      },
+    );
+    expect(
+      within(queue)
+        .getAllByRole("link")
+        .map((link) => link.textContent),
+    ).toEqual(["Fast CI repair", "Open ", "Evidence notebook", "Open "]);
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search queue" }), {
+      target: { value: "researchers" },
+    });
+    expect(screen.getByText("Evidence notebook")).toBeInTheDocument();
+    expect(screen.queryByText("Fast CI repair")).not.toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Showing 1 matching researchers from 2 current opportunities",
+      ),
+    ).toBeInTheDocument();
+    expect(api.opportunities).toHaveBeenCalledTimes(1);
+    expect(window.location.search).toBe("?q=researchers&sort=newest");
   });
 });

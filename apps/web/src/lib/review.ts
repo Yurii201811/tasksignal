@@ -1,4 +1,5 @@
 import type {
+  EvidenceItem,
   EvidenceReadinessCheck,
   EvidenceReadinessLevel,
   EvidenceReviewLabel,
@@ -32,7 +33,10 @@ export const EVIDENCE_REVIEW_OPTIONS: {
   { value: "sensitive_risk", label: "Sensitive risk" },
 ];
 
-export const READINESS_CHECKS: { key: EvidenceReadinessCheck; label: string }[] = [
+export const READINESS_CHECKS: {
+  key: EvidenceReadinessCheck;
+  label: string;
+}[] = [
   { key: "enough_evidence", label: "Enough evidence" },
   { key: "source_diversity", label: "Source diversity" },
   { key: "source_url_coverage", label: "Safe source URL coverage" },
@@ -50,9 +54,20 @@ export function reviewStateOption(state: ReviewState) {
 }
 
 export function evidenceReviewLabel(label: EvidenceReviewLabel) {
-  return EVIDENCE_REVIEW_OPTIONS.find((option) => option.value === label)!.label;
+  return EVIDENCE_REVIEW_OPTIONS.find((option) => option.value === label)!
+    .label;
 }
 
 export function formatPercentage(value: number) {
   return `${Math.round(value * 100)}%`;
+}
+
+export function unresolvedSensitiveRisk(item: EvidenceItem) {
+  if (item.review_label === "sensitive_risk") return "human" as const;
+  if (
+    item.agent_review_label === "sensitive_risk" &&
+    (item.agent_review_version ?? 0) > (item.review_version ?? 0)
+  )
+    return "agent" as const;
+  return null;
 }

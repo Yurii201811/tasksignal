@@ -10,8 +10,10 @@ import {
   RefreshCw,
   ShieldCheck,
 } from "lucide-react";
+import { unresolvedSensitiveRisk } from "@/lib/review";
 import { api } from "@/lib/api";
-import type { BuildPacket, EvidenceItem, OpportunityThread } from "@/lib/types";
+import { apiErrorMessage as errorMessage } from "@/lib/api-error";
+import type { BuildPacket, OpportunityThread } from "@/lib/types";
 import {
   Badge,
   Button,
@@ -20,27 +22,6 @@ import {
   StateMessage,
   TableShell,
 } from "@/components/ui";
-
-function errorMessage(error: unknown) {
-  if (!(error instanceof Error)) return "The request failed.";
-  try {
-    const detail = JSON.parse(error.message)?.detail;
-    return typeof detail === "string" ? detail : error.message;
-  } catch {
-    return error.message;
-  }
-}
-
-function unresolvedSensitiveRisk(item: EvidenceItem) {
-  if (item.review_label === "sensitive_risk") return "human" as const;
-  if (
-    item.agent_review_label === "sensitive_risk" &&
-    (item.agent_review_version ?? 0) > (item.review_version ?? 0)
-  ) {
-    return "agent" as const;
-  }
-  return null;
-}
 
 export function BuildStudio({ thread }: { thread: OpportunityThread }) {
   const queryClient = useQueryClient();
@@ -172,6 +153,63 @@ export function BuildStudio({ thread }: { thread: OpportunityThread }) {
       {create.error ? (
         <StateMessage tone="danger" title="Packet was not created">
           {errorMessage(create.error)}
+        </StateMessage>
+      ) : null}
+      {packets.error ? (
+        <StateMessage
+          tone="danger"
+          title="Could not load stored packets"
+          action={
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => void packets.refetch()}
+              loading={packets.isFetching}
+              disabled={packets.isFetching}
+            >
+              <RefreshCw
+                size={15}
+                aria-hidden
+                className={
+                  packets.isFetching ? "motion-safe:animate-spin" : undefined
+                }
+              />
+              {packets.isFetching ? "Retrying" : "Retry"}
+            </Button>
+          }
+        >
+          {errorMessage(packets.error)} Existing packets are not lost; they are
+          just not listed until the request succeeds.
+        </StateMessage>
+      ) : null}
+      {packets.isLoading ? (
+        <StateMessage tone="info" title="Loading stored packets">
+          Checking this thread for immutable packet snapshots.
+        </StateMessage>
+      ) : null}
+      {packets.isSuccess && packets.data.length === 0 && eligible ? (
+        <StateMessage tone="info" title="No packets stored for this thread yet">
+          Generate the deterministic packet to create the first verifiable
+          ten-file snapshot.
+        </StateMessage>
+      ) : null}
+      {storedPacket.error && selectedPacketId ? (
+        <StateMessage
+          tone="danger"
+          title="Could not load packet artifacts"
+          action={
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => void storedPacket.refetch()}
+              loading={storedPacket.isFetching}
+              disabled={storedPacket.isFetching}
+            >
+              {storedPacket.isFetching ? "Retrying" : "Retry"}
+            </Button>
+          }
+        >
+          {errorMessage(storedPacket.error)}
         </StateMessage>
       ) : null}
 

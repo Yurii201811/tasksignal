@@ -14,13 +14,23 @@ CADENCE_INTERVAL_HOURS = {
 }
 
 
+def schedule_interval_for_project(
+    cadence: str,
+    explicit_interval: int | None,
+) -> int | None:
+    if cadence.strip().lower() != "custom" or explicit_interval is None:
+        return None
+    return max(1, min(24 * 31, explicit_interval))
+
+
 def interval_hours_for_project(
     cadence: str,
     explicit_interval: int | None,
 ) -> int | None:
-    if explicit_interval:
-        return max(1, min(24 * 31, explicit_interval))
-    return CADENCE_INTERVAL_HOURS.get(cadence.strip().lower())
+    normalized_cadence = cadence.strip().lower()
+    if normalized_cadence == "custom":
+        return schedule_interval_for_project(cadence, explicit_interval)
+    return CADENCE_INTERVAL_HOURS.get(normalized_cadence)
 
 
 def next_run_at_from(

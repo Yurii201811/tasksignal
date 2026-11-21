@@ -7,14 +7,38 @@ It remembers what each run observed, explains what changed, keeps related
 opportunities in persistent threads, and generates deterministic build documents
 whose provenance can be verified before implementation starts.
 
-![TaskSignal current opportunity queue after processing demo data](docs/images/dashboard-browser-verified.jpg)
+![TaskSignal alpha 1 opportunity queue after processing demo data](docs/images/dashboard-browser-verified.jpg)
+
+## Next version: 1.0.0 alpha 3
+
+The decision queue keeps its text search, sort order, and project, source,
+readiness, age, and decision filters in the URL, so a view can be copied or
+reopened later. Opening an idea from the queue preserves that view: **Back to
+filtered queue** returns to it and **Next in this queue** continues in the same
+order. Unsaved reviews disable Next and warn before another page link or a reload
+would discard them.
+
+The home page shows current research totals, unreviewed ideas, saved views, and
+recent projects; onboarding appears only in an empty workspace. Projects list
+saved work first with local search, run-status filters, and a focused **New
+project** disclosure. Run history can rerun a project, open its scoped queue, and
+jump to each run's scan record. Threads link every snapshot to its evidence page,
+confirm saved decisions, and guard unsaved edits. Failed loads on every page keep
+a **Retry** action and never masquerade as empty data.
+
+Press **Cmd+K** on macOS or **Ctrl+K** elsewhere to jump between views or search
+for evidence. Submitted evidence searches have a reusable `?q=` address, with
+browser back/forward support and a copy-link action.
+
+This is a local alpha update; see the changelog for its verification and release
+boundaries.
 
 ## Project Status
 
 TaskSignal is an early-stage, local-first application for one operator. The
 latest public release is the [`v0.2.0` rollback baseline](https://github.com/Yurii201811/tasksignal/releases/tag/v0.2.0).
-The current source tree is the pre-GA v1 alpha (`1.0.0a1` for Python and
-`1.0.0-alpha.1` for the web app).
+The current source tree is the pre-GA v1 alpha (`1.0.0a3` for Python and
+`1.0.0-alpha.3` for the web app).
 
 The repository has a passing Linux/macOS Python 3.11–3.14 wheel matrix in this
 [`main` CI run](https://github.com/Yurii201811/tasksignal/actions/runs/29171023301).
