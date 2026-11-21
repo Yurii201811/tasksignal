@@ -4,6 +4,14 @@ All notable public-facing changes to TaskSignal are recorded here.
 
 ## Unreleased
 
+## 1.0.0a4 - 2026-11-21
+
+### Added
+
+- Local LM Studio runtime support (`LLM_PROVIDER=lmstudio`,
+  `LM_STUDIO_BASE_URL=http://127.0.0.1:1234/v1`) through the size-bounded
+  OpenAI-compatible `/chat/completions` endpoint and integration catalog.
+
 ### Fixed
 
 - Project run history now distinguishes failed and unfinished scan responses
@@ -14,6 +22,9 @@ All notable public-facing changes to TaskSignal are recorded here.
 
 ### Security
 
+- Added a fail-closed `ENVIRONMENT` configuration guard that rejects empty or
+  default `AUTHOR_HASH_SALT` values (`change-me`, `change-me-local`) outside
+  `ENVIRONMENT=local`.
 - Refreshed locked web and API dependencies (including Next.js 15.5.29) so the
   production web audit (`npm audit --omit=dev`) and the base and MCP Python
   audits report no known vulnerabilities.

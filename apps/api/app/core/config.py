@@ -4,8 +4,10 @@ from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_DEFAULT_SALTS = frozenset({"", "change-me", "change-me-local"})
 
 
 def normalize_database_url(database_url: str) -> str:
@@ -51,8 +53,10 @@ class Settings(BaseSettings):
     llm_provider: str = "none"
     llm_model: str = "gpt-5"
     openai_api_key: str = ""
+    lm_studio_base_url: str = "http://127.0.0.1:1234/v1"
     ollama_base_url: str = "http://localhost:11434"
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+    environment: str = "local"
     author_hash_salt: str = "change-me"
     auto_create_tables: bool = True
     reddit_client_id: str = ""
@@ -73,6 +77,17 @@ class Settings(BaseSettings):
     @classmethod
     def select_psycopg3_driver(cls, value: object) -> object:
         return normalize_database_url(value) if isinstance(value, str) else value
+
+    @model_validator(mode="after")
+    def require_custom_salt_outside_local(self) -> "Settings":
+        if (
+            self.environment.strip().lower() != "local"
+            and self.author_hash_salt.strip() in _DEFAULT_SALTS
+        ):
+            raise ValueError(
+                "AUTHOR_HASH_SALT must be set to a unique secret when ENVIRONMENT is not 'local'."
+            )
+        return self
 
     @property
     def project_root(self) -> Path:

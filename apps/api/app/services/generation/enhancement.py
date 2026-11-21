@@ -51,7 +51,7 @@ def bounded_provider_json(
 
 def configured_provider() -> str:
     provider = settings.llm_provider.strip().lower()
-    if provider in {"openai", "ollama"}:
+    if provider in {"openai", "lmstudio", "ollama"}:
         return provider
     return "none"
 
@@ -87,9 +87,13 @@ def enhance_prompt(prompt: str) -> tuple[str, str, str]:
     provider = configured_provider()
     if provider == "openai":
         return enhance_prompt_with_openai(prompt)
+    if provider == "lmstudio":
+        return enhance_prompt_with_lm_studio(prompt)
     if provider == "ollama":
         return enhance_prompt_with_ollama(prompt)
-    raise EnhancementUnavailable("Set LLM_PROVIDER=openai or LLM_PROVIDER=ollama first.")
+    raise EnhancementUnavailable(
+        "Set LLM_PROVIDER=openai, LLM_PROVIDER=lmstudio, or LLM_PROVIDER=ollama first."
+    )
 
 
 def enhance_prompt_with_openai(prompt: str) -> tuple[str, str, str]:
@@ -113,6 +117,36 @@ def enhance_prompt_with_openai(prompt: str) -> tuple[str, str, str]:
     if not enhanced:
         raise EnhancementUnavailable("OpenAI returned no text output.")
     return "openai", settings.llm_model, enhanced
+
+
+def enhance_prompt_with_lm_studio(prompt: str) -> tuple[str, str, str]:
+    model = settings.llm_model.strip()
+    if not model:
+        raise EnhancementUnavailable(
+            "LLM_MODEL must match the exact model identifier loaded in LM Studio."
+        )
+
+    payload = bounded_provider_json(
+        f"{settings.lm_studio_base_url.rstrip('/')}/chat/completions",
+        payload={
+            "model": model,
+            "messages": [
+                {"role": "system", "content": enhancement_instruction()},
+                {"role": "user", "content": prompt},
+            ],
+            "stream": False,
+        },
+        timeout=120,
+    )
+    choices = payload.get("choices", [])
+    enhanced = ""
+    if isinstance(choices, list) and choices and isinstance(choices[0], dict):
+        message = choices[0].get("message", {})
+        if isinstance(message, dict):
+            enhanced = str(message.get("content", "")).strip()
+    if not enhanced:
+        raise EnhancementUnavailable("LM Studio returned no text output.")
+    return "lmstudio", model, enhanced
 
 
 def enhance_prompt_with_ollama(prompt: str) -> tuple[str, str, str]:

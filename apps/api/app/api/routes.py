@@ -274,6 +274,16 @@ INTEGRATION_CATALOG = [
         "next_step": "Set LLM_PROVIDER=openai, OPENAI_API_KEY, and OPERATOR_SCAN_TOKEN before API-backed enhancement.",
     },
     {
+        "id": "lmstudio",
+        "name": "LM Studio",
+        "kind": "runtime",
+        "required_env": [],
+        "optional_env": ["LM_STUDIO_BASE_URL", "LLM_MODEL", "LLM_PROVIDER"],
+        "rate_limit_note": "Local runtime availability depends on the LM Studio server and loaded model.",
+        "privacy_note": "Keeps model calls local through LM Studio's OpenAI-compatible API.",
+        "next_step": "Load a model in LM Studio, start its server, and set LLM_PROVIDER=lmstudio, LLM_MODEL, and OPERATOR_SCAN_TOKEN before prompt enhancement.",
+    },
+    {
         "id": "ollama",
         "name": "Ollama",
         "kind": "runtime",
@@ -421,6 +431,8 @@ def optional_credential_configured(source_type: str) -> bool:
         return bool(settings.stack_exchange_key)
     if source_type == "openai_api":
         return bool(settings.openai_api_key)
+    if source_type == "lmstudio":
+        return settings.llm_provider == "lmstudio" and bool(settings.llm_model.strip())
     if source_type == "ollama":
         return settings.llm_provider == "ollama"
     return False
@@ -449,9 +461,10 @@ def integration_status(entry: dict, db: Session) -> IntegrationOut:
         )
         status_value = "ready" if ready else "terms_required"
         credential_state = "not_required"
-    elif integration_id == "ollama":
-        status_value = "ready" if settings.llm_provider == "ollama" else "available"
-        credential_state = "configured" if settings.llm_provider == "ollama" else "not_required"
+    elif integration_id in {"lmstudio", "ollama"}:
+        configured = optional_credential_configured(integration_id)
+        status_value = "ready" if configured else "available"
+        credential_state = "configured" if configured else "not_required"
     elif required_env and not has_required_credentials(source_type):
         status_value = "missing_credentials"
         credential_state = "missing"
@@ -467,6 +480,7 @@ def integration_status(entry: dict, db: Session) -> IntegrationOut:
 
     operator_required = source_type in OPERATOR_SCAN_SOURCES or integration_id in {
         "openai_api",
+        "lmstudio",
         "ollama",
     }
     return IntegrationOut(
