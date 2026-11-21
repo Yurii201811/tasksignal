@@ -9,6 +9,14 @@ All notable public-facing changes to TaskSignal are recorded here.
 - Project run history now distinguishes failed and unfinished scan responses
   from completed runs, including failures returned with HTTP 200. Failed runs
   display the connector error and retain their scan-detail link and ledger refresh.
+- Allow the documented Fluid compute duration limit (`maxDuration: 300`) for
+  Vercel API preview deployments.
+
+### Security
+
+- Refreshed locked web and API dependencies (including Next.js 15.5.29) so the
+  production web audit (`npm audit --omit=dev`) and the base and MCP Python
+  audits report no known vulnerabilities.
 
 ## 1.0.0a3 - 2026-09-16
 

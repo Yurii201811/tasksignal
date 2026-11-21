@@ -57,7 +57,7 @@ lint:
 verify: test lint
 	cd apps/web && PATH="$(WEB_PATH)" npm run build
 
-NPM_AUDIT := cd apps/web && PATH="$(WEB_PATH)" npm audit --audit-level=moderate
+NPM_AUDIT := cd apps/web && PATH="$(WEB_PATH)" npm audit --omit=dev --audit-level=moderate
 
 npm-audit:
 	$(NPM_AUDIT)

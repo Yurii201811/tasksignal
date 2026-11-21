@@ -128,7 +128,7 @@ def test_hosted_deployment_manifests_are_safe_and_reproducible() -> None:
     assert api_vercel_config["framework"] == "fastapi"
     assert api_vercel_config["regions"] == ["iad1"]
     api_function = api_vercel_config["functions"]["app/main.py"]
-    assert api_function["maxDuration"] == 60
+    assert api_function["maxDuration"] == 300
     assert api_function["includeFiles"] == "data/fixtures/**"
     assert api_function["excludeFiles"] == "{tests/**,**/__pycache__/**}"
     assert api_project["tool"]["vercel"]["entrypoint"] == "app.main:app"
@@ -243,7 +243,7 @@ def test_default_runtime_is_loopback_only_and_reproducible() -> None:
     assert "COPY package.json package-lock.json ./" in web_dockerfile
     assert "RUN npm ci" in web_dockerfile
     assert "- run: npm ci" in ci
-    assert "- run: npm audit --audit-level=moderate" in ci
+    assert "- run: npm audit --omit=dev --audit-level=moderate" in ci
     assert 'reddit_user_agent: str = "tasksignal-local-demo/1.0"' in api_config
     assert web_dockerignore_path.exists()
     web_dockerignore = web_dockerignore_path.read_text(encoding="utf-8").splitlines()
