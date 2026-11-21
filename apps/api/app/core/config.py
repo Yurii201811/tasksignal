@@ -70,8 +70,26 @@ class Settings(BaseSettings):
     require_operator_token_for_writes: bool = False
     public_scan_sources: str = "fixture,hackernews"
     cors_allowed_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
+    rate_limit_requests_per_minute: int | None = None
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+    @field_validator("rate_limit_requests_per_minute")
+    @classmethod
+    def validate_rate_limit(cls, value: int | None) -> int | None:
+        if value is not None and value < 0:
+            raise ValueError("RATE_LIMIT_REQUESTS_PER_MINUTE must be >= 0.")
+        return value
+
+    @property
+    def is_local_environment(self) -> bool:
+        return self.environment.strip().lower() == "local"
+
+    @property
+    def effective_rate_limit_per_minute(self) -> int:
+        if self.rate_limit_requests_per_minute is not None:
+            return self.rate_limit_requests_per_minute
+        return 0 if self.is_local_environment else 60
 
     @field_validator("database_url", mode="before")
     @classmethod

@@ -4,6 +4,21 @@ All notable public-facing changes to TaskSignal are recorded here.
 
 ## Unreleased
 
+## 1.0.0a5 - 2026-11-21
+
+### Security
+
+- Tightened `CORSMiddleware` to explicit HTTP methods (`GET`, `POST`, `PUT`,
+  `PATCH`, `DELETE`, `OPTIONS`) and explicit request headers (`Content-Type`,
+  `X-Operator-Scan-Token`, `Authorization`, `Accept`) instead of wildcards.
+- Added configurable sliding-window rate limiting (`RATE_LIMIT_REQUESTS_PER_MINUTE`,
+  defaulting to `60/min` outside `ENVIRONMENT=local`) on high-load endpoints
+  (`POST /api/scans`, `POST /api/process/demo`, `POST /api/search/semantic`).
+- Redacted internal runtime configuration (`llm_provider`, `embedding_model`)
+  from unauthenticated `/health` responses outside `ENVIRONMENT=local`.
+- Added strict SQL identifier validation before executing hardcoded SQLite
+  compatibility `ALTER TABLE` / `CREATE INDEX` statements.
+
 ## 1.0.0a4 - 2026-11-21
 
 ### Added

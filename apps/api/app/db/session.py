@@ -1,9 +1,18 @@
+import re
 from collections.abc import Generator
 
 from sqlalchemy import Engine, create_engine, event, inspect, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import settings
+
+_SQLITE_IDENT_RE = re.compile(r"^[a-z_][a-z0-9_]*$")
+
+
+def _validate_sqlite_identifier(name: str, kind: str) -> str:
+    if not _SQLITE_IDENT_RE.fullmatch(name):
+        raise ValueError(f"Unsafe SQLite {kind} identifier: {name!r}")
+    return name
 
 connect_args = (
     {"check_same_thread": False, "timeout": 30}
@@ -24,6 +33,8 @@ if engine.dialect.name == "sqlite":
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
 
+# Security invariant: SQLITE_COMPAT_COLUMNS and SQLITE_COMPAT_INDEXES are strictly
+# hardcoded static migration definitions and must never be populated from external input.
 SQLITE_COMPAT_COLUMNS = {
     "scan_jobs": [
         ("signals_detected", "INTEGER NOT NULL DEFAULT 0"),
@@ -62,24 +73,29 @@ def ensure_sqlite_schema_compatibility(target_engine: Engine = engine) -> None:
         for table_name, columns in SQLITE_COMPAT_COLUMNS.items():
             if table_name not in tables:
                 continue
-            existing_columns = {column["name"] for column in inspector.get_columns(table_name)}
+            safe_table = _validate_sqlite_identifier(table_name, "table")
+            existing_columns = {column["name"] for column in inspector.get_columns(safe_table)}
             for column_name, column_sql in columns:
                 if column_name in existing_columns:
                     continue
+                safe_column = _validate_sqlite_identifier(column_name, "column")
                 connection.execute(
-                    text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_sql}")
+                    text(f"ALTER TABLE {safe_table} ADD COLUMN {safe_column} {column_sql}")
                 )
         for table_name, indexes in SQLITE_COMPAT_INDEXES.items():
             if table_name not in tables:
                 continue
+            safe_table = _validate_sqlite_identifier(table_name, "table")
             existing_indexes = {
-                index["name"] for index in inspect(target_engine).get_indexes(table_name)
+                index["name"] for index in inspect(target_engine).get_indexes(safe_table)
             }
             for index_name, column_name in indexes:
                 if index_name in existing_indexes:
                     continue
+                safe_index = _validate_sqlite_identifier(index_name, "index")
+                safe_column = _validate_sqlite_identifier(column_name, "column")
                 connection.execute(
-                    text(f"CREATE INDEX IF NOT EXISTS {index_name} ON {table_name} ({column_name})")
+                    text(f"CREATE INDEX IF NOT EXISTS {safe_index} ON {safe_table} ({safe_column})")
                 )
 
 
