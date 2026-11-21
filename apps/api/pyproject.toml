@@ -1,6 +1,6 @@
 [project]
 name = "tasksignal"
-version = "1.0.0a4"
+version = "1.0.0a5"
 description = "FastAPI backend for TaskSignal, an AI-assisted problem discovery engine."
 readme = "README.md"
 requires-python = ">=3.11,<3.15"
